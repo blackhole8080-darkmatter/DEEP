@@ -6,25 +6,15 @@
 import { LitElement, html, css } from "lit";
 import { customElement, state } from "lit/decorators.js";
 import { SignalWatcher } from "@lit-labs/signals";
-import {
-  initStore,
-  connection,
-  messages,
-  thinking,
-  sendChat,
-  activeModel,
-  lastTelemetry,
-} from "../core/store";
+import { initStore, connection, activeModel } from "../core/store";
 import { fetchStatus } from "../core/api";
 import "./gallery";
-import "./primitives/ds-field";
-import "./primitives/ds-button";
+import "./chat/deep-chat";
 
 @customElement("deep-app")
 export class DeepApp extends SignalWatcher(LitElement) {
   @state() private route = location.hash.slice(1) || "home";
   @state() private status = "—";
-  @state() private draft = "";
 
   private onHash = () => { this.route = location.hash.slice(1) || "home"; };
 
@@ -38,13 +28,6 @@ export class DeepApp extends SignalWatcher(LitElement) {
   disconnectedCallback(): void {
     super.disconnectedCallback();
     window.removeEventListener("hashchange", this.onHash);
-  }
-
-  private submit(): void {
-    sendChat(this.draft);
-    this.draft = "";
-    const field = this.renderRoot.querySelector("ds-field");
-    if (field) (field as HTMLElement & { value: string }).value = "";
   }
 
   static styles = css`
@@ -105,29 +88,7 @@ export class DeepApp extends SignalWatcher(LitElement) {
       <main>
         ${this.route === "gallery"
           ? html`<ds-gallery></ds-gallery>`
-          : html`
-              <div class="probe">
-                <div class="msgs">
-                  ${messages.get().map(
-                    (m) => html`
-                      <div class="msg ${m.role} ${m.streaming ? "streaming" : ""}">
-                        ${m.text}
-                      </div>
-                    `,
-                  )}
-                  ${thinking.get() ? html`<div class="msg ai">…</div>` : ""}
-                </div>
-                <div class="row">
-                  <ds-field
-                    placeholder="Message DEEP…"
-                    @ds-input=${(e: CustomEvent<string>) => (this.draft = e.detail)}
-                    @ds-submit=${() => this.submit()}
-                  ></ds-field>
-                  <ds-button variant="primary" @click=${() => this.submit()}>Send</ds-button>
-                </div>
-                <span class="hint">ws: ${conn} · last event: ${lastTelemetry.get() || "—"}</span>
-              </div>
-            `}
+          : html`<deep-chat></deep-chat>`}
       </main>
     `;
   }

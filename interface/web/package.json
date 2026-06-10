@@ -10,8 +10,10 @@
     "preview": "vite preview"
   },
   "dependencies": {
+    "@lit-labs/signals": "^0.1.2",
+    "dompurify": "^3.4.9",
     "lit": "^3.2.0",
-    "@lit-labs/signals": "^0.1.2"
+    "marked": "^18.0.5"
   },
   "devDependencies": {
     "typescript": "^5.6.0",
