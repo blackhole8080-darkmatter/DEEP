@@ -4,6 +4,7 @@
 import { LitElement, html, css } from "lit";
 import { customElement, state } from "lit/decorators.js";
 import { socket, type DeepMessage } from "../core/ws";
+import "./gallery";
 
 @customElement("deep-app")
 export class DeepApp extends LitElement {
@@ -11,20 +12,24 @@ export class DeepApp extends LitElement {
   @state() private status = "—";
   @state() private model = "—";
   @state() private lastEvent = "";
+  @state() private route = location.hash.slice(1) || "home";
 
   private off?: () => void;
+  private onHash = () => { this.route = location.hash.slice(1) || "home"; };
 
   connectedCallback(): void {
     super.connectedCallback();
     this.off = socket.on((m) => this.onMessage(m));
     socket.connect();
     void this.fetchStatus();
+    window.addEventListener("hashchange", this.onHash);
   }
 
   disconnectedCallback(): void {
     super.disconnectedCallback();
     this.off?.();
     socket.close();
+    window.removeEventListener("hashchange", this.onHash);
   }
 
   private onMessage(m: DeepMessage): void {
@@ -96,14 +101,18 @@ export class DeepApp extends LitElement {
         <span class="spacer"></span>
         <span class="meta">${this.status} · ${this.model}</span>
       </header>
-      <main>
-        <div class="card">
-          <h1>Modern shell online</h1>
-          <p>This is the new Vite + Lit frontend (Phase 0).</p>
-          <p>WebSocket: <code>${this.conn}</code></p>
-          <p>Last live event: <code>${this.lastEvent || "(none yet)"}</code></p>
-          <p>The legacy UI at <code>/ai</code> is untouched and still primary.</p>
-        </div>
+      <main style=${this.route === "gallery" ? "display:block;place-items:unset;overflow:auto" : ""}>
+        ${this.route === "gallery"
+          ? html`<ds-gallery></ds-gallery>`
+          : html`
+              <div class="card">
+                <h1>Modern shell online</h1>
+                <p>This is the new Vite + Lit frontend (Phase 1).</p>
+                <p>WebSocket: <code>${this.conn}</code></p>
+                <p>Last live event: <code>${this.lastEvent || "(none yet)"}</code></p>
+                <p>Design system: <a href="#gallery" style="color:var(--ds-accent)">open the gallery</a></p>
+              </div>
+            `}
       </main>
     `;
   }
