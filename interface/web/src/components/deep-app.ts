@@ -12,6 +12,8 @@ import "../core/commands";
 import "./gallery";
 import "./chat/deep-chat";
 import "./science/science-view";
+import "./ops/ops-view";
+import "./ops/agents-view";
 import "./command-palette";
 import type { CommandPalette } from "./command-palette";
 
@@ -101,7 +103,8 @@ export class DeepApp extends SignalWatcher(LitElement) {
         <nav>
           <a href="#home">chat</a>
           <a href="#science">science</a>
-          <a href="#gallery">gallery</a>
+          <a href="#ops">ops</a>
+          <a href="#agents">agents</a>
         </nav>
         <span class="meta">${this.status} · ${activeModel.get()}</span>
         <span class="meta kbd" title="Command palette">⌘K</span>
@@ -111,7 +114,11 @@ export class DeepApp extends SignalWatcher(LitElement) {
           ? html`<ds-gallery></ds-gallery>`
           : this.route === "science"
             ? html`<science-view></science-view>`
-            : html`<deep-chat></deep-chat>`}
+            : this.route === "ops"
+              ? html`<ops-view></ops-view>`
+              : this.route === "agents"
+                ? html`<agents-view></agents-view>`
+                : html`<deep-chat></deep-chat>`}
       </main>
       <command-palette></command-palette>
     `;

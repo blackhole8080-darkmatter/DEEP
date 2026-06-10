@@ -49,6 +49,8 @@ const go = (hash: string) => () => { location.hash = hash; };
 registerCommand({ id: "nav.chat", label: "Go to Chat", hint: "nav", run: go("home") });
 registerCommand({ id: "nav.gallery", label: "Open Design Gallery", hint: "nav", run: go("gallery") });
 registerCommand({ id: "nav.science", label: "Open Science (Periodic Table & Physics)", hint: "nav", run: go("science") });
+registerCommand({ id: "nav.ops", label: "Open Ops (Providers · Security · Knowledge)", hint: "nav", run: go("ops") });
+registerCommand({ id: "nav.agents", label: "Open Agents Board", hint: "nav", run: go("agents") });
 registerCommand({ id: "nav.legacy", label: "Open Legacy UI (/ai)", hint: "nav", run: () => { location.href = "/ai"; } });
 
 registerCommand({
