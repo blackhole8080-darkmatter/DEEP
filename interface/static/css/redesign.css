@@ -1,0 +1,252 @@
+/* ═══════════════════════════════════════════════════════════════════════════
+   DEEP — Calm / Modern / Minimal redesign (2026)
+   Loaded LAST. Restructures the shell into sidebar + content + composer,
+   strips the sci-fi HUD gimmickry, and re-skins to a premium SaaS feel.
+   Functional element IDs/classes are preserved so app.js keeps working.
+   ═══════════════════════════════════════════════════════════════════════════ */
+
+:root {
+  --sidebar-w: 248px;
+  --header-h: 56px;
+  --content-max: 760px;
+}
+
+html, body { background: var(--color-bg-primary); letter-spacing: 0.1px; }
+
+/* ── Kill the HUD / sci-fi noise ──────────────────────────────────────────── */
+#hud-frame,
+#lens-flare,
+#view-flash,
+.orb-evolution-flash,
+.hud-sweep,
+.hud-corner,
+.hud-edge-label { display: none !important; }
+
+/* AI message corner brackets + scanning shimmer → gone */
+.message.ai::before,
+.message.ai::after { display: none !important; }
+
+/* Background neural-graph canvas: only visible in the dedicated Neural view */
+#deep-graph-canvas { display: none !important; }
+body[data-view="neural"] #deep-graph-canvas { display: block !important; opacity: 1 !important; }
+
+/* Calmer boot splash (still auto-fades) */
+#boot-overlay { background: var(--color-bg-primary) !important; gap: 14px !important; }
+.boot-logo {
+  font-family: var(--font-display) !important;
+  font-weight: 700 !important; font-size: 30px !important; letter-spacing: 6px !important;
+  background: none !important; -webkit-text-fill-color: var(--color-text-primary) !important;
+  color: var(--color-text-primary) !important; filter: none !important;
+}
+.boot-tagline { color: var(--color-text-muted) !important; }
+.boot-bar { background: var(--color-accent-cyan) !important; box-shadow: none !important; }
+.boot-bar-wrap { background: var(--border-subtle) !important; }
+
+/* ── Left sidebar (was the cramped 64px icon rail) ───────────────────────── */
+.nav-rail {
+  width: var(--sidebar-w) !important;
+  align-items: stretch !important;
+  padding: 18px 12px !important;
+  gap: 3px !important;
+  background: var(--surface-1) !important;
+  border-right: 1px solid var(--border-subtle) !important;
+  backdrop-filter: none !important;
+}
+.nav-mark {
+  display: flex !important; align-items: center; gap: 10px;
+  font-family: var(--font-display) !important;
+  font-size: 17px !important; font-weight: 600;
+  color: var(--color-text-primary) !important;
+  filter: none !important;
+  padding: 4px 10px 16px; margin: 0 !important;
+}
+.nav-mark::after {
+  content: 'Deep';
+  font-size: 16px; font-weight: 600; letter-spacing: 0.2px;
+  color: var(--color-text-primary);
+}
+.nav-mark { color: var(--color-accent-cyan) !important; }
+
+.nav-btn {
+  width: 100% !important;
+  flex-direction: row !important;
+  justify-content: flex-start !important;
+  align-items: center !important;
+  gap: 11px !important;
+  padding: 9px 12px !important;
+  border-radius: 9px !important;
+  color: var(--color-text-secondary) !important;
+}
+.nav-btn svg { width: 17px; height: 17px; flex: none; }
+.nav-btn span {
+  font: 500 13.5px var(--font-display) !important;
+  letter-spacing: 0.1px !important; text-transform: none !important;
+}
+.nav-btn:hover { background: var(--surface-2) !important; color: var(--color-text-primary) !important; }
+.nav-btn.active {
+  background: rgba(var(--color-accent-cyan-rgb), 0.14) !important;
+  color: var(--color-accent-cyan) !important;
+  box-shadow: none !important;
+}
+
+/* ── Top header (was the floating centered status pill) ──────────────────── */
+.status-bar {
+  left: var(--sidebar-w) !important; right: 0 !important; top: 0 !important;
+  transform: none !important; width: auto !important;
+  height: var(--header-h) !important;
+  border: none !important; border-bottom: 1px solid var(--border-subtle) !important;
+  border-radius: 0 !important;
+  background: var(--color-bg-glass) !important;
+  backdrop-filter: blur(14px) saturate(1.1) !important;
+  box-shadow: none !important;
+  padding: 0 22px !important;
+}
+.sb-logo { display: none; }            /* wordmark already lives in the sidebar */
+.sb-status, .sb-model { color: var(--color-text-secondary); font-size: 12px; }
+.sb-icon-btn { color: var(--color-text-secondary); }
+.sb-icon-btn:hover { color: var(--color-text-primary); }
+
+/* ── Main conversation column ────────────────────────────────────────────── */
+.chat-overlay {
+  left: var(--sidebar-w) !important; right: 0 !important;
+  top: var(--header-h) !important; bottom: 104px !important;
+  transform: none !important; width: auto !important;
+  display: flex !important; justify-content: center !important;
+  overflow-y: auto !important; padding: 28px 24px !important;
+  pointer-events: auto !important;
+}
+.chat-messages {
+  max-height: none !important; width: 100% !important;
+  max-width: var(--content-max) !important;
+  gap: 22px !important; padding: 0 !important;
+}
+
+/* Messages: user = soft bubble (right), AI = clean text block (left) */
+.message {
+  max-width: 100% !important;
+  border-radius: 14px !important;
+  padding: 2px 0 !important;
+  font-size: 14.5px !important; line-height: 1.72 !important;
+}
+.message.user {
+  align-self: flex-end !important;
+  max-width: 76% !important;
+  background: var(--surface-2) !important;
+  border: 1px solid var(--border-subtle) !important;
+  color: var(--color-text-primary) !important;
+  border-radius: 14px !important; border-bottom-right-radius: 5px !important;
+  padding: 11px 15px !important;
+}
+.message.ai {
+  align-self: stretch !important;
+  background: transparent !important;
+  border: none !important; backdrop-filter: none !important;
+  color: var(--color-text-primary) !important;
+  padding: 0 !important;
+}
+.message-header {
+  font-size: 11px !important; font-weight: 600 !important;
+  letter-spacing: 0.4px !important; text-transform: uppercase !important;
+  margin-bottom: 6px !important; opacity: 0.85;
+}
+.message.user .message-header { color: var(--color-accent-indigo) !important; }
+.message.ai   .message-header { color: var(--color-accent-cyan) !important; }
+
+/* ── Composer (was the floating centered command bar) ────────────────────── */
+.command-bar {
+  left: var(--sidebar-w) !important; right: 0 !important; bottom: 0 !important;
+  width: auto !important; transform: none !important;
+  padding: 14px 24px 18px !important;
+  background: linear-gradient(to top, var(--color-bg-primary) 55%, transparent) !important;
+}
+.cmd-inner {
+  max-width: var(--content-max) !important; margin: 0 auto !important;
+  background: var(--surface-2) !important;
+  border: 1px solid var(--border-strong) !important;
+  border-radius: 16px !important;
+  box-shadow: 0 6px 28px rgba(0,0,0,0.35) !important;
+  padding: 8px 8px 8px 14px !important;
+}
+.cmd-inner:focus-within {
+  border-color: rgba(var(--color-accent-cyan-rgb), 0.6) !important;
+  box-shadow: 0 6px 28px rgba(0,0,0,0.35), 0 0 0 3px rgba(var(--color-accent-cyan-rgb),0.12) !important;
+}
+.cmd-input { font-family: var(--font-display) !important; font-size: 14.5px !important; }
+.cmd-prompt { display: none !important; }
+.cmd-send {
+  background: var(--color-accent-cyan) !important; color: #0e0f13 !important;
+  border-radius: 11px !important;
+}
+.cmd-send:hover { filter: brightness(1.08); }
+.cmd-hints {
+  max-width: var(--content-max) !important; margin: 8px auto 0 !important;
+  color: var(--color-text-muted) !important; font-size: 11px;
+}
+
+/* ── Welcome screen ──────────────────────────────────────────────────────── */
+#welcome-screen {
+  left: var(--sidebar-w) !important; right: 0 !important;
+  width: auto !important; transform: none !important;
+}
+.welcome-sub { color: var(--color-text-primary) !important; letter-spacing: 0.5px !important; }
+.welcome-hint { color: var(--color-text-muted) !important; }
+.chip {
+  background: var(--surface-2) !important;
+  border: 1px solid var(--border-subtle) !important;
+  color: var(--color-text-secondary) !important;
+  border-radius: 10px !important;
+}
+.chip:hover {
+  background: var(--surface-3) !important; color: var(--color-text-primary) !important;
+  border-color: var(--border-strong) !important;
+}
+
+/* ── Right drawer (intelligence panel) ───────────────────────────────────── */
+.side-panel {
+  background: var(--surface-1) !important;
+  border-left: 1px solid var(--border-subtle) !important;
+  backdrop-filter: none !important;
+}
+.sp-card {
+  background: var(--surface-2) !important;
+  border: 1px solid var(--border-subtle) !important;
+  border-radius: 12px !important;
+}
+.sp-card-title { color: var(--color-text-secondary) !important; }
+.sp-action, .sp-pill {
+  background: var(--surface-3) !important;
+  border: 1px solid var(--border-subtle) !important;
+  color: var(--color-text-secondary) !important;
+  border-radius: 8px !important;
+}
+.sp-action:hover { color: var(--color-text-primary) !important; }
+
+/* ── Predictive banner: tone down the glow ───────────────────────────────── */
+.predictive-banner {
+  left: var(--sidebar-w) !important;
+  background: var(--surface-2) !important;
+  border: 1px solid var(--border-subtle) !important;
+  box-shadow: none !important;
+}
+.predictive-icon { filter: none !important; color: var(--color-accent-cyan) !important; }
+
+/* ── Code stays monospace even though UI is now sans ─────────────────────── */
+.message-content code,
+.message-content pre,
+.message-content pre code,
+.code-lang, .copy-code-btn { font-family: var(--font-code) !important; }
+.message-content pre {
+  background: var(--surface-1) !important;
+  border: 1px solid var(--border-subtle) !important;
+  border-radius: 10px !important;
+}
+.message-content code { background: var(--surface-2) !important; }
+
+/* ── Responsive: collapse sidebar to an icon rail on small screens ───────── */
+@media (max-width: 720px) {
+  :root { --sidebar-w: 60px; }
+  .nav-btn span, .nav-mark::after { display: none !important; }
+  .nav-btn { justify-content: center !important; }
+  .nav-mark { justify-content: center; padding: 4px 0 16px; }
+  .message.user { max-width: 88% !important; }
+}

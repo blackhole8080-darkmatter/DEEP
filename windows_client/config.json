@@ -1,0 +1,15 @@
+{
+  "deep_ws_url": "ws://localhost:7768/ws/deep",
+  "deep_hud_url": "http://localhost:7768",
+  "deep_api_url": "http://localhost:7768",
+  "stats_interval_ms": 2000,
+  "reconnect_interval_ms": 5000,
+  "app_paths": {
+    "chrome": "C:/Program Files/Google/Chrome/Application/chrome.exe",
+    "vscode": "C:/Users/%USER%/AppData/Local/Programs/Microsoft VS Code/Code.exe",
+    "spotify": "C:/Users/%USER%/AppData/Roaming/Spotify/Spotify.exe",
+    "terminal": "wt.exe"
+  },
+  "device_id": "",
+  "device_name": ""
+}

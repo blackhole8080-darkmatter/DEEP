@@ -1,0 +1,342 @@
+/* ============================================================================
+ * DEEP — TOKEN-DRIVEN COMPONENTS
+ * ----------------------------------------------------------------------------
+ * Modern component styles built ENTIRELY on the --ds-* design tokens
+ * (tokens.css). Loaded after the legacy sheets so it wins the cascade — this
+ * is the migration path: as components move here, the old hardcoded rules in
+ * app-layout.css / deep-*.css are superseded without being deleted yet.
+ *
+ * Phase 2: streaming + inline tool-call card.
+ * ========================================================================== */
+
+/* ── Inline tool-call card ─────────────────────────────────────────────────
+ * Was hardcoded neon gold; now glassmorphic, periwinkle-accented, with a
+ * spring entrance and a mint "done" state. Re-themes automatically with tokens.
+ */
+.tool-call-card {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--ds-space-3);
+  padding: var(--ds-space-3) var(--ds-space-4);
+  margin: var(--ds-space-2) 0;
+  background: var(--ds-glass);
+  -webkit-backdrop-filter: blur(var(--ds-blur-md));
+  backdrop-filter: blur(var(--ds-blur-md));
+  border: 1px solid var(--ds-border);
+  border-left: 2px solid var(--ds-accent);
+  border-radius: var(--ds-radius-md);
+  box-shadow: var(--ds-elev-2), inset 0 1px 0 rgba(255,255,255,0.04);
+  align-self: flex-start;
+  max-width: 82%;
+  animation: dsCardIn var(--ds-dur-base) var(--ds-ease-spring);
+  transition: border-color var(--ds-dur-base) var(--ds-ease-out),
+              box-shadow var(--ds-dur-base) var(--ds-ease-out);
+}
+
+.tool-call-icon {
+  font-size: var(--ds-text-base);
+  margin-top: 1px;
+  flex-shrink: 0;
+  color: var(--ds-accent);
+  filter: drop-shadow(0 0 6px rgba(var(--ds-periwinkle-rgb), 0.5));
+}
+
+.tool-call-body { flex: 1; min-width: 0; }
+
+.tool-call-label {
+  font-size: var(--ds-text-xs);
+  font-size: 0.6rem;
+  letter-spacing: var(--ds-tracking-wide);
+  text-transform: uppercase;
+  color: var(--ds-accent);
+  opacity: 0.7;
+  margin-bottom: var(--ds-space-1);
+}
+
+.tool-call-name {
+  font-size: var(--ds-text-sm);
+  font-family: var(--ds-font-mono);
+  color: var(--ds-text);
+  font-weight: 600;
+}
+
+.tool-call-args {
+  font-size: var(--ds-text-xs);
+  color: var(--ds-text-muted);
+  margin-top: var(--ds-space-1);
+  font-family: var(--ds-font-mono);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.tool-call-spinner {
+  width: 11px; height: 11px;
+  border: 1.5px solid rgba(var(--ds-periwinkle-rgb), 0.25);
+  border-top-color: var(--ds-accent);
+  border-radius: var(--ds-radius-pill);
+  animation: dsSpin 0.7s linear infinite;
+  flex-shrink: 0;
+  margin-top: 3px;
+}
+
+/* Completed state → mint, glow settles, spinner becomes a check dot. */
+.tool-call-card.done {
+  border-left-color: var(--ds-success);
+  box-shadow: var(--ds-elev-1);
+}
+.tool-call-card.done .tool-call-icon { color: var(--ds-success); filter: none; }
+.tool-call-card.done .tool-call-label { color: var(--ds-success); }
+.tool-call-card.done .tool-call-spinner {
+  animation: none;
+  border-color: var(--ds-success);
+  background: rgba(86, 197, 150, 0.2);
+  position: relative;
+}
+.tool-call-card.done .tool-call-spinner::after {
+  content: "";
+  position: absolute;
+  inset: 2px 3px;
+  border-right: 1.5px solid var(--ds-success);
+  border-bottom: 1.5px solid var(--ds-success);
+  transform: rotate(45deg) translate(-0.5px, -1px);
+}
+
+/* ── Streaming caret on the live message ──────────────────────────────────
+ * Adds a subtle blinking caret only while a message is still streaming.
+ */
+.message.streaming .token-content::after {
+  content: "▋";
+  display: inline-block;
+  margin-left: 1px;
+  color: var(--ds-accent);
+  opacity: 0.8;
+  animation: dsCaret 1s steps(1) infinite;
+}
+
+/* ── Keyframes ─────────────────────────────────────────────────────────── */
+/* ── Vision attach (Phase 3b): button, staged-image chip, in-chat image ──── */
+.vision-attach-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 30px; height: 30px;
+  flex-shrink: 0;
+  margin-right: var(--ds-space-1);
+  border: none;
+  border-radius: var(--ds-radius-sm);
+  background: transparent;
+  color: var(--ds-text-muted);
+  cursor: pointer;
+  transition: color var(--ds-dur-fast) var(--ds-ease-out),
+              background var(--ds-dur-fast) var(--ds-ease-out),
+              transform var(--ds-dur-fast) var(--ds-ease-spring);
+}
+.vision-attach-btn:hover {
+  color: var(--ds-accent);
+  background: rgba(var(--ds-periwinkle-rgb), 0.10);
+  transform: translateY(-1px);
+}
+
+#inputWrap.vision-dragover {
+  outline: 1.5px dashed var(--ds-accent);
+  outline-offset: 2px;
+  background: rgba(var(--ds-periwinkle-rgb), 0.06);
+}
+
+.vision-chip {
+  display: flex;
+  align-items: center;
+  gap: var(--ds-space-3);
+  margin: 0 0 var(--ds-space-2);
+  padding: var(--ds-space-2) var(--ds-space-3);
+  background: var(--ds-glass);
+  -webkit-backdrop-filter: blur(var(--ds-blur-md));
+  backdrop-filter: blur(var(--ds-blur-md));
+  border: 1px solid var(--ds-border);
+  border-left: 2px solid var(--ds-accent);
+  border-radius: var(--ds-radius-md);
+  box-shadow: var(--ds-elev-1);
+  animation: dsCardIn var(--ds-dur-base) var(--ds-ease-spring);
+  width: fit-content;
+  max-width: 100%;
+}
+.vision-chip-thumb {
+  width: 34px; height: 34px;
+  object-fit: cover;
+  border-radius: var(--ds-radius-sm);
+  border: 1px solid var(--ds-border-strong);
+}
+.vision-chip-label {
+  font-size: var(--ds-text-sm);
+  color: var(--ds-text-soft);
+}
+.vision-chip-x {
+  margin-left: var(--ds-space-2);
+  border: none; background: transparent;
+  color: var(--ds-text-muted);
+  font-size: var(--ds-text-sm);
+  cursor: pointer;
+  transition: color var(--ds-dur-fast) var(--ds-ease-out);
+}
+.vision-chip-x:hover { color: var(--ds-danger); }
+
+.msg-image {
+  display: block;
+  max-width: min(320px, 100%);
+  max-height: 280px;
+  margin-bottom: var(--ds-space-2);
+  border-radius: var(--ds-radius-md);
+  border: 1px solid var(--ds-border);
+  box-shadow: var(--ds-elev-2);
+}
+
+/* ── Provider health panel + toast (new element) ──────────────────────────── */
+.ph-panel {
+  position: fixed;
+  top: 50%; left: 50%;
+  transform: translate(-50%, -50%);
+  z-index: var(--ds-z-modal);
+  width: min(440px, 92vw);
+  background: var(--ds-glass);
+  -webkit-backdrop-filter: blur(var(--ds-blur-lg));
+  backdrop-filter: blur(var(--ds-blur-lg));
+  border: 1px solid var(--ds-border-strong);
+  border-radius: var(--ds-radius-lg);
+  box-shadow: var(--ds-elev-4);
+  color: var(--ds-text);
+  font-family: var(--ds-font-sans);
+  animation: dsCardIn var(--ds-dur-base) var(--ds-ease-spring);
+  overflow: hidden;
+}
+.ph-head {
+  display: flex; align-items: center; justify-content: space-between;
+  padding: var(--ds-space-4);
+  font-size: var(--ds-text-lg);
+  font-weight: 600;
+  border-bottom: 1px solid var(--ds-border);
+}
+.ph-body { padding: var(--ds-space-2) var(--ds-space-4); }
+.ph-row {
+  display: flex; align-items: center; gap: var(--ds-space-3);
+  padding: var(--ds-space-2) 0;
+  border-bottom: 1px solid var(--ds-border);
+}
+.ph-row:last-child { border-bottom: none; }
+.ph-name {
+  font-family: var(--ds-font-mono);
+  font-size: var(--ds-text-sm);
+  text-transform: uppercase;
+  letter-spacing: var(--ds-tracking-wide);
+  min-width: 84px;
+}
+.ph-detail { font-size: var(--ds-text-sm); color: var(--ds-text-soft); }
+.ph-detail.bad { color: var(--ds-danger); }
+.ph-foot {
+  padding: var(--ds-space-3) var(--ds-space-4);
+  font-size: var(--ds-text-xs);
+  color: var(--ds-text-muted);
+  border-top: 1px solid var(--ds-border);
+}
+.ph-dot {
+  width: 9px; height: 9px; border-radius: var(--ds-radius-pill);
+  flex-shrink: 0;
+}
+.ph-dot.ok  { background: var(--ds-success); box-shadow: 0 0 8px var(--ds-success); }
+.ph-dot.bad { background: var(--ds-danger);  box-shadow: 0 0 8px var(--ds-danger); }
+.ph-x {
+  border: none; background: transparent; color: var(--ds-text-muted);
+  cursor: pointer; font-size: var(--ds-text-base);
+}
+.ph-x:hover { color: var(--ds-text); }
+.ph-toast {
+  position: fixed; bottom: var(--ds-space-6); right: var(--ds-space-6);
+  z-index: var(--ds-z-toast);
+  display: flex; align-items: center; gap: var(--ds-space-3);
+  max-width: 420px;
+  padding: var(--ds-space-3) var(--ds-space-4);
+  background: var(--ds-glass);
+  -webkit-backdrop-filter: blur(var(--ds-blur-md));
+  backdrop-filter: blur(var(--ds-blur-md));
+  border: 1px solid var(--ds-border-strong);
+  border-left: 2px solid var(--ds-danger);
+  border-radius: var(--ds-radius-md);
+  box-shadow: var(--ds-elev-3);
+  color: var(--ds-text);
+  font-size: var(--ds-text-sm);
+  animation: dsCardIn var(--ds-dur-base) var(--ds-ease-spring);
+}
+
+/* ── Periodic table (chemistry oracle UI) ─────────────────────────────────── */
+.pt-panel {
+  position: fixed; inset: 50% auto auto 50%;
+  transform: translate(-50%, -50%);
+  z-index: var(--ds-z-modal);
+  width: min(1100px, 96vw); max-height: 92vh; overflow: auto;
+  padding: var(--ds-space-4);
+  background: var(--ds-glass);
+  -webkit-backdrop-filter: blur(var(--ds-blur-lg)); backdrop-filter: blur(var(--ds-blur-lg));
+  border: 1px solid var(--ds-border-strong);
+  border-radius: var(--ds-radius-lg);
+  box-shadow: var(--ds-elev-4);
+  color: var(--ds-text);
+  animation: dsCardIn var(--ds-dur-base) var(--ds-ease-spring);
+}
+.pt-head {
+  display: flex; align-items: center; justify-content: space-between;
+  margin-bottom: var(--ds-space-4); font-weight: 600; font-size: var(--ds-text-lg);
+}
+.pt-head small { color: var(--ds-text-muted); font-weight: 400; }
+.pt-grid {
+  display: grid;
+  grid-template-columns: repeat(18, 1fr);
+  gap: 3px;
+}
+.pt-cell {
+  display: flex; flex-direction: column; align-items: flex-start; justify-content: space-between;
+  aspect-ratio: 1; min-width: 0; padding: 3px 4px;
+  border: 1px solid var(--ds-border);
+  border-radius: var(--ds-radius-xs);
+  background: var(--ds-surface-2);
+  color: var(--ds-text); cursor: pointer; overflow: hidden;
+  transition: transform var(--ds-dur-fast) var(--ds-ease-spring), box-shadow var(--ds-dur-fast) var(--ds-ease-out);
+}
+.pt-cell:hover { transform: scale(1.12); box-shadow: var(--ds-elev-3); z-index: 2; }
+.pt-z   { font-size: 0.55rem; opacity: 0.7; }
+.pt-sym { font-size: 0.95rem; font-weight: 700; line-height: 1; }
+.pt-mass{ font-size: 0.48rem; opacity: 0.6; }
+/* category colours */
+.cat-nonmetal        { background: rgba(86,197,150,0.18);  border-color: rgba(86,197,150,0.5); }
+.cat-noble           { background: rgba(181,140,255,0.18); border-color: rgba(181,140,255,0.5); }
+.cat-alkali          { background: rgba(229,115,106,0.18); border-color: rgba(229,115,106,0.5); }
+.cat-alkaline        { background: rgba(224,163,90,0.18);  border-color: rgba(224,163,90,0.5); }
+.cat-metalloid       { background: rgba(94,200,229,0.18);  border-color: rgba(94,200,229,0.5); }
+.cat-halogen         { background: rgba(124,147,255,0.18); border-color: rgba(124,147,255,0.5); }
+.cat-transition      { background: rgba(154,140,255,0.14); border-color: rgba(154,140,255,0.4); }
+.cat-post-transition { background: rgba(255,255,255,0.06); border-color: var(--ds-border-strong); }
+.cat-lanthanide      { background: rgba(0,229,255,0.14);   border-color: rgba(0,229,255,0.4); }
+.cat-actinide        { background: rgba(0,255,209,0.14);   border-color: rgba(0,255,209,0.4); }
+.pt-detail {
+  margin-top: var(--ds-space-4); padding: var(--ds-space-4);
+  background: var(--ds-surface-1); border: 1px solid var(--ds-border);
+  border-radius: var(--ds-radius-md); font-size: var(--ds-text-sm);
+}
+.pt-d-title { font-size: var(--ds-text-lg); font-weight: 700; margin-bottom: var(--ds-space-2); color: var(--ds-accent); }
+.pt-d-row { display: flex; justify-content: space-between; gap: var(--ds-space-4); padding: 2px 0; border-bottom: 1px solid var(--ds-border); }
+.pt-d-row span { color: var(--ds-text-soft); }
+.pt-d-row b { font-family: var(--ds-font-mono); }
+.pt-d-src { margin-top: var(--ds-space-2); font-size: var(--ds-text-xs); color: var(--ds-text-muted); }
+.pt-x { border: none; background: transparent; color: var(--ds-text-muted); cursor: pointer; font-size: var(--ds-text-base); }
+.pt-x:hover { color: var(--ds-text); }
+
+@keyframes dsCardIn {
+  from { opacity: 0; transform: translateY(6px) scale(0.985); }
+  to   { opacity: 1; transform: translateY(0)   scale(1); }
+}
+@keyframes dsSpin { to { transform: rotate(360deg); } }
+@keyframes dsCaret { 50% { opacity: 0; } }
+
+@media (prefers-reduced-motion: reduce) {
+  .tool-call-card { animation: none; }
+  .message.streaming .token-content::after { animation: none; }
+}

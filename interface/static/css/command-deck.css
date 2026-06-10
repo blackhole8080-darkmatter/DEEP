@@ -1,0 +1,344 @@
+/* ═══════════════════════════════════════════════════════════════════════════
+   DEEP — COMMAND DECK (2026)
+   Loaded LAST. Commits the whole shell to the cinematic identity: the yantra
+   bindu is the permanent centerpiece in every view, and chat / telemetry /
+   controls become gold-glass instruments orbiting it. Replaces the calm SaaS
+   redesign layer entirely. Functional IDs/classes from app.js are preserved.
+   ═══════════════════════════════════════════════════════════════════════════ */
+
+:root {
+  --deck-gold: 232, 185, 116;
+  --deck-cyan: 120, 200, 255;
+  --deck-ink: #eaf6ff;
+  --deck-glass: rgba(9, 14, 24, 0.62);
+  --deck-glass-2: rgba(11, 17, 29, 0.86);
+  --deck-line: rgba(232, 185, 116, 0.18);
+  --deck-line-hot: rgba(232, 185, 116, 0.5);
+  --deck-mono: "JetBrains Mono", ui-monospace, monospace;
+}
+
+/* ── Deep-space stage ─────────────────────────────────────────────────────── */
+html, body {
+  background:
+    radial-gradient(1200px 800px at 50% 42%, rgba(40, 32, 60, 0.35), transparent 60%),
+    radial-gradient(900px 900px at 80% 100%, rgba(20, 40, 70, 0.28), transparent 60%),
+    #04060b !important;
+  letter-spacing: 0.1px;
+}
+
+/* Re-enable the cinematic core + frame everywhere (was suppressed before) */
+#hud-frame, #lens-flare { display: block !important; }
+#deep-graph-canvas { display: block !important; }
+
+/* The bindu stays the hero in ALL working views; only neural goes full-bleed */
+body[data-view="console"] #deep-graph-canvas { opacity: 1 !important; }
+body[data-view="chat"]    #deep-graph-canvas { opacity: 0.6 !important; }
+body[data-view="neural"]  #deep-graph-canvas { opacity: 1 !important; }
+
+/* ── Navigation rail → floating glass instrument column ───────────────────── */
+.nav-rail {
+  top: 14px !important; left: 14px !important; bottom: 14px !important;
+  width: 62px !important;
+  border-radius: 18px !important;
+  background: var(--deck-glass) !important;
+  backdrop-filter: blur(20px) saturate(1.35) !important;
+  -webkit-backdrop-filter: blur(20px) saturate(1.35) !important;
+  border: 1px solid var(--deck-line) !important;
+  box-shadow: 0 16px 50px rgba(0, 0, 0, 0.5), inset 0 0 30px rgba(var(--deck-gold), 0.03) !important;
+  z-index: 41 !important;
+}
+.nav-mark {
+  color: rgb(var(--deck-gold)) !important;
+  text-shadow: 0 0 16px rgba(var(--deck-gold), 0.55) !important;
+  filter: drop-shadow(0 0 8px rgba(var(--deck-gold), 0.4)) !important;
+  margin-bottom: 8px !important;
+}
+.nav-btn { color: rgba(234, 246, 255, 0.55) !important; border-radius: 12px !important; }
+.nav-btn span { font: 600 8px var(--deck-mono) !important; letter-spacing: 0.12em !important; text-transform: uppercase !important; }
+.nav-btn:hover { color: var(--deck-ink) !important; background: rgba(var(--deck-gold), 0.08) !important; }
+.nav-btn.active {
+  color: rgb(var(--deck-gold)) !important;
+  background: rgba(var(--deck-gold), 0.12) !important;
+  box-shadow: inset 0 0 0 1px var(--deck-line-hot), 0 0 18px rgba(var(--deck-gold), 0.14) !important;
+}
+
+/* ── Status bar → deck header strip ───────────────────────────────────────── */
+.status-bar {
+  top: 14px !important;
+  border: 1px solid var(--deck-line) !important;
+  border-radius: 14px !important;
+  background: var(--deck-glass) !important;
+  backdrop-filter: blur(20px) saturate(1.35) !important;
+  box-shadow: 0 12px 40px rgba(0, 0, 0, 0.45), inset 0 0 24px rgba(var(--deck-gold), 0.03) !important;
+}
+.sb-logo { color: rgb(var(--deck-gold)) !important; text-shadow: 0 0 12px rgba(var(--deck-gold), 0.5); }
+.sb-status { color: rgba(var(--deck-cyan), 0.85) !important; letter-spacing: 0.14em !important; }
+
+/* ── Chat → translucent comms feed hovering over the core ─────────────────── */
+.chat-overlay { width: min(820px, 88vw) !important; }
+.message.ai {
+  background: rgba(7, 12, 22, 0.7) !important;
+  border: 1px solid var(--deck-line) !important;
+  backdrop-filter: blur(14px) saturate(1.2) !important;
+  box-shadow: 0 10px 34px rgba(0, 0, 0, 0.45), inset 0 0 26px rgba(var(--deck-gold), 0.03) !important;
+  border-radius: 4px 16px 16px 16px !important;
+}
+.message.user {
+  background: rgba(124, 108, 240, 0.16) !important;
+  border: 1px solid rgba(124, 108, 240, 0.4) !important;
+  backdrop-filter: blur(12px) !important;
+  border-radius: 16px 16px 4px 16px !important;
+}
+
+/* ── Command bar → primary deck console ───────────────────────────────────── */
+.command-bar { width: min(720px, 92vw) !important; }
+.cmd-inner {
+  background: var(--deck-glass-2) !important;
+  border: 1px solid var(--deck-line) !important;
+  border-radius: 16px !important;
+  box-shadow: 0 14px 44px rgba(0, 0, 0, 0.5), inset 0 0 26px rgba(var(--deck-gold), 0.03) !important;
+}
+.cmd-inner:focus-within {
+  border-color: var(--deck-line-hot) !important;
+  box-shadow: 0 14px 44px rgba(0, 0, 0, 0.5), 0 0 30px rgba(var(--deck-gold), 0.14) !important;
+}
+
+/* ── Welcome screen → mission ready ───────────────────────────────────────── */
+.welcome-sub {
+  font-size: 13px !important; letter-spacing: 7px !important;
+  color: rgba(var(--deck-gold), 0.85) !important;
+  text-shadow: 0 0 22px rgba(var(--deck-gold), 0.4) !important;
+}
+
+/* ══════════════════════════════════════════════════════════════════════════
+   ORBITING TELEMETRY MODULES  (injected by command-deck.js)
+   Live glass readouts that orbit the bindu — the instruments of the deck.
+   ══════════════════════════════════════════════════════════════════════════ */
+.deck-telemetry-layer {
+  position: fixed; inset: 0;
+  z-index: 9;
+  pointer-events: none;
+}
+.deck-link-canvas { position: fixed; inset: 0; z-index: 8; pointer-events: none; }
+
+.deck-mod {
+  position: fixed;
+  min-width: 116px; max-width: 160px;
+  padding: 9px 12px;
+  border-radius: 13px;
+  background: var(--deck-glass);
+  backdrop-filter: blur(16px) saturate(1.3);
+  -webkit-backdrop-filter: blur(16px) saturate(1.3);
+  border: 1px solid var(--deck-line);
+  box-shadow: 0 10px 32px rgba(0, 0, 0, 0.45), inset 0 0 22px rgba(var(--deck-gold), 0.035);
+  will-change: transform;
+  opacity: 0;
+  transition: opacity 0.6s ease;
+}
+.deck-mod.show { opacity: 1; }
+.deck-mod::before {
+  content: "";
+  position: absolute; top: 7px; left: 7px;
+  width: 9px; height: 9px;
+  border-top: 1px solid var(--deck-line-hot);
+  border-left: 1px solid var(--deck-line-hot);
+}
+.deck-mod-key {
+  display: flex; align-items: center; gap: 6px;
+  font: 600 8px var(--deck-mono);
+  letter-spacing: 0.18em; text-transform: uppercase;
+  color: rgba(var(--deck-gold), 0.85);
+  margin-bottom: 5px;
+}
+.deck-mod-dot { width: 6px; height: 6px; border-radius: 50%; background: rgb(var(--deck-gold)); box-shadow: 0 0 8px rgb(var(--deck-gold)); }
+.deck-mod-dot.cyan { background: rgb(var(--deck-cyan)); box-shadow: 0 0 8px rgb(var(--deck-cyan)); }
+.deck-mod-dot.ok { background: #4fe0a0; box-shadow: 0 0 8px #4fe0a0; }
+.deck-mod-dot.warn { background: #f5b95a; box-shadow: 0 0 8px #f5b95a; }
+.deck-mod-dot.alert { background: #ff5b5b; box-shadow: 0 0 8px #ff5b5b; animation: deck-blink 0.7s steps(2) infinite; }
+@keyframes deck-blink { 50% { opacity: 0.3; } }
+.deck-mod-val { font: 700 18px var(--deck-mono); color: var(--deck-ink); line-height: 1.1; }
+.deck-mod-val small { font-size: 10px; font-weight: 500; color: rgba(234, 246, 255, 0.5); }
+.deck-mod-sub { font: 500 9px var(--deck-mono); letter-spacing: 0.05em; color: rgba(234, 246, 255, 0.45); margin-top: 3px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.deck-mod-spark { display: block; width: 100%; height: 18px; margin-top: 6px; }
+
+/* ── Core readout caption (typewriter, under the bindu) ───────────────────── */
+.deck-caption {
+  position: fixed;
+  z-index: 10;
+  transform: translateX(-50%);
+  display: flex; align-items: center; gap: 7px;
+  padding: 4px 12px;
+  border-radius: 20px;
+  background: rgba(8, 13, 22, 0.5);
+  backdrop-filter: blur(10px);
+  border: 1px solid var(--deck-line);
+  font: 600 9.5px var(--deck-mono);
+  letter-spacing: 0.22em;
+  color: rgba(var(--deck-gold), 0.92);
+  text-transform: uppercase;
+  pointer-events: none;
+  white-space: nowrap;
+}
+.deck-cap-pip { width: 6px; height: 6px; border-radius: 50%; background: #4fe0a0; box-shadow: 0 0 8px #4fe0a0; animation: deck-cap-blink 1.6s ease-in-out infinite; }
+.deck-cap-caret { color: rgba(var(--deck-gold), 0.7); animation: deck-cap-blink 0.7s steps(2) infinite; }
+.deck-caption.alert { border-color: rgba(255, 90, 90, 0.5); color: #ff9a9a; }
+.deck-caption.alert .deck-cap-pip { background: #ff5b5b; box-shadow: 0 0 8px #ff5b5b; }
+@keyframes deck-cap-blink { 50% { opacity: 0.25; } }
+body[data-view="neural"] .deck-caption { opacity: 0; transition: opacity 0.4s ease; }
+
+/* ── Atmosphere pass — CRT scanlines + reactive vignette bloom + power-on ──── */
+.deck-atmos { position: fixed; inset: 0; z-index: 60; pointer-events: none; }
+.deck-scanlines {
+  position: absolute; inset: 0;
+  background: repeating-linear-gradient(to bottom, rgba(255, 255, 255, 0.035) 0 1px, transparent 1px 3px);
+  mix-blend-mode: overlay;
+  opacity: 0.5;
+  animation: deck-scan 7s linear infinite;
+}
+@keyframes deck-scan { from { background-position: 0 0; } to { background-position: 0 6px; } }
+.deck-vignette {
+  position: absolute; inset: 0;
+  box-shadow:
+    inset 0 0 200px rgba(0, 0, 0, 0.55),
+    inset 0 0 calc(110px + var(--deck-bloom, 0) * 170px) rgba(var(--deck-gold), calc(0.035 + var(--deck-bloom, 0) * 0.16));
+  transition: box-shadow 0.18s ease;
+}
+.deck-poweron {
+  position: absolute; left: 0; right: 0; top: 0; height: 2px;
+  background: linear-gradient(90deg, transparent, rgba(var(--deck-gold), 0.85), transparent);
+  box-shadow: 0 0 18px rgba(var(--deck-gold), 0.6);
+  opacity: 0;
+  animation: deck-poweron 1.25s ease-out 0.35s 1 both;
+}
+@keyframes deck-poweron {
+  0% { top: 0; opacity: 0; }
+  8% { opacity: 1; }
+  92% { opacity: 0.55; }
+  100% { top: 100%; opacity: 0; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .deck-scanlines, .deck-poweron { display: none; }
+}
+
+/* Hide telemetry where it'd clutter: neural focus + small screens */
+body[data-view="neural"] .deck-telemetry-layer,
+body[data-view="neural"] .deck-link-canvas { opacity: 0; transition: opacity 0.4s ease; }
+
+@media (max-width: 920px) {
+  .deck-telemetry-layer, .deck-link-canvas { display: none; }
+}
+@media (max-width: 640px) {
+  .nav-rail { top: auto !important; bottom: 12px !important; left: 50% !important; transform: translateX(-50%) !important;
+              flex-direction: row !important; width: auto !important; height: 56px !important; padding: 0 10px !important; }
+  .nav-btn span { display: none; }
+  .command-bar { bottom: 78px !important; }
+}
+
+/* ═══════════════════════════════════════════════════════════════════════════
+   IMMERSION LAYER (v35) — hoverable 3D-tilt instruments, radial core command
+   menu, and the merged Memory-Graph "teach" footer.
+   ═══════════════════════════════════════════════════════════════════════════ */
+
+/* ── Telemetry instruments become physical holo-panes ─────────────────────── */
+.deck-mod {
+  pointer-events: auto;
+  cursor: default;
+  transform-style: preserve-3d;
+  transition: box-shadow 0.25s ease, border-color 0.25s ease;
+}
+.deck-mod.tilt {
+  border-color: var(--deck-line-hot);
+  box-shadow:
+    0 24px 60px rgba(0, 0, 0, 0.6),
+    0 0 28px rgba(var(--deck-gold), 0.22),
+    inset 0 0 26px rgba(var(--deck-gold), 0.07);
+}
+/* subtle sheen that tracks the lean */
+.deck-mod.tilt::after {
+  content: "";
+  position: absolute; inset: 0;
+  border-radius: 13px;
+  background: linear-gradient(135deg, rgba(255, 255, 255, 0.08), transparent 55%);
+  pointer-events: none;
+}
+
+/* ── Radial core command menu ─────────────────────────────────────────────── */
+.core-menu-hint {
+  position: fixed;
+  z-index: 9;
+  pointer-events: none;
+  transform: translate(-50%, -50%);
+  border-radius: 50%;
+  border: 1px dashed rgba(var(--deck-gold), 0.28);
+  box-shadow: inset 0 0 14px rgba(var(--deck-gold), 0.1);
+  opacity: 0;
+  transition: opacity 0.4s ease;
+  animation: cm-hint-spin 14s linear infinite;
+}
+@keyframes cm-hint-spin { to { transform: translate(-50%, -50%) rotate(360deg); } }
+
+.core-menu {
+  position: fixed; inset: 0;
+  z-index: 70;
+  pointer-events: none;
+}
+.core-menu.open { pointer-events: auto; }
+
+.core-menu-item {
+  position: fixed;
+  transform: translate(-50%, -50%) scale(0.2);
+  display: grid;
+  place-items: center;
+  gap: 4px;
+  width: 64px; height: 64px;
+  border-radius: 16px;
+  background: var(--deck-glass-2);
+  backdrop-filter: blur(18px) saturate(1.35);
+  -webkit-backdrop-filter: blur(18px) saturate(1.35);
+  border: 1px solid var(--deck-line);
+  box-shadow: 0 14px 40px rgba(0, 0, 0, 0.55), inset 0 0 22px rgba(var(--deck-gold), 0.04);
+  color: rgba(var(--deck-gold), 0.85);
+  cursor: pointer;
+  opacity: 0;
+  transition:
+    transform 0.42s cubic-bezier(0.2, 1.3, 0.4, 1),
+    opacity 0.3s ease,
+    border-color 0.2s ease,
+    box-shadow 0.2s ease,
+    color 0.2s ease;
+}
+.core-menu.open .core-menu-item { opacity: 1; transform: translate(-50%, -50%) scale(1); }
+.core-menu-item:hover {
+  color: #fff;
+  border-color: var(--deck-line-hot);
+  box-shadow: 0 18px 48px rgba(0, 0, 0, 0.6), 0 0 30px rgba(var(--deck-gold), 0.3);
+}
+.core-menu.open .core-menu-item:hover { transform: translate(-50%, -50%) scale(1.12); }
+.core-menu-item .cm-glyph svg { width: 22px; height: 22px; display: block; filter: drop-shadow(0 0 8px rgba(var(--deck-gold), 0.4)); }
+.core-menu-item .cm-label {
+  font: 600 8px var(--deck-mono);
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--deck-ink);
+  opacity: 0.85;
+}
+/* darken/recede the rest of the stage while the menu is open */
+body.core-menu-active .deck-mod,
+body.core-menu-active .command-bar { filter: brightness(0.7) saturate(0.85); transition: filter 0.3s ease; }
+
+/* ── Memory Graph — merged vault "teach" footer ───────────────────────────── */
+.mr-teach {
+  flex: 0 0 auto;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 9px 11px;
+  border-top: 1px solid rgba(232, 185, 116, 0.14);
+  background: rgba(0, 0, 0, 0.18);
+}
+.mr-teach .mr-teach-btn { white-space: nowrap; }
+
+@media (max-width: 640px) {
+  .core-menu-item { width: 56px; height: 56px; }
+  .core-menu-item .cm-label { display: none; }
+}

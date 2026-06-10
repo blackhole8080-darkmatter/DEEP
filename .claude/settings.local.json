@@ -1,0 +1,8 @@
+{
+  "permissions": {
+    "allow": [
+      "PowerShell(Get-ChildItem -Path \"C:\\\\Users\\\\Aryan\\\\Aryan_Private\\\\DEEP\" -Directory | ForEach-Object { Write-Host \"=== $\\($_.Name\\) ===\" -ForegroundColor Yellow; Get-ChildItem -Path $_.FullName -File | Select-Object Name | ForEach-Object { Write-Host \"  - $\\($_.Name\\)\" } })",
+      "Bash(awk '{print $NF}')"
+    ]
+  }
+}

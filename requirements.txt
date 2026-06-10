@@ -1,0 +1,124 @@
+# =============================================================================
+# DEEP JARVIS - Requirements
+# =============================================================================
+# Install core dependencies (RECOMMENDED for quick start):
+#   pip install -r requirements.txt
+#
+# Optional: For advanced voice features, install separately (requires Visual Studio Build Tools):
+#   pip install webrtcvad TTS
+#
+# =============================================================================
+
+# --- Core System ---
+python-dotenv
+requests
+psutil
+numpy
+scipy
+
+# --- Plugin Ecosystem ---
+watchdog         # File system monitoring for workspace plugin
+gitpython        # Git repository tracking
+onnxruntime      # Fast inference without PyTorch/TF
+transformers     # Hugging Face model hub access
+tokenizers       # Accurate token counting
+scapy            # Raw packet crafting for cybersecurity module
+
+# --- AI & Memory ---
+chromadb
+sentence-transformers
+anthropic  # Optional: Claude cloud AI
+ollama     # For local AI models
+openai     # Optional: GPT-4, GPT-3.5
+aiohttp    # Async HTTP for multi-LLM router
+aiosqlite  # Async SQLite for PatternMemory
+scikit-learn  # IntentClassifier (Tfidf + SGD)
+joblib        # Model serialization (wake-word verifier)
+skl2onnx      # sklearn → ONNX export for custom wake word
+librosa    # Audio mood detection (energy, ZCR, pitch)
+httpx      # Async HTTP for GraphOrchestrator & AgentSwarm
+
+# --- Voice (Core - Works Out of Box) ---
+openai-whisper  # Offline speech-to-text
+pyttsx3         # Offline text-to-speech (system voices)
+sounddevice     # Audio I/O
+soundfile       # Audio file handling
+SpeechRecognition  # Additional STT options
+pyaudio         # Real-time audio capture
+openwakeword    # Wake word detection ("Hey DEEP")
+piper-tts       # Neural text-to-speech (Piper, OHF fork)
+elevenlabs      # Premium cloud TTS (optional, requires API key)
+
+# --- Web & API ---
+flask
+fastapi
+uvicorn
+websockets
+aiohttp         # Async HTTP for new infrastructure
+
+# --- News & Automation ---
+feedparser      # RSS feeds
+schedule        # Task scheduling
+playwright      # Browser automation (run 'playwright install' after)
+beautifulsoup4
+lxml
+
+# --- System Control ---
+pyautogui
+pycaw           # Windows Core Audio API — import guarded with sys.platform
+screen-brightness-control
+comtypes
+pywin32
+pynput
+
+# --- Search & Notifications ---
+duckduckgo-search
+plyer
+
+# --- Security ---
+cryptography
+python-nmap  # Optional: network scanning
+
+# --- Network & Remote Access (v2) ---
+qrcode[pil]           # QR code generation for Tailscale remote access URLs
+redis[asyncio]        # Async Redis client for shared state across devices
+python-nmap           # Nmap wrapper for device discovery and port scanning
+scapy                 # Packet capture and analysis for threat detection
+mac-vendor-lookup     # MAC address vendor identification
+
+# --- Vision ---
+pillow
+pytesseract     # OCR (requires Tesseract OCR installed separately)
+
+# --- Productivity ---
+google-api-python-client
+google-auth-httplib2
+google-auth-oauthlib
+icalendar
+
+# --- Utilities ---
+tqdm
+
+# =============================================================================
+# OPTIONAL: Advanced Features (Require Build Tools)
+# =============================================================================
+# These require Microsoft Visual C++ 14.0+ or Visual Studio Build Tools (~4GB)
+# Install only if you want these specific features:
+#
+# webrtcvad    # Better voice activity detection (falls back to energy-based)
+# TTS          # Coqui voice cloning/synthesis (falls back to pyttsx3)
+#
+# Download Build Tools: https://visualstudio.microsoft.com/visual-cpp-build-tools/
+# Then: pip install webrtcvad TTS
+# =============================================================================
+
+# --- Wake Word (Optional, Free) ---
+# pvporcupine  # Wake word "jarvis" detection
+# Get free key: https://console.picovoice.ai/
+# =============================================================================
+# OPTIONAL: Advanced Model Serving (Requires GPU recommended)
+# =============================================================================
+torch          # PyTorch for custom threat classifier neural net
+# tensorflow   # TensorFlow for TF-specific models
+# CPU-only install (uncomment below if no GPU):
+#   pip install torch torchvision --index-url https://download.pytorch.org/whl/cpu

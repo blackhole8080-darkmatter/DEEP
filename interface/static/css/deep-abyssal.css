@@ -1,0 +1,144 @@
+/* ═══════════════════════════════════════════════════════════════════════════
+   DEEP — "ABYSSAL TECH" SKIN  (loaded LAST, overrides everything)
+   Re-themes the whole DEEP/DEEP shell from temple-gold/indigo to a deep-sea
+   command center: pure abyssal black, Abyssal-Blue (#00E5FF) + Bio-Teal
+   (#00FFD1) bioluminescence, film grain, depth vignette, and the SVG Liquid
+   Intelligence Orb as the hero. Works by overriding the CSS variables the HUD
+   already themes off of, plus a hue retint of the legacy canvas FX.
+   ═══════════════════════════════════════════════════════════════════════════ */
+
+:root {
+  /* Re-point every gold token to abyssal blue, every secondary to bio-teal.
+     Almost the entire HUD reads these, so this single block flips the palette. */
+  --hud-gold: 0, 229, 255;
+  --hud-violet: 0, 255, 209;
+  --deck-gold: 0, 229, 255;
+  --deck-cyan: 0, 255, 209;
+
+  --abyss-blue: #00e5ff;
+  --abyss-teal: #00ffd1;
+  --abyss-bg: #000310;
+
+  --hud-glass: rgba(3, 12, 24, 0.62);
+  --hud-glass-solid: rgba(4, 14, 28, 0.92);
+  --hud-border: rgba(0, 229, 255, 0.22);
+  --hud-border-hot: rgba(0, 229, 255, 0.55);
+  --hud-ink: #d6f7ff;
+  --hud-ink-dim: rgba(190, 240, 255, 0.55);
+
+  --deck-glass: rgba(2, 10, 22, 0.6);
+  --deck-glass-2: rgba(4, 14, 28, 0.86);
+  --deck-line: rgba(0, 229, 255, 0.2);
+  --deck-line-hot: rgba(0, 229, 255, 0.55);
+  --deck-ink: #d6f7ff;
+}
+
+/* ── Abyssal stage ────────────────────────────────────────────────────────── */
+html, body {
+  background:
+    radial-gradient(1100px 720px at 50% 40%, rgba(0, 70, 110, 0.30), transparent 62%),
+    radial-gradient(900px 900px at 82% 102%, rgba(0, 120, 130, 0.18), transparent 60%),
+    radial-gradient(800px 800px at 12% 8%, rgba(0, 60, 120, 0.16), transparent 60%),
+    var(--abyss-bg) !important;
+  color: var(--hud-ink);
+}
+
+/* Film grain + depth vignette — sits above the stage, below all UI (z 61/62
+   keeps it under the .deck-atmos scanlines which are z 60? raise above bg only) */
+body::before, body::after {
+  content: "";
+  position: fixed;
+  inset: 0;
+  pointer-events: none;
+  z-index: 3;
+}
+/* grain */
+body::before {
+  opacity: 0.05;
+  mix-blend-mode: screen;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='160' height='160'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='2' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E");
+  animation: abyss-grain 0.5s steps(2) infinite;
+}
+@keyframes abyss-grain {
+  0% { transform: translate(0, 0); }
+  100% { transform: translate(-6px, 4px); }
+}
+/* deep vignette */
+body::after {
+  background: radial-gradient(120% 120% at 50% 46%, transparent 48%, rgba(0, 2, 8, 0.72) 100%);
+}
+
+/* ── Suppress the legacy gold yantra; retint the canvas FX to bioluminescent ── */
+/* match command-deck.css's body[data-view=…] #deep-graph-canvas specificity */
+body[data-view] #deep-graph-canvas {
+  opacity: 0.16 !important;
+}
+#deep-graph-canvas {
+  filter: hue-rotate(135deg) saturate(1.35) brightness(1.15);
+}
+#deck-fx-canvas,
+#memory-ring-canvas {
+  filter: hue-rotate(135deg) saturate(1.4) brightness(1.1);
+}
+/* the old gold lens-flare reads as warm — cool it down */
+#lens-flare { filter: hue-rotate(135deg) saturate(1.3); opacity: 0.5 !important; }
+
+/* ── The Liquid Intelligence Orb ──────────────────────────────────────────── */
+#deep-orb {
+  position: fixed;
+  z-index: 7;                 /* above the dim yantra, below HUD windows */
+  pointer-events: none;
+  transform: translate(-50%, -50%);
+  filter:
+    drop-shadow(0 0 calc(34px + var(--orb-energy, 0) * 60px) rgba(0, 229, 255, calc(0.35 + var(--orb-glow, 0.3) * 0.5)))
+    drop-shadow(0 0 14px rgba(0, 255, 209, 0.4));
+  will-change: transform, filter;
+}
+#deep-orb svg { width: 100%; height: 100%; display: block; overflow: visible; }
+#deep-orb .orb-bloom { opacity: calc(0.4 + var(--orb-glow, 0.3) * 0.8); }
+/* listening pushes a brighter specular + cooler thinking tint */
+#deep-orb[data-state="processing"] { filter:
+    drop-shadow(0 0 calc(40px + var(--orb-energy, 0) * 70px) rgba(0, 200, 255, 0.6))
+    drop-shadow(0 0 18px rgba(0, 120, 255, 0.5)); }
+
+/* ── Typography: monospace data with a flicker-in on first paint ──────────── */
+.deck-mod-val, .deck-mod-sub, .mr-stats, .aegis-v, .sp-metric-num,
+.hud-bar-title, .sb-status, .sb-model, #hudClock {
+  font-family: "JetBrains Mono", "Fira Code", ui-monospace, monospace !important;
+}
+.deck-mod.show .deck-mod-val,
+.hud-win.open .hud-bar-title,
+.aegis-badge .aegis-label { animation: abyss-flicker 0.55s steps(1) 1; }
+@keyframes abyss-flicker {
+  0%   { opacity: 0; }
+  20%  { opacity: 0.7; }
+  35%  { opacity: 0.2; }
+  55%  { opacity: 0.9; }
+  70%  { opacity: 0.4; }
+  100% { opacity: 1; }
+}
+
+/* glow up the accents that were gold text */
+.sb-logo, .sp-logo, .hud-bar-icon {
+  color: var(--abyss-teal) !important;
+  text-shadow: 0 0 12px rgba(0, 255, 209, 0.6);
+}
+.status-bar, .command-bar, .side-panel {
+  border-color: rgba(0, 229, 255, 0.18) !important;
+}
+
+/* command-bar waveform → bioluminescent */
+.voice-waveform span {
+  background: linear-gradient(180deg, #6bfff0, #00b8e6) !important;
+  box-shadow: 0 0 7px rgba(0, 255, 209, 0.6) !important;
+}
+
+/* boot overlay reframed for DEEP */
+.boot-logo { color: var(--abyss-teal) !important; text-shadow: 0 0 26px rgba(0, 255, 209, 0.5); }
+.boot-bar { background: linear-gradient(90deg, var(--abyss-blue), var(--abyss-teal)) !important; }
+
+/* respect reduced motion: kill the grain churn */
+@media (prefers-reduced-motion: reduce) {
+  body::before { animation: none; }
+  .deck-mod.show .deck-mod-val, .hud-win.open .hud-bar-title { animation: none; }
+}

@@ -1,0 +1,162 @@
+/* ═══════════════════════════════════════════════════════════════════════════
+   DEEP — "Linear" polish layer (2026)
+   Loaded LAST, additive only. Brings Linear-grade motion, micro-interactions,
+   and a richer Memory Vault on top of the Abyssal skin. Non-destructive:
+   remove this <link> to revert. Tuned for restraint — refines, never shouts.
+   ═══════════════════════════════════════════════════════════════════════════ */
+
+:root {
+  /* Linear's signature spring/standard easings */
+  --lin-spring: cubic-bezier(0.34, 1.56, 0.64, 1);
+  --lin-ease:   cubic-bezier(0.22, 1, 0.36, 1);
+  --lin-quick:  cubic-bezier(0.4, 0, 0.2, 1);
+  --lin-accent: var(--color-accent-cyan, #7c93ff);
+  --lin-accent-rgb: var(--color-accent-cyan-rgb, 124, 147, 255);
+  --lin-grad: linear-gradient(135deg, rgba(var(--lin-accent-rgb),1) 0%, #9aa9ff 50%, #b58cff 100%);
+}
+
+/* ── Entrance choreography ────────────────────────────────────────────────── */
+@keyframes lin-fade-up   { from { opacity:0; transform:translateY(10px); } to { opacity:1; transform:none; } }
+@keyframes lin-fade-in   { from { opacity:0; } to { opacity:1; } }
+@keyframes lin-pop       { 0%{opacity:0;transform:scale(.96) translateY(8px);} 100%{opacity:1;transform:none;} }
+@keyframes lin-sheen     { 0%{background-position:0% 50%;} 100%{background-position:200% 50%;} }
+@keyframes lin-breathe   { 0%,100%{opacity:.5;} 50%{opacity:.9;} }
+
+/* Messages glide in with a soft spring (overrides the harsher default) */
+.message { animation: lin-pop 0.5s var(--lin-ease) both !important; }
+
+/* Nav buttons reveal in a quick stagger on load */
+.nav-btn { animation: lin-fade-up 0.5s var(--lin-ease) both; }
+.nav-btn:nth-child(2){animation-delay:.04s} .nav-btn:nth-child(3){animation-delay:.08s}
+.nav-btn:nth-child(4){animation-delay:.12s} .nav-btn:nth-child(5){animation-delay:.16s}
+.nav-btn:nth-child(6){animation-delay:.20s}
+
+/* Side-panel cards rise in sequence when the panel opens */
+.side-panel.open .sp-card { animation: lin-fade-up 0.45s var(--lin-ease) both; }
+.side-panel.open .sp-card:nth-child(2){animation-delay:.05s}
+.side-panel.open .sp-card:nth-child(3){animation-delay:.10s}
+.side-panel.open .sp-card:nth-child(4){animation-delay:.15s}
+.side-panel.open .sp-card:nth-child(5){animation-delay:.20s}
+
+/* ── Micro-interactions: springy, tactile, fast ──────────────────────────── */
+.hud-btn, .sp-action, .nav-btn, .cmd-send, .chip, .sp-pill,
+.predictive-btn, .sb-icon-btn, .mr-refresh, .mr-teach-btn {
+  transition: transform .18s var(--lin-spring), background .2s var(--lin-quick),
+              box-shadow .2s var(--lin-quick), color .2s var(--lin-quick),
+              border-color .2s var(--lin-quick) !important;
+}
+.hud-btn:hover, .sp-action:hover, .cmd-send:hover, .chip:hover,
+.mr-refresh:hover, .mr-teach-btn:hover { transform: translateY(-1px); }
+.hud-btn:active, .sp-action:active, .cmd-send:active, .chip:active,
+.nav-btn:active { transform: translateY(0) scale(.97); }
+
+/* Inputs: calm Linear focus ring */
+.hud-input:focus, .cmd-input:focus, input:focus, textarea:focus {
+  outline: none !important;
+  border-color: rgba(var(--lin-accent-rgb), 0.65) !important;
+  box-shadow: 0 0 0 3px rgba(var(--lin-accent-rgb), 0.14) !important;
+}
+
+/* ── The ॐ wordmark — gradient, alive ────────────────────────────────────── */
+.sb-logo, .sp-logo, .boot-logo {
+  background: var(--lin-grad);
+  background-size: 200% auto;
+  -webkit-background-clip: text; background-clip: text;
+  -webkit-text-fill-color: transparent; color: transparent;
+  animation: lin-sheen 6s linear infinite;
+  font-weight: 600; letter-spacing: 0.3px;
+}
+.deep-omkara {
+  font-family: 'Noto Serif Devanagari', serif;
+  font-weight: 600; display: inline-block;
+  -webkit-text-fill-color: transparent;
+  background: var(--lin-grad); background-size:200% auto;
+  -webkit-background-clip: text; background-clip: text;
+  animation: lin-sheen 6s linear infinite;
+}
+.boot-logo .deep-omkara { font-size: 1.15em; margin-right: 2px; filter: drop-shadow(0 0 14px rgba(var(--lin-accent-rgb),0.5)); }
+
+/* ═══════════════════════════════════════════════════════════════════════════
+   MEMORY VAULT — richer, less plain
+   ═══════════════════════════════════════════════════════════════════════════ */
+.mr-toolbar {
+  gap: 8px !important; padding: 12px 14px !important;
+  background: linear-gradient(180deg, rgba(var(--lin-accent-rgb),0.06), transparent) !important;
+  border-bottom: 1px solid rgba(255,255,255,0.06) !important;
+}
+.mr-search {
+  border-radius: 10px !important;
+  background: rgba(255,255,255,0.04) !important;
+}
+.mr-stats {
+  font-size: 11px !important; font-weight: 600 !important;
+  letter-spacing: 0.04em !important;
+  padding: 4px 10px !important; border-radius: 999px !important;
+  color: var(--lin-accent) !important;
+  background: rgba(var(--lin-accent-rgb), 0.12) !important;
+  border: 1px solid rgba(var(--lin-accent-rgb), 0.22) !important;
+  white-space: nowrap;
+}
+.mr-refresh { border-radius: 9px !important; }
+
+/* Graph stage gets depth: a soft radial vignette + grid hint */
+.mr-stage {
+  background:
+    radial-gradient(120% 90% at 50% 0%, rgba(var(--lin-accent-rgb),0.07), transparent 60%),
+    repeating-linear-gradient(0deg, rgba(255,255,255,0.018) 0 1px, transparent 1px 26px),
+    repeating-linear-gradient(90deg, rgba(255,255,255,0.018) 0 1px, transparent 1px 26px) !important;
+  border-radius: 12px !important;
+}
+
+/* Detail card slides up, gradient-edged */
+.mr-detail {
+  animation: lin-pop 0.32s var(--lin-ease) both;
+  border: 1px solid rgba(var(--lin-accent-rgb), 0.20) !important;
+  border-radius: 14px !important;
+  background: linear-gradient(180deg, rgba(20,22,30,0.96), rgba(14,16,22,0.96)) !important;
+  box-shadow: 0 18px 50px rgba(0,0,0,0.5) !important;
+  backdrop-filter: blur(14px);
+}
+.mr-d-head { font-size: 16px !important; font-weight: 700 !important; letter-spacing: 0.2px; }
+.mr-d-type {
+  font-size: 10.5px !important; letter-spacing: 0.08em !important;
+  text-transform: uppercase; opacity: 0.7; margin: 4px 0 10px;
+}
+.mr-d-links { display: flex; flex-wrap: wrap; gap: 6px; }
+.mr-tag {
+  display: inline-flex; align-items: center;
+  font-size: 11px !important; padding: 4px 9px !important;
+  border-radius: 999px !important;
+  background: rgba(var(--lin-accent-rgb), 0.10) !important;
+  border: 1px solid rgba(var(--lin-accent-rgb), 0.20) !important;
+  color: rgba(233,234,236,0.9) !important;
+  transition: transform .15s var(--lin-spring), background .2s;
+}
+.mr-tag:hover { transform: translateY(-1px); background: rgba(var(--lin-accent-rgb), 0.18) !important; }
+.mr-forget {
+  margin-top: 12px !important; width: 100%;
+  border-radius: 10px !important;
+  background: rgba(229,115,106,0.12) !important;
+  border: 1px solid rgba(229,115,106,0.35) !important;
+  color: #f0a39c !important; font-weight: 500;
+  transition: background .2s, transform .18s var(--lin-spring);
+}
+.mr-forget:hover { background: rgba(229,115,106,0.22) !important; transform: translateY(-1px); }
+
+/* Teach bar — inviting */
+.mr-teach {
+  padding: 12px 14px !important;
+  background: linear-gradient(0deg, rgba(var(--lin-accent-rgb),0.06), transparent) !important;
+  border-top: 1px solid rgba(255,255,255,0.06) !important;
+}
+.mr-teach-btn {
+  border-radius: 10px !important; font-weight: 600 !important;
+  background: var(--lin-grad) !important; background-size: 200% auto !important;
+  color: #0b0d12 !important; border: none !important;
+}
+
+/* Respect reduced-motion */
+@media (prefers-reduced-motion: reduce) {
+  .message, .nav-btn, .sp-card, .mr-detail,
+  .sb-logo, .sp-logo, .boot-logo, .deep-omkara { animation: none !important; }
+}

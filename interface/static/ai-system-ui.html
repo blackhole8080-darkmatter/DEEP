@@ -1,0 +1,371 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>DEEP — Abyssal Intelligence</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&family=Noto+Serif+Devanagari:wght@400;500;600&display=swap" rel="stylesheet">
+  <!-- Design tokens: single source of truth, must load first (additive — see tokens.css) -->
+  <link rel="stylesheet" href="/static/css/tokens.css?v=64">
+  <link rel="stylesheet" href="/static/css/base.css?v=63">
+  <link rel="stylesheet" href="/static/css/app-layout.css?v=63">
+  <link rel="stylesheet" href="/static/css/ui-panels.css?v=63">
+  <!-- Command Deck — cinematic spatial shell; the yantra core is the centerpiece -->
+  <link rel="stylesheet" href="/static/css/hud.css?v=63">
+  <link rel="stylesheet" href="/static/css/command-deck.css?v=63">
+  <!-- DEEP "Abyssal Tech" skin — loaded LAST, overrides the gold identity.
+       Toggleable via the status-bar skin button (deep-theme.js). -->
+  <link rel="stylesheet" id="skin-abyssal" href="/static/css/deep-abyssal.css?v=63">
+  <link rel="stylesheet" href="/static/css/deep-modules.css?v=63">
+  <link rel="stylesheet" href="/static/css/deep-modules2.css?v=63">
+  <link rel="stylesheet" href="/static/css/deep-empathy.css?v=63">
+  <link rel="stylesheet" href="/static/css/deep-reasoning.css?v=63">
+  <link rel="stylesheet" href="/static/css/deep-responsive.css?v=63">
+  <link rel="stylesheet" href="/static/css/science-studio.css?v=63">
+  <!-- DEEP motion & design system — unified easing, micro-interactions, calm mode -->
+  <link rel="stylesheet" href="/static/css/deep-motion.css?v=63">
+  <!-- Linear polish layer — refined motion, micro-interactions, richer vault -->
+  <link rel="stylesheet" href="/static/css/deep-linear.css?v=63">
+  <!-- Token-driven components (Phase 2) — loaded last so it supersedes legacy rules -->
+  <link rel="stylesheet" href="/static/css/components.css?v=71">
+  <!-- Modern harmonization: one radius/border/elevation/accent across all elements -->
+  <link rel="stylesheet" href="/static/css/deep-modern.css?v=102">
+  <!-- no-FOUC preflight: apply the saved skin before first paint -->
+  <script>(function(){try{var s=localStorage.getItem('deep_skin')||'abyssal';document.documentElement.dataset.skin=s;if(s==='gold'){var l=document.getElementById('skin-abyssal');if(l)l.disabled=true;}}catch(e){}})();</script>
+
+  <!-- PWA: installable on Android + iPhone -->
+  <link rel="manifest" href="/manifest.webmanifest">
+  <meta name="theme-color" content="#000310">
+  <meta name="mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <meta name="apple-mobile-web-app-title" content="DEEP">
+  <link rel="apple-touch-icon" href="/static/icons/apple-touch-icon.png">
+</head>
+<body data-view="console">
+
+  <!-- Boot sequence overlay — shown for ~3 s then auto-fades -->
+  <div id="boot-overlay">
+    <div class="boot-logo"><span class="deep-omkara">ॐ</span> DEEP</div>
+    <div class="boot-tagline">DYNAMIC · EMPATHIC · EXECUTION · PROCESSOR</div>
+    <div class="boot-bar-wrap"><div class="boot-bar"></div></div>
+    <div class="boot-status" id="bootStatus">COALESCING INTELLIGENCE CORE...</div>
+  </div>
+
+  <!-- Lens flare background glow -->
+  <div id="lens-flare"></div>
+
+  <!-- Orb evolution flash overlay -->
+  <div class="orb-evolution-flash" id="orbEvolutionFlash"></div>
+
+  <!-- Three.js orb container -->
+  <div id="orb-container"></div>
+
+  <!-- HUD frame overlay — animated corner reticles + scanning sweep -->
+  <div id="hud-frame" aria-hidden="true">
+    <span class="hud-corner tl"></span><span class="hud-corner tr"></span>
+    <span class="hud-corner bl"></span><span class="hud-corner br"></span>
+    <span class="hud-sweep"></span>
+    <span class="hud-edge-label tl-label">DEEP · ABYSSAL INTERFACE</span>
+    <span class="hud-edge-label br-label" id="hudClock">--:--:--</span>
+  </div>
+
+  <!-- View transition flash -->
+  <div id="view-flash" aria-hidden="true"></div>
+
+  <!-- Nav rail retired — view + app switching now lives on the yantra core.
+       Click (or press M / the core) to fan out the radial command menu. -->
+
+  <!-- Floating Status Bar -->
+  <header class="status-bar">
+    <div class="sb-left">
+      <span class="sb-logo"><span class="deep-omkara">ॐ</span> DEEP</span>
+      <span class="sb-divider"></span>
+      <span class="sb-status" id="statusText">READY</span>
+    </div>
+    <div class="sb-right">
+      <span class="sb-model" id="activeModel">DEEP</span>
+      <span class="sb-dot" id="statusDot"></span>
+      <button class="sb-icon-btn" id="skinBtn" onclick="DeepTheme&&DeepTheme.toggle()" title="Toggle skin: Abyssal ⇄ Gold">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="9"/><path d="M12 3a9 9 0 0 0 0 18z" fill="currentColor" stroke="none"/></svg>
+      </button>
+      <button class="sb-icon-btn" onclick="togglePanel()" title="System [Ctrl+B]">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="3" y1="6" x2="21" y2="6"/><line x1="3" y1="12" x2="21" y2="12"/><line x1="3" y1="18" x2="21" y2="18"/></svg>
+      </button>
+      <button class="sb-icon-btn" id="ttsBtn" onclick="toggleTTS()" title="Voice [Ctrl+Shift+S]">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5"/><path d="M19.07 4.93a10 10 0 0 1 0 14.14M15.54 8.46a5 5 0 0 1 0 7.07"/></svg>
+      </button>
+    </div>
+  </header>
+
+  <!-- Predictive Suggestion Banner -->
+  <div class="predictive-banner" id="predictiveBanner" style="display:none">
+    <div class="predictive-icon">ॐ</div>
+    <div class="predictive-text">
+      <span class="predictive-label">PREDICTED</span>
+      <span class="predictive-suggestion" id="predictiveText">...</span>
+      <span class="predictive-reason" id="predictiveReason"></span>
+    </div>
+    <div class="predictive-actions">
+      <button class="predictive-btn yes" onclick="acceptPrediction()">Yes</button>
+      <button class="predictive-btn no" onclick="rejectPrediction()">No</button>
+    </div>
+  </div>
+
+  <!-- Welcome screen (hidden when chat has messages) -->
+  <div id="welcome-screen">
+    <p class="welcome-sub">How can I help, Aryan?</p>
+    <p class="welcome-hint">Ask anything, or pick a starting point below</p>
+    <div class="prompt-chips">
+      <button class="chip" onclick="useChip(this)">Scan network</button>
+      <button class="chip" onclick="useChip(this)">Research latest AI papers</button>
+      <button class="chip" onclick="useChip(this)">Show my projects</button>
+      <button class="chip" onclick="useChip(this)">What can you do?</button>
+    </div>
+  </div>
+
+  <!-- Chat messages overlay -->
+  <div class="chat-overlay">
+    <div class="chat-messages" id="chatContainer"></div>
+  </div>
+
+  <!-- Transcript preview (shown during voice recording/processing) -->
+  <div id="transcript-preview" class="transcript-preview"></div>
+
+  <!-- Floating Command Bar -->
+  <footer class="command-bar">
+    <div class="cmd-inner">
+      <button class="cmd-icon" onclick="document.getElementById('fileInput').click()" title="Attach">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21.44 11.05l-9.19 9.19a6 6 0 0 1-8.49-8.49l9.19-9.19a4 4 0 0 1 5.66 5.66l-9.2 9.19a2 2 0 0 1-2.83-2.83l8.49-8.48"/></svg>
+      </button>
+      <button class="cmd-icon voice-btn" id="voiceBtn" onclick="toggleVoice()" title="Voice [Ctrl+Shift+V]">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z"/><path d="M19 10v2a7 7 0 0 1-14 0v-2M12 19v4M8 23h8"/></svg>
+      </button>
+      <div class="cmd-input-wrap" id="inputWrap">
+        <span class="cmd-prompt">&gt;</span>
+        <textarea class="cmd-input" id="aiInput"
+                  placeholder="Message DEEP…"
+                  rows="1"
+                  onkeydown="if(event.key==='Enter'&&!event.shiftKey){event.preventDefault();sendMessage();}"></textarea>
+        <div class="voice-waveform" id="voiceWaveform"><span></span><span></span><span></span><span></span><span></span></div>
+      </div>
+      <button class="cmd-send" onclick="sendMessage()" title="Execute [Enter]">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M22 2L11 13M22 2l-7 20-4-9-9-4 20-7z"/></svg>
+      </button>
+    </div>
+    <div class="cmd-hints">
+      <span>Enter to execute</span>
+      <span class="cmd-sep">·</span>
+      <span id="sessionTime">00:00</span>
+      <span class="cmd-sep">·</span>
+      <button class="cmd-hint-link" onclick="document.getElementById('shortcutsHelp').classList.toggle('visible')">Shortcuts</button>
+    </div>
+  </footer>
+
+  <!-- Hidden file input -->
+  <input type="file" id="fileInput" style="display:none" multiple accept=".txt,.md,.json,.js,.py,.html,.css,.pdf">
+
+  <!-- Slide-in Intelligence Panel -->
+  <aside class="side-panel" id="sidePanel">
+    <div class="sp-header">
+      <span class="sp-logo"><span class="deep-omkara">ॐ</span> DEEP</span>
+      <button class="sp-close" onclick="togglePanel()">✕</button>
+    </div>
+
+    <div class="sp-scroll">
+
+      <!-- Live Activity Feed -->
+      <div class="sp-card sp-activity-card">
+        <div class="sp-card-title">Live Activity</div>
+        <div class="activity-feed" id="activityFeed">
+          <div class="activity-row activity-empty"><span class="activity-dot"></span><span class="activity-text">Awaiting system activity…</span></div>
+        </div>
+      </div>
+
+      <!-- System Status -->
+      <div class="sp-card">
+        <div class="sp-card-title">System</div>
+        <div class="sp-metrics">
+          <div class="sp-metric"><span class="sp-metric-num" id="tokens-s">847</span><span class="sp-metric-label">tokens/s</span></div>
+          <div class="sp-metric"><span class="sp-metric-num" id="load">34%</span><span class="sp-metric-label">load</span></div>
+          <div class="sp-metric"><span class="sp-metric-num" id="sessionTime">00:00</span><span class="sp-metric-label">uptime</span></div>
+        </div>
+        <div class="sp-state-bar">
+          <span class="sp-state active" id="state-idle">IDLE</span>
+          <span class="sp-state" id="state-listen">LISTEN</span>
+          <span class="sp-state" id="state-process">PROCESS</span>
+          <span class="sp-state" id="state-speak">RESPOND</span>
+        </div>
+      </div>
+
+      <!-- Network -->
+      <div class="sp-card">
+        <div class="sp-card-title">Network</div>
+        <div class="sp-kv">
+          <span class="sp-k">Status</span><span class="sp-v" id="net-status">Scanning</span>
+        </div>
+        <div class="sp-kv">
+          <span class="sp-k">Devices</span><span class="sp-v" id="net-devices">--</span>
+        </div>
+        <div class="sp-kv">
+          <span class="sp-k">Alerts</span><span class="sp-v" id="net-alerts">--</span>
+        </div>
+        <button class="sp-action" onclick="toggleNetworkMap()">View Topology</button>
+      </div>
+
+      <!-- Intelligence -->
+      <div class="sp-card">
+        <div class="sp-card-title">Intelligence</div>
+        <div class="sp-kv">
+          <span class="sp-k">Memory</span><span class="sp-v" id="kg-entities">-- entities</span>
+        </div>
+        <div class="sp-kv">
+          <span class="sp-k">Evolution</span><span class="sp-v" id="evo-quality">--</span>
+        </div>
+        <div class="sp-kv">
+          <span class="sp-k">Research</span><span class="sp-v" id="res-findings">-- findings</span>
+        </div>
+        <div class="sp-kv">
+          <span class="sp-k">Workspace</span><span class="sp-v" id="ws-projects">-- projects</span>
+        </div>
+        <div class="sp-actions">
+          <button class="sp-action" onclick="showKnowledgeGraph()">Memory</button>
+          <button class="sp-action" onclick="showWorkspaceDetails()">Workspace</button>
+        </div>
+      </div>
+
+      <!-- Agents -->
+      <div class="sp-card">
+        <div class="sp-card-title">Agents</div>
+        <div class="agent-launch">
+          <textarea id="agentTaskInput" class="agent-task-input" rows="2" placeholder="Assign a task to an agent…"></textarea>
+          <div class="agent-launch-row">
+            <select id="agentRole" class="agent-role-select">
+              <option value="researcher">Researcher</option>
+              <option value="coder">Coder</option>
+              <option value="data_analyst">Data Analyst</option>
+              <option value="writer">Writer</option>
+              <option value="planner">Planner</option>
+              <option value="cybersec_analyst">CyberSec</option>
+            </select>
+            <button class="agent-launch-btn" onclick="launchAgentTask()">Launch ▸</button>
+          </div>
+        </div>
+        <div class="agent-tasks" id="agentTasks"></div>
+        <button class="sp-action" onclick="toggleAgentSwarm()">View Swarm</button>
+      </div>
+
+      <!-- Appearance -->
+      <div class="sp-card">
+        <div class="sp-card-title">Interface</div>
+        <div class="sp-pills">
+          <button class="sp-pill active" onclick="setTheme('dark')">Dark</button>
+          <button class="sp-pill" onclick="setTheme('light')">Light</button>
+          <button class="sp-pill" onclick="setTheme('neon')">Neon</button>
+        </div>
+        <div class="sp-chips">
+          <div class="sp-chip active" style="background:#00d4ff" onclick="setAccentColor('cyan')"></div>
+          <div class="sp-chip" style="background:#d946ef" onclick="setAccentColor('pink')"></div>
+          <div class="sp-chip" style="background:#10b981" onclick="setAccentColor('green')"></div>
+          <div class="sp-chip" style="background:#f59e0b" onclick="setAccentColor('orange')"></div>
+        </div>
+      </div>
+
+    </div>
+  </aside>
+
+  <!-- Network Topology Overlay -->
+  <div class="viz-overlay" id="networkMapOverlay">
+    <div class="viz-header">
+      <span>◢ NETWORK TOPOLOGY</span>
+      <button class="viz-close" onclick="toggleNetworkMap()">✕</button>
+    </div>
+    <div class="viz-canvas-wrap" id="networkMapWrap"></div>
+    <div class="viz-legend">
+      <span><i class="legend-dot trusted"></i> Trusted</span>
+      <span><i class="legend-dot unknown"></i> Unknown</span>
+      <span><i class="legend-dot suspicious"></i> Suspicious</span>
+      <span><i class="legend-dot gateway"></i> Gateway</span>
+    </div>
+  </div>
+
+  <!-- Agent Swarm Overlay -->
+  <div class="viz-overlay" id="agentSwarmOverlay">
+    <div class="viz-header">
+      <span>◢ AGENT SWARM</span>
+      <button class="viz-close" onclick="toggleAgentSwarm()">✕</button>
+    </div>
+    <div class="viz-canvas-wrap" id="agentSwarmWrap"></div>
+    <div class="viz-legend">
+      <span><i class="legend-dot" style="background:#00d4ff"></i> Researcher</span>
+      <span><i class="legend-dot" style="background:#10b981"></i> Coder</span>
+      <span><i class="legend-dot" style="background:#f59e0b"></i> Analyst</span>
+      <span><i class="legend-dot" style="background:#d946ef"></i> CyberSec</span>
+    </div>
+  </div>
+
+  <!-- Memory Vault merged into the floating Memory Graph window (memory-ring.js):
+       search · teach · forget now live alongside the force-directed graph. -->
+
+  <!-- Overlays -->
+  <div class="upload-overlay" id="uploadOverlay">
+    <div class="upload-zone"><h2>Drop files here</h2><p>or click to browse</p></div>
+  </div>
+
+  <div class="shortcuts-help" id="shortcutsHelp">
+    <h4>Keyboard Shortcuts</h4>
+    <div><span>Send</span>        <span class="shortcut-key">Enter</span></div>
+    <div><span>New Chat</span>    <span class="shortcut-key">Ctrl+N</span></div>
+    <div><span>Search</span>      <span class="shortcut-key">Ctrl+K</span></div>
+    <div><span>Voice Input</span> <span class="shortcut-key">Ctrl+Shift+V</span></div>
+    <div><span>Voice Output</span><span class="shortcut-key">Ctrl+Shift+S</span></div>
+    <div><span>Panel</span>       <span class="shortcut-key">Ctrl+B</span></div>
+    <div><span>Close</span>       <span class="shortcut-key">Esc</span></div>
+  </div>
+
+  <script src="/static/js/vendor/three.min.js?v=63"></script>
+  <script src="/static/js/app.js?v=68"></script>
+
+  <!-- HUD LAYER — spatial glassmorphic UI on top of the cognitive mesh -->
+  <script src="/static/js/hud-core.js?v=63"></script>
+  <script src="/static/js/memory-ring.js?v=102"></script>
+  <script src="/static/js/deep-mind.js?v=79"></script>
+  <script src="/static/js/aegis-shield.js?v=63"></script>
+  <script src="/static/js/micro-apps.js?v=63"></script>
+  <script src="/static/js/command-deck.js?v=63"></script>
+  <script src="/static/js/deck-fx.js?v=63"></script>
+
+  <!-- DEEP hero — the Liquid Intelligence Orb (Abyssal Tech identity) -->
+  <script src="/static/js/deep-orb.js?v=63"></script>
+  <!-- DEEP intelligence modules — Surface Report, Research, Threat, Evolution -->
+  <script src="/static/js/deep-modules.js?v=63"></script>
+  <!-- DEEP modules II — Proximity, Audit Ledger, Approval Queue -->
+  <script src="/static/js/deep-modules2.js?v=63"></script>
+  <script src="/static/js/deep-instruments.js?v=63"></script>
+  <script src="/static/js/deep-vitals.js?v=63"></script>
+  <script src="/static/js/deep-elements.js?v=63"></script>
+  <!-- DEEP Science Studio — interactive grapher + 16-domain compute engine -->
+  <script src="/static/js/deep-science.js?v=63"></script>
+  <!-- DEEP motion system — ripples, count-up, calm mode (Ctrl+Alt+M) -->
+  <script src="/static/js/deep-motion.js?v=63"></script>
+  <!-- DEEP UX layer — command palette, empathy (mood+toasts), window mgr -->
+  <script src="/static/js/deep-palette.js?v=102"></script>
+  <script src="/static/js/deep-empathy.js?v=63"></script>
+  <script src="/static/js/deep-windows.js?v=63"></script>
+
+  <!-- Immersion layer — synth UI sound FX + radial core command menu -->
+  <script src="/static/js/sfx.js?v=63"></script>
+  <script src="/static/js/core-menu.js?v=63"></script>
+  <!-- Skin toggle — Abyssal (DEEP) ⇄ Gold (yantra) -->
+  <script src="/static/js/deep-theme.js?v=63"></script>
+  <!-- Vision attach (Phase 3b): image input → Claude vision -->
+  <script src="/static/js/vision-attach.js?v=64"></script>
+  <!-- Provider key-health dashboard (new element) -->
+  <script src="/static/js/provider-health.js?v=64"></script>
+  <!-- Screen awareness (new element): DEEP sees your screen via local vision -->
+  <script src="/static/js/screen-awareness.js?v=64"></script>
+  <!-- Periodic table (chemistry oracle UI) -->
+  <script src="/static/js/periodic-table.js?v=64"></script>
+</body>
+</html>

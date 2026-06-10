@@ -1,0 +1,17 @@
+/* DEEP modern frontend — base reset + primitives (calm modern minimal). */
+*, *::before, *::after { box-sizing: border-box; }
+html, body { height: 100%; margin: 0; }
+body {
+  background: var(--ds-bg);
+  color: var(--ds-text);
+  font-family: var(--ds-font-sans);
+  font-size: var(--ds-text-base);
+  line-height: var(--ds-leading-normal);
+  -webkit-font-smoothing: antialiased;
+  text-rendering: optimizeLegibility;
+}
+:focus-visible { outline: none; box-shadow: var(--ds-focus-ring); border-radius: var(--ds-radius-xs); }
+::selection { background: rgba(var(--ds-periwinkle-rgb), 0.3); }
+::-webkit-scrollbar { width: 10px; height: 10px; }
+::-webkit-scrollbar-thumb { background: var(--ds-surface-3); border-radius: var(--ds-radius-pill); }
+::-webkit-scrollbar-track { background: transparent; }

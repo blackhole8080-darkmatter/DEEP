@@ -1,0 +1,151 @@
+/* ============================================================================
+ * DEEP — DESIGN TOKENS  (single source of truth)
+ * ----------------------------------------------------------------------------
+ * One canonical, modern token layer in the `--ds-*` namespace. New UI
+ * (agent runs, reasoning, memory graph, alert inbox) should consume ONLY these.
+ *
+ * Loaded FIRST, so it is purely additive: legacy sheets that redefine their own
+ * `--color-*` / `--abyss-*` / `--deck-*` vars still win the cascade unchanged —
+ * zero visual regression today, while giving everything a clean migration target.
+ *
+ * Direction follows base.css's own brief: "calm, modern, minimal 2026 redesign"
+ * — charcoal surfaces, off-white text, one restrained periwinkle accent.
+ * ========================================================================== */
+
+:root {
+  /* ── Primitive palette ─────────────────────────────────────────────── */
+  --ds-charcoal-900: #0b0c10;
+  --ds-charcoal-850: #0e0f13;
+  --ds-charcoal-800: #14161b;
+  --ds-charcoal-700: #1a1d24;
+  --ds-charcoal-600: #21252e;
+  --ds-charcoal-500: #2b303b;
+
+  --ds-periwinkle:   #7c93ff;   /* PRIMARY accent */
+  --ds-periwinkle-rgb: 124, 147, 255;
+  --ds-iris:         #9a8cff;
+  --ds-lilac:        #b58cff;
+  --ds-mint:         #56c596;   /* success */
+  --ds-amber:        #e0a35a;   /* warning */
+  --ds-coral:        #e5736a;   /* danger  */
+  --ds-sky:          #5ec8e5;   /* info    */
+
+  --ds-white:        #e9eaec;
+
+  /* ── Semantic surfaces ─────────────────────────────────────────────── */
+  --ds-bg:          var(--ds-charcoal-850);   /* app canvas            */
+  --ds-surface-1:   var(--ds-charcoal-800);   /* raised panel          */
+  --ds-surface-2:   var(--ds-charcoal-700);   /* card on panel         */
+  --ds-surface-3:   var(--ds-charcoal-600);   /* hover / active        */
+  --ds-glass:       rgba(20, 22, 27, 0.72);   /* frosted overlay       */
+  --ds-glass-thin:  rgba(20, 22, 27, 0.48);
+  --ds-scrim:       rgba(6, 7, 10, 0.62);     /* modal backdrop        */
+
+  /* ── Semantic text ─────────────────────────────────────────────────── */
+  --ds-text:        var(--ds-white);
+  --ds-text-soft:   rgba(233, 234, 236, 0.62);
+  --ds-text-muted:  rgba(233, 234, 236, 0.40);
+  --ds-text-faint:  rgba(233, 234, 236, 0.22);
+  --ds-on-accent:   #0b0c10;
+
+  /* ── Borders & focus ───────────────────────────────────────────────── */
+  --ds-border:        rgba(255, 255, 255, 0.07);
+  --ds-border-strong: rgba(255, 255, 255, 0.12);
+  --ds-border-accent: rgba(var(--ds-periwinkle-rgb), 0.45);
+  --ds-focus-ring:    0 0 0 2px var(--ds-bg), 0 0 0 4px rgba(var(--ds-periwinkle-rgb), 0.7);
+
+  /* ── Status (foreground) ───────────────────────────────────────────── */
+  --ds-accent:   var(--ds-periwinkle);
+  --ds-success:  var(--ds-mint);
+  --ds-warning:  var(--ds-amber);
+  --ds-danger:   var(--ds-coral);
+  --ds-info:     var(--ds-sky);
+
+  /* ── Spacing scale (4px base) ──────────────────────────────────────── */
+  --ds-space-0: 0;
+  --ds-space-1: 0.25rem;   /* 4  */
+  --ds-space-2: 0.5rem;    /* 8  */
+  --ds-space-3: 0.75rem;   /* 12 */
+  --ds-space-4: 1rem;      /* 16 */
+  --ds-space-5: 1.5rem;    /* 24 */
+  --ds-space-6: 2rem;      /* 32 */
+  --ds-space-7: 3rem;      /* 48 */
+  --ds-space-8: 4rem;      /* 64 */
+
+  /* ── Radii ─────────────────────────────────────────────────────────── */
+  --ds-radius-xs: 4px;
+  --ds-radius-sm: 8px;
+  --ds-radius-md: 12px;
+  --ds-radius-lg: 16px;
+  --ds-radius-xl: 24px;
+  --ds-radius-pill: 999px;
+
+  /* ── Elevation (modern soft shadows + accent glow) ─────────────────── */
+  --ds-elev-1: 0 1px 2px rgba(0,0,0,0.40);
+  --ds-elev-2: 0 4px 12px rgba(0,0,0,0.45);
+  --ds-elev-3: 0 12px 32px rgba(0,0,0,0.50);
+  --ds-elev-4: 0 24px 64px rgba(0,0,0,0.55);
+  --ds-glow:   0 0 24px rgba(var(--ds-periwinkle-rgb), 0.35);
+  --ds-glow-strong: 0 0 48px rgba(var(--ds-periwinkle-rgb), 0.45);
+
+  /* ── Blur scale (glassmorphism) ────────────────────────────────────── */
+  --ds-blur-sm: 6px;
+  --ds-blur-md: 14px;
+  --ds-blur-lg: 28px;
+
+  /* ── Typography ────────────────────────────────────────────────────── */
+  --ds-font-sans: "Inter", system-ui, -apple-system, "Segoe UI", sans-serif;
+  --ds-font-mono: "JetBrains Mono", ui-monospace, "SF Mono", monospace;
+  --ds-font-deva: "Noto Serif Devanagari", serif;
+
+  --ds-text-xs:  0.75rem;
+  --ds-text-sm:  0.875rem;
+  --ds-text-base:1rem;
+  --ds-text-lg:  1.125rem;
+  --ds-text-xl:  1.375rem;
+  --ds-text-2xl: 1.75rem;
+  --ds-text-3xl: 2.25rem;
+
+  --ds-leading-tight: 1.2;
+  --ds-leading-normal: 1.5;
+  --ds-tracking-wide: 0.04em;
+
+  /* ── Motion (spring-flavored easings + durations) ──────────────────── */
+  --ds-ease-out:    cubic-bezier(0.16, 1, 0.3, 1);     /* decelerate     */
+  --ds-ease-in-out: cubic-bezier(0.65, 0, 0.35, 1);
+  --ds-ease-spring: cubic-bezier(0.34, 1.56, 0.64, 1); /* gentle overshoot */
+  --ds-dur-fast:   120ms;
+  --ds-dur-base:   220ms;
+  --ds-dur-slow:   360ms;
+
+  /* ── Z-index scale ─────────────────────────────────────────────────── */
+  --ds-z-base:    1;
+  --ds-z-panel:   100;
+  --ds-z-overlay: 500;
+  --ds-z-modal:   1000;
+  --ds-z-palette: 1500;
+  --ds-z-toast:   2000;
+}
+
+/* ── Skin awareness ────────────────────────────────────────────────────────
+ * Components consume --ds-accent; remap it per active skin so token-driven UI
+ * stays coherent whether the user runs Abyssal (cyan), Gold, or the calm base.
+ */
+:root[data-skin="abyssal"] {
+  --ds-accent: #00e5ff;
+  --ds-periwinkle-rgb: 0, 229, 255;   /* drives accent glows/borders */
+  --ds-success: #00ffd1;
+}
+:root[data-skin="gold"] {
+  --ds-accent: #f5b942;
+  --ds-periwinkle-rgb: 245, 185, 66;
+}
+
+/* Respect reduced-motion globally for any --ds-* driven animation. */
+@media (prefers-reduced-motion: reduce) {
+  :root {
+    --ds-dur-fast: 1ms;
+    --ds-dur-base: 1ms;
+    --ds-dur-slow: 1ms;
+  }
+}

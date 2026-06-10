@@ -1,0 +1,66 @@
+/* ═══════════════════════════════════════════════════════════════════════════
+   DEEP EMPATHY — mood-tinted orb + ambient "surface from the deep" toasts
+   ═══════════════════════════════════════════════════════════════════════════ */
+
+/* Mood tints the orb body/glow (hue-shift from the teal/cyan base). The host's
+   drop-shadow stays, so the bloom still tracks energy. */
+#deep-orb svg { transition: filter 1.2s ease; }
+body[data-mood="focus"]  #deep-orb svg { filter: saturate(1.15) brightness(1.05); }
+body[data-mood="warn"]   #deep-orb svg { filter: hue-rotate(-118deg) saturate(1.2); }
+body[data-mood="alert"]  #deep-orb svg { filter: hue-rotate(-158deg) saturate(1.5) brightness(1.08); }
+/* alert also reddens the host bloom */
+body[data-mood="alert"]  #deep-orb { filter:
+    drop-shadow(0 0 calc(40px + var(--orb-energy,0)*70px) rgba(255,90,70,0.6))
+    drop-shadow(0 0 16px rgba(255,120,60,0.5)) !important; }
+
+/* ── Toasts ───────────────────────────────────────────────────────────────── */
+.deep-toasts {
+  position: fixed;
+  right: 18px; bottom: 92px;
+  z-index: 72;
+  display: flex; flex-direction: column-reverse; gap: 9px;
+  max-width: 320px;
+  pointer-events: none;
+}
+.deep-toast {
+  pointer-events: auto;
+  display: flex; align-items: flex-start; gap: 10px;
+  padding: 11px 13px;
+  border-radius: 13px;
+  background: var(--deck-glass-2, rgba(4,14,28,0.86));
+  backdrop-filter: blur(20px) saturate(1.35);
+  -webkit-backdrop-filter: blur(20px) saturate(1.35);
+  border: 1px solid rgba(0, 229, 255, 0.28);
+  box-shadow: 0 16px 44px rgba(0,0,0,0.6), 0 0 26px rgba(0,229,255,0.14);
+  color: var(--hud-ink, #d6f7ff);
+  opacity: 0;
+  transform: translateY(28px) scale(0.96);
+  filter: blur(5px);
+  transition: opacity .5s ease, transform .6s cubic-bezier(.16,1,.3,1), filter .5s ease;
+}
+.deep-toast.show { opacity: 1; transform: translateY(0) scale(1); filter: blur(0); }
+.deep-toast.sink { opacity: 0; transform: translateY(18px) scale(0.97); filter: blur(4px); }
+.dt-icon {
+  flex: 0 0 auto; font-size: 16px; line-height: 1.2;
+  color: var(--abyss-teal, #00ffd1); text-shadow: 0 0 10px rgba(0,255,209,0.6);
+}
+.dt-title { font: 600 12px Inter, sans-serif; color: var(--hud-ink, #d6f7ff); line-height: 1.3; }
+.dt-text  { font: 400 10px var(--deck-mono, monospace); color: rgba(190,240,255,0.6); margin-top: 2px; line-height: 1.4; }
+
+.deep-toast.lvl-alert { border-color: rgba(255,90,90,0.5); box-shadow: 0 16px 44px rgba(0,0,0,0.6), 0 0 26px rgba(255,90,90,0.22); }
+.deep-toast.lvl-alert .dt-icon { color: #ff8a8a; text-shadow: 0 0 10px rgba(255,90,90,0.6); }
+.deep-toast.lvl-approval { border-color: rgba(0,255,209,0.5); }
+.deep-toast.lvl-success .dt-icon { color: var(--abyss-teal, #00ffd1); }
+
+@media (max-width: 640px) {
+  .deep-toasts { right: 8px; left: 8px; bottom: 84px; max-width: none; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .deep-toast { transition: opacity .2s ease; transform: none !important; filter: none !important; }
+  #deep-orb svg { transition: none; }
+}
+
+/* PERF: freeze CSS animations while the tab is hidden (rAF already throttles). */
+body.deep-hidden *, body.deep-hidden *::before, body.deep-hidden *::after {
+  animation-play-state: paused !important;
+}

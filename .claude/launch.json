@@ -1,0 +1,11 @@
+{
+  "version": "0.0.1",
+  "configurations": [
+    {
+      "name": "DEEP",
+      "runtimeExecutable": "python",
+      "runtimeArgs": ["C:/Users/Aryan/Aryan_Private/DEEP/interface/server.py", ":7768"],
+      "port": 7768
+    }
+  ]
+}

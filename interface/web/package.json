@@ -1,0 +1,20 @@
+{
+  "name": "deep-web",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "DEEP modern frontend — Vite + Lit + TypeScript",
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build",
+    "preview": "vite preview"
+  },
+  "dependencies": {
+    "lit": "^3.2.0",
+    "@lit-labs/signals": "^0.1.2"
+  },
+  "devDependencies": {
+    "typescript": "^5.6.0",
+    "vite": "^6.0.0"
+  }
+}
