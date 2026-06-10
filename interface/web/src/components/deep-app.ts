@@ -8,8 +8,12 @@ import { customElement, state } from "lit/decorators.js";
 import { SignalWatcher } from "@lit-labs/signals";
 import { initStore, connection, activeModel } from "../core/store";
 import { fetchStatus } from "../core/api";
+import "../core/commands";
 import "./gallery";
 import "./chat/deep-chat";
+import "./science/science-view";
+import "./command-palette";
+import type { CommandPalette } from "./command-palette";
 
 @customElement("deep-app")
 export class DeepApp extends SignalWatcher(LitElement) {
@@ -17,17 +21,25 @@ export class DeepApp extends SignalWatcher(LitElement) {
   @state() private status = "—";
 
   private onHash = () => { this.route = location.hash.slice(1) || "home"; };
+  private onGlobalKey = (e: KeyboardEvent) => {
+    if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "k") {
+      e.preventDefault();
+      (this.renderRoot.querySelector("command-palette") as CommandPalette | null)?.toggle();
+    }
+  };
 
   connectedCallback(): void {
     super.connectedCallback();
     initStore();
     void fetchStatus().then((s) => (this.status = s.deep)).catch(() => (this.status = "offline"));
     window.addEventListener("hashchange", this.onHash);
+    window.addEventListener("keydown", this.onGlobalKey);
   }
 
   disconnectedCallback(): void {
     super.disconnectedCallback();
     window.removeEventListener("hashchange", this.onHash);
+    window.removeEventListener("keydown", this.onGlobalKey);
   }
 
   static styles = css`
@@ -47,6 +59,13 @@ export class DeepApp extends SignalWatcher(LitElement) {
     .meta { font-family: var(--ds-font-mono); font-size: var(--ds-text-sm); color: var(--ds-text-soft); }
     nav a { color: var(--ds-text-muted); font-size: var(--ds-text-sm); text-decoration: none; margin-right: var(--ds-space-3); }
     nav a:hover { color: var(--ds-accent); }
+    .kbd {
+      padding: 2px 7px;
+      border: 1px solid var(--ds-border);
+      border-radius: var(--ds-radius-xs);
+      font-size: 0.65rem;
+      cursor: default;
+    }
 
     main { overflow: auto; }
     .probe {
@@ -81,15 +100,20 @@ export class DeepApp extends SignalWatcher(LitElement) {
         <span class="spacer"></span>
         <nav>
           <a href="#home">chat</a>
+          <a href="#science">science</a>
           <a href="#gallery">gallery</a>
         </nav>
         <span class="meta">${this.status} · ${activeModel.get()}</span>
+        <span class="meta kbd" title="Command palette">⌘K</span>
       </header>
       <main>
         ${this.route === "gallery"
           ? html`<ds-gallery></ds-gallery>`
-          : html`<deep-chat></deep-chat>`}
+          : this.route === "science"
+            ? html`<science-view></science-view>`
+            : html`<deep-chat></deep-chat>`}
       </main>
+      <command-palette></command-palette>
     `;
   }
 }
