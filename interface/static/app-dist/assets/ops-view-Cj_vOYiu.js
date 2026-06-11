@@ -1,4 +1,4 @@
-import{a as l,j as v,k as h,b as e,i as u,r as d,t as g}from"./index-C1qtzXJ3.js";import"./ds-panel-DApGqLE2.js";var m=Object.defineProperty,b=Object.getOwnPropertyDescriptor,o=(a,t,n,s)=>{for(var i=s>1?void 0:s?b(t,n):t,p=a.length-1,c;p>=0;p--)(c=a[p])&&(i=(s?c(t,n,i):c(i))||i);return s&&i&&m(t,n,i),i};let r=class extends l{constructor(){super(...arguments),this.providers=null,this.security=null,this.kstats=null,this.docs=[]}connectedCallback(){super.connectedCallback(),this.refresh()}async refresh(){v().then(a=>this.providers=a).catch(()=>{}),fetch("/api/security/status").then(a=>a.json()).then(a=>this.security=a).catch(()=>{}),fetch("/api/knowledge/stats").then(a=>a.json()).then(a=>this.kstats=a).catch(()=>{}),h().then(a=>this.docs=a.documents).catch(()=>{})}render(){const a=this.providers,t=this.security,n=this.kstats;return e`
+import{a as l,j as v,k as h,b as e,i as u,r as d,t as g}from"./index-CUIHgJB1.js";import"./ds-panel-Dgug3kt1.js";var m=Object.defineProperty,b=Object.getOwnPropertyDescriptor,o=(a,t,n,s)=>{for(var i=s>1?void 0:s?b(t,n):t,p=a.length-1,c;p>=0;p--)(c=a[p])&&(i=(s?c(t,n,i):c(i))||i);return s&&i&&m(t,n,i),i};let r=class extends l{constructor(){super(...arguments),this.providers=null,this.security=null,this.kstats=null,this.docs=[]}connectedCallback(){super.connectedCallback(),this.refresh()}async refresh(){v().then(a=>this.providers=a).catch(()=>{}),fetch("/api/security/status").then(a=>a.json()).then(a=>this.security=a).catch(()=>{}),fetch("/api/knowledge/stats").then(a=>a.json()).then(a=>this.kstats=a).catch(()=>{}),h().then(a=>this.docs=a.documents).catch(()=>{})}render(){const a=this.providers,t=this.security,n=this.kstats;return e`
       <ds-panel heading="AI providers">
         ${a?a.providers.map(s=>e`
                 <div class="row">
@@ -69,4 +69,4 @@ import{a as l,j as v,k as h,b as e,i as u,r as d,t as g}from"./index-C1qtzXJ3.js
       font-family: var(--ds-font-mono);
     }
   `;o([d()],r.prototype,"providers",2);o([d()],r.prototype,"security",2);o([d()],r.prototype,"kstats",2);o([d()],r.prototype,"docs",2);r=o([g("ops-view")],r);export{r as OpsView};
-//# sourceMappingURL=ops-view-P3-g4ITl.js.map
+//# sourceMappingURL=ops-view-Cj_vOYiu.js.map

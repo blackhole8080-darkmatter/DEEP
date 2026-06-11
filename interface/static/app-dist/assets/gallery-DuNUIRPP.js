@@ -1,4 +1,4 @@
-import{i as v,n as p,e as f,a as b,b as i,t as h,c as u}from"./index-C1qtzXJ3.js";import"./ds-panel-DApGqLE2.js";var g=Object.defineProperty,y=Object.getOwnPropertyDescriptor,o=(e,a,n,r)=>{for(var s=r>1?void 0:r?y(a,n):a,d=e.length-1,l;d>=0;d--)(l=e[d])&&(s=(r?l(a,n,s):l(s))||s);return r&&s&&g(a,n,s),s};let t=class extends b{constructor(){super(...arguments),this.label="",this.placeholder="",this.value="",this.type="text"}onInput(){this.value=this.input.value,this.dispatchEvent(new CustomEvent("ds-input",{detail:this.value,bubbles:!0,composed:!0}))}onKeydown(e){e.key==="Enter"&&this.dispatchEvent(new CustomEvent("ds-submit",{detail:this.value,bubbles:!0,composed:!0}))}render(){return i`
+import{i as v,n as p,e as f,a as b,b as i,t as h,c as u}from"./index-CUIHgJB1.js";import"./ds-panel-Dgug3kt1.js";var g=Object.defineProperty,y=Object.getOwnPropertyDescriptor,o=(e,a,n,r)=>{for(var s=r>1?void 0:r?y(a,n):a,d=e.length-1,l;d>=0;d--)(l=e[d])&&(s=(r?l(a,n,s):l(s))||s);return r&&s&&g(a,n,s),s};let t=class extends b{constructor(){super(...arguments),this.label="",this.placeholder="",this.value="",this.type="text"}onInput(){this.value=this.input.value,this.dispatchEvent(new CustomEvent("ds-input",{detail:this.value,bubbles:!0,composed:!0}))}onKeydown(e){e.key==="Enter"&&this.dispatchEvent(new CustomEvent("ds-submit",{detail:this.value,bubbles:!0,composed:!0}))}render(){return i`
       ${this.label?i`<label>${this.label}</label>`:""}
       <input
         .type=${this.type}
@@ -88,4 +88,4 @@ import{i as v,n as p,e as f,a as b,b as i,t as h,c as u}from"./index-C1qtzXJ3.js
       font-family: var(--ds-font-mono);
     }
   `;c=x([h("ds-gallery")],c);export{c as DsGallery};
-//# sourceMappingURL=gallery--L2PniMN.js.map
+//# sourceMappingURL=gallery-DuNUIRPP.js.map

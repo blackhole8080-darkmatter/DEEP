@@ -8,6 +8,7 @@ import { customElement, state } from "lit/decorators.js";
 import { SignalWatcher } from "@lit-labs/signals";
 import { initStore, connection, activeModel } from "../core/store";
 import { fetchStatus } from "../core/api";
+import { skin, cycleSkin } from "../core/theme";
 import "../core/commands";
 import "./chat/deep-chat";        // chat is the default route → eager
 import "./command-palette";
@@ -19,6 +20,9 @@ const lazyView: Record<string, () => Promise<unknown>> = {
   science: () => import("./science/science-view"),
   ops: () => import("./ops/ops-view"),
   agents: () => import("./ops/agents-view"),
+  network: () => import("./ops/network-view"),
+  audit: () => import("./ops/audit-view"),
+  memory: () => import("./memory/memory-graph"),
 };
 
 @customElement("deep-app")
@@ -59,6 +63,19 @@ export class DeepApp extends SignalWatcher(LitElement) {
     window.removeEventListener("keydown", this.onGlobalKey);
   }
 
+  private renderRoute() {
+    switch (this.route) {
+      case "gallery": return html`<ds-gallery></ds-gallery>`;
+      case "science": return html`<science-view></science-view>`;
+      case "memory": return html`<memory-graph></memory-graph>`;
+      case "network": return html`<network-view></network-view>`;
+      case "audit": return html`<audit-view></audit-view>`;
+      case "ops": return html`<ops-view></ops-view>`;
+      case "agents": return html`<agents-view></agents-view>`;
+      default: return html`<deep-chat></deep-chat>`;
+    }
+  }
+
   static styles = css`
     :host { display: grid; grid-template-rows: auto 1fr; height: 100%; }
     header {
@@ -82,7 +99,13 @@ export class DeepApp extends SignalWatcher(LitElement) {
       border-radius: var(--ds-radius-xs);
       font-size: 0.65rem;
       cursor: default;
+      color: var(--ds-text-soft);
+      background: none;
+      font-family: var(--ds-font-mono);
     }
+    button.theme { cursor: pointer; transition: all var(--ds-dur-fast) var(--ds-ease-out); }
+    button.theme:hover { color: var(--ds-accent); border-color: var(--ds-border-accent); box-shadow: var(--ds-glow); }
+    nav { display: flex; flex-wrap: wrap; }
 
     main { overflow: auto; }
     .probe {
@@ -118,22 +141,20 @@ export class DeepApp extends SignalWatcher(LitElement) {
         <nav>
           <a href="#home">chat</a>
           <a href="#science">science</a>
+          <a href="#memory">memory</a>
+          <a href="#network">network</a>
+          <a href="#audit">audit</a>
           <a href="#ops">ops</a>
           <a href="#agents">agents</a>
         </nav>
         <span class="meta">${this.status} · ${activeModel.get()}</span>
+        <button class="kbd theme" title="Toggle theme (calm / neon)" @click=${() => cycleSkin()}>
+          ${skin.get() === "neon" ? "◖ neon" : "◗ calm"}
+        </button>
         <span class="meta kbd" title="Command palette">⌘K</span>
       </header>
       <main>
-        ${this.route === "gallery"
-          ? html`<ds-gallery></ds-gallery>`
-          : this.route === "science"
-            ? html`<science-view></science-view>`
-            : this.route === "ops"
-              ? html`<ops-view></ops-view>`
-              : this.route === "agents"
-                ? html`<agents-view></agents-view>`
-                : html`<deep-chat></deep-chat>`}
+        ${this.renderRoute()}
       </main>
       <command-palette></command-palette>
     `;

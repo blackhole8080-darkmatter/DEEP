@@ -2,6 +2,7 @@
 // Features register here; the palette just renders + fuzzy-matches.
 import { fetchProviderHealth } from "./api";
 import { toast } from "../components/primitives/ds-toast";
+import { cycleSkin } from "./theme";
 
 export interface Command {
   id: string;
@@ -51,7 +52,12 @@ registerCommand({ id: "nav.gallery", label: "Open Design Gallery", hint: "nav", 
 registerCommand({ id: "nav.science", label: "Open Science (Periodic Table & Physics)", hint: "nav", run: go("science") });
 registerCommand({ id: "nav.ops", label: "Open Ops (Providers · Security · Knowledge)", hint: "nav", run: go("ops") });
 registerCommand({ id: "nav.agents", label: "Open Agents Board", hint: "nav", run: go("agents") });
+registerCommand({ id: "nav.memory", label: "Open Memory Graph", hint: "nav", run: go("memory") });
+registerCommand({ id: "nav.network", label: "Open Network (Devices · Vitals · Proximity)", hint: "nav", run: go("network") });
+registerCommand({ id: "nav.audit", label: "Open Audit Ledger", hint: "nav", run: go("audit") });
 registerCommand({ id: "nav.legacy", label: "Open Legacy UI (/ai)", hint: "nav", run: () => { location.href = "/ai"; } });
+
+registerCommand({ id: "ui.theme", label: "Toggle Theme (Calm ⇄ Neon)", hint: "ui", run: () => cycleSkin() });
 
 registerCommand({
   id: "sys.providers",

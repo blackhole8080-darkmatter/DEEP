@@ -26,6 +26,16 @@ export const reasoningSteps = signal<ReasoningStep["step"][]>([]);
 export const activeModel = signal("—");
 export const lastTelemetry = signal("");
 
+// Live proximity / RF / device telemetry feed (newest first, capped).
+export interface FeedEvent { time: string; label: string; type: string; }
+export const proximityFeed = signal<FeedEvent[]>([]);
+
+const PROX_TYPES = new Set([
+  "ap_left_proximity", "persistent_unknown_ap", "device_unusual_time",
+  "ap_entered_proximity", "new_device_detected", "network_flow_recorded",
+  "device_joined", "security_alert",
+]);
+
 export const isStreaming = computed(() =>
   messages.get().some((m) => m.streaming),
 );
@@ -118,6 +128,11 @@ function reduce(msg: ServerMessage): void {
     default:
       // ambient telemetry (security_*, predictive_*, agent_*…)
       lastTelemetry.set(msg.type);
+      if (PROX_TYPES.has(msg.type)) {
+        const time = new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", second: "2-digit" });
+        const label = msg.type.replace(/_/g, " ");
+        proximityFeed.set([{ time, label, type: msg.type }, ...proximityFeed.get()].slice(0, 40));
+      }
   }
 }
 

@@ -1,0 +1,65 @@
+/* DEEP themes — selectable skins layered over the --ds-* token system.
+ * Default (no attribute) = calm modern minimal (charcoal + periwinkle).
+ * data-skin="neon" = brilliant multi-colour neon (electric, glowing).
+ */
+
+/* ── NEON: brilliant multi-colour, electric, glowing ─────────────────────── */
+:root[data-skin="neon"] {
+  /* canvas + surfaces: deep blue-black with a cool cast */
+  --ds-bg:          #05060f;
+  --ds-surface-1:   #0b0e1f;
+  --ds-surface-2:   #131733;
+  --ds-surface-3:   #1c2147;
+  --ds-glass:       rgba(11, 14, 31, 0.66);
+  --ds-glass-thin:  rgba(11, 14, 31, 0.42);
+  --ds-scrim:       rgba(3, 4, 12, 0.7);
+
+  /* text: cool white with a faint cyan tint */
+  --ds-text:        #e9f3ff;
+  --ds-text-soft:   rgba(220, 235, 255, 0.66);
+  --ds-text-muted:  rgba(200, 220, 255, 0.42);
+  --ds-text-faint:  rgba(190, 210, 255, 0.24);
+  --ds-on-accent:   #04050d;
+
+  /* PRIMARY accent: electric cyan */
+  --ds-accent:      #00e5ff;
+  --ds-periwinkle-rgb: 0, 229, 255;
+
+  /* multi-colour status palette — each genuinely neon */
+  --ds-success:     #00ffae;   /* neon mint  */
+  --ds-warning:     #ffd000;   /* neon amber */
+  --ds-danger:      #ff2d78;   /* neon pink-red */
+  --ds-info:        #00e5ff;   /* electric cyan */
+
+  /* extra neon accents available to components */
+  --ds-neon-magenta: #ff3df0;
+  --ds-neon-violet:  #9d5cff;
+  --ds-neon-lime:    #b6ff3d;
+  --ds-neon-orange:  #ff7a1a;
+  --ds-neon-blue:    #2e7bff;
+
+  /* borders glow faintly */
+  --ds-border:        rgba(0, 229, 255, 0.14);
+  --ds-border-strong: rgba(0, 229, 255, 0.30);
+  --ds-border-accent: rgba(0, 229, 255, 0.6);
+  --ds-focus-ring:    0 0 0 2px var(--ds-bg), 0 0 0 4px rgba(0, 229, 255, 0.8);
+
+  /* punchier glow + elevation */
+  --ds-glow:        0 0 22px rgba(0, 229, 255, 0.45);
+  --ds-glow-strong: 0 0 44px rgba(0, 229, 255, 0.6);
+  --ds-elev-2: 0 4px 14px rgba(0, 0, 0, 0.55), 0 0 0 1px rgba(0, 229, 255, 0.05);
+  --ds-elev-3: 0 12px 34px rgba(0, 0, 0, 0.6), 0 0 24px rgba(0, 229, 255, 0.12);
+  --ds-elev-4: 0 24px 64px rgba(0, 0, 0, 0.65), 0 0 40px rgba(157, 92, 255, 0.18);
+}
+
+/* In neon mode, give the whole app a subtle animated aurora wash behind content. */
+:root[data-skin="neon"] body {
+  background-image:
+    radial-gradient(60vw 50vh at 12% -8%, rgba(0, 229, 255, 0.10), transparent 60%),
+    radial-gradient(55vw 45vh at 100% 0%, rgba(255, 61, 240, 0.08), transparent 55%),
+    radial-gradient(70vw 60vh at 50% 110%, rgba(157, 92, 255, 0.10), transparent 60%);
+  background-attachment: fixed;
+}
+
+/* Accent text + primary buttons get a glow in neon mode. */
+:root[data-skin="neon"] .neon-glow { text-shadow: 0 0 10px currentColor; }
