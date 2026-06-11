@@ -6,6 +6,7 @@ import { unsafeHTML } from "lit/directives/unsafe-html.js";
 import { marked } from "marked";
 import DOMPurify from "dompurify";
 import type { ChatMessage } from "../../core/store";
+import "./reasoning-trail";
 
 marked.setOptions({ breaks: true, gfm: true });
 
@@ -72,6 +73,7 @@ export class ChatMessageEl extends LitElement {
       font-size: 0.65rem;
       color: var(--ds-text-faint);
     }
+    reasoning-trail { display: block; margin-top: var(--ds-space-2); }
     @keyframes rise { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: none; } }
     @keyframes blink { 50% { opacity: 0; } }
     @media (prefers-reduced-motion: reduce) { .bubble { animation: none; } }
@@ -95,6 +97,9 @@ export class ChatMessageEl extends LitElement {
     return html`
       <div class="bubble ai ${m.streaming ? "streaming" : ""}">
         <div class="md">${unsafeHTML(renderMarkdown(m.text))}</div>
+        ${m.reasoning?.length
+          ? html`<reasoning-trail .steps=${m.reasoning} .startCollapsed=${true}></reasoning-trail>`
+          : ""}
         ${badge}
       </div>
     `;

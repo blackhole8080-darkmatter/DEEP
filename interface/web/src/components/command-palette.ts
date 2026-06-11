@@ -93,18 +93,24 @@ export class CommandPalette extends LitElement {
     const res = this.results();
     return html`
       <div class="scrim" @click=${(e: Event) => { if (e.target === e.currentTarget) this.hide(); }}>
-        <div class="box">
+        <div class="box" role="dialog" aria-modal="true" aria-label="Command palette">
           <input
             placeholder="Type a command…"
+            role="combobox"
+            aria-expanded="true"
+            aria-autocomplete="list"
+            aria-label="Search commands"
             .value=${this.q}
             @input=${(e: Event) => { this.q = (e.target as HTMLInputElement).value; this.sel = 0; }}
             @keydown=${this.onKey}
           />
           ${res.length
-            ? html`<ul>
+            ? html`<ul role="listbox" aria-label="Commands">
                 ${res.map(
                   (c, i) => html`
                     <li class=${i === this.sel ? "sel" : ""}
+                        role="option"
+                        aria-selected=${i === this.sel}
                         @mouseenter=${() => (this.sel = i)}
                         @click=${() => this.run(c)}>
                       <span>${c.label}</span>

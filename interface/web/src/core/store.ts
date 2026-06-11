@@ -14,6 +14,7 @@ export interface ChatMessage {
   image?: string | null;
   model?: string;
   latency?: number;
+  reasoning?: ReasoningStep["step"][]; // grounding trail, pinned on completion
 }
 
 let nextId = 1;
@@ -88,7 +89,16 @@ function reduce(msg: ServerMessage): void {
       thinking.set(false);
       const end = msg as { model?: string; latency?: number };
       if (end.model) activeModel.set(end.model);
-      patchStream({ streaming: false, model: end.model, latency: end.latency });
+      // Pin this turn's grounding trail onto the finished message, then clear
+      // the live buffer for the next turn.
+      const trail = reasoningSteps.get();
+      patchStream({
+        streaming: false,
+        model: end.model,
+        latency: end.latency,
+        reasoning: trail.length ? trail : undefined,
+      });
+      reasoningSteps.set([]);
       break;
     }
     case "reasoning": {

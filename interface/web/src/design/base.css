@@ -15,3 +15,20 @@ body {
 ::-webkit-scrollbar { width: 10px; height: 10px; }
 ::-webkit-scrollbar-thumb { background: var(--ds-surface-3); border-radius: var(--ds-radius-pill); }
 ::-webkit-scrollbar-track { background: transparent; }
+
+/* View Transitions: gentle cross-fade between routes. */
+::view-transition-old(root) { animation: vt-out var(--ds-dur-base) var(--ds-ease-out); }
+::view-transition-new(root) { animation: vt-in var(--ds-dur-base) var(--ds-ease-out); }
+@keyframes vt-out { to { opacity: 0; transform: translateY(-4px); } }
+@keyframes vt-in { from { opacity: 0; transform: translateY(6px); } }
+
+/* Global reduced-motion: honor the OS preference everywhere. */
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+  ::view-transition-old(root), ::view-transition-new(root) { animation: none !important; }
+}

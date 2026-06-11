@@ -33,7 +33,13 @@ function describe(s: Step): string {
 @customElement("reasoning-trail")
 export class ReasoningTrail extends LitElement {
   @property({ attribute: false }) steps: Step[] = [];
+  @property({ type: Boolean }) startCollapsed = false;
   @state() private open = true;
+
+  connectedCallback(): void {
+    super.connectedCallback();
+    if (this.startCollapsed) this.open = false;
+  }
 
   static styles = css`
     :host { display: block; }

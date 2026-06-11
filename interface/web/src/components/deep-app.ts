@@ -9,20 +9,34 @@ import { SignalWatcher } from "@lit-labs/signals";
 import { initStore, connection, activeModel } from "../core/store";
 import { fetchStatus } from "../core/api";
 import "../core/commands";
-import "./gallery";
-import "./chat/deep-chat";
-import "./science/science-view";
-import "./ops/ops-view";
-import "./ops/agents-view";
+import "./chat/deep-chat";        // chat is the default route → eager
 import "./command-palette";
 import type { CommandPalette } from "./command-palette";
+
+// Heavy secondary views are code-split: their bundles load on first visit.
+const lazyView: Record<string, () => Promise<unknown>> = {
+  gallery: () => import("./gallery"),
+  science: () => import("./science/science-view"),
+  ops: () => import("./ops/ops-view"),
+  agents: () => import("./ops/agents-view"),
+};
 
 @customElement("deep-app")
 export class DeepApp extends SignalWatcher(LitElement) {
   @state() private route = location.hash.slice(1) || "home";
   @state() private status = "—";
 
-  private onHash = () => { this.route = location.hash.slice(1) || "home"; };
+  private onHash = () => {
+    const next = location.hash.slice(1) || "home";
+    void lazyView[next]?.(); // preload the view's bundle if it's code-split
+    // Smooth cross-fade between views where supported.
+    const doc = document as Document & { startViewTransition?: (cb: () => void) => void };
+    if (doc.startViewTransition && !matchMedia("(prefers-reduced-motion: reduce)").matches) {
+      doc.startViewTransition(() => { this.route = next; });
+    } else {
+      this.route = next;
+    }
+  };
   private onGlobalKey = (e: KeyboardEvent) => {
     if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "k") {
       e.preventDefault();
@@ -34,6 +48,7 @@ export class DeepApp extends SignalWatcher(LitElement) {
     super.connectedCallback();
     initStore();
     void fetchStatus().then((s) => (this.status = s.deep)).catch(() => (this.status = "offline"));
+    void lazyView[this.route]?.(); // load the initial view if it's not chat
     window.addEventListener("hashchange", this.onHash);
     window.addEventListener("keydown", this.onGlobalKey);
   }
