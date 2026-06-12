@@ -1310,6 +1310,25 @@ def _sci_sanitize(obj, depth=0):
 
 _SCI_MEDIA_KEYS = ("gif_path", "mp4_path", "png_path", "png", "image", "plot_path", "path", "file")
 
+@app.post("/api/math/solve")
+async def math_solve(payload: dict):
+    """Deterministic symbolic math via the SymPy router (exact, no hallucination).
+    Handles solve/derivative/integrate/simplify/factor/evaluate, including
+    implicit multiplication like 'x^3 + 2x'. Returns None when not a clean math
+    query so the caller can fall back to the broader NL science engine."""
+    text = (payload or {}).get("query", "")
+    if not isinstance(text, str) or not text.strip():
+        return {"ok": False, "result": None}
+    try:
+        from core.reasoning import symbolic_router as _sr
+        res = _sr.solve(text)
+        if res:
+            return {"ok": True, "kind": res["kind"], "expression": res["expression"],
+                    "result": res["result"], "engine": res["engine"]}
+        return {"ok": False, "result": None}
+    except Exception as e:
+        return {"ok": False, "result": None, "error": str(e)}
+
 @app.post("/api/science/compute")
 async def science_compute(payload: dict):
     """Route a natural-language science/tech command through the engine."""
@@ -2942,6 +2961,76 @@ async def api_vitals():
         }
     except Exception as e:
         return {"error": str(e)}
+
+@app.get("/api/system/info")
+async def api_system_info():
+    """Rich machine profile: connected displays, GPU, battery, uptime, per-core
+    CPU, OS — the precise hardware picture for the system monitor panel."""
+    import psutil, platform, socket, time as _t
+    info: dict = {}
+    try:
+        info["hostname"] = socket.gethostname()
+        info["os"] = f"{platform.system()} {platform.release()}"
+        info["arch"] = platform.machine()
+        info["python"] = platform.python_version()
+        info["boot_time"] = psutil.boot_time()
+        info["uptime_s"] = int(_t.time() - psutil.boot_time())
+        info["cpu_model"] = platform.processor() or "CPU"
+        info["cores_physical"] = psutil.cpu_count(logical=False)
+        info["cores_logical"] = psutil.cpu_count(logical=True)
+        try:
+            f = psutil.cpu_freq()
+            info["cpu_freq_mhz"] = round(f.current) if f else None
+        except Exception:
+            info["cpu_freq_mhz"] = None
+        info["per_core"] = psutil.cpu_percent(percpu=True, interval=0.2)
+    except Exception as e:
+        info["sys_error"] = str(e)
+
+    # Battery
+    try:
+        b = psutil.sensors_battery()
+        if b is not None:
+            info["battery"] = {
+                "percent": round(b.percent), "plugged": bool(b.power_plugged),
+                "secs_left": (None if b.secsleft is None or b.secsleft < 0 else b.secsleft),
+            }
+    except Exception:
+        pass
+
+    # Connected displays / monitors (Windows via win32api, fallback to ctypes)
+    displays = []
+    try:
+        import win32api
+        for i, (h, _hdc, _rect) in enumerate(win32api.EnumDisplayMonitors()):
+            mi = win32api.GetMonitorInfo(h)
+            r = mi["Monitor"]
+            displays.append({
+                "name": mi.get("Device", f"DISPLAY{i+1}"),
+                "width": r[2] - r[0], "height": r[3] - r[1],
+                "x": r[0], "y": r[1],
+                "primary": mi.get("Flags") == 1,
+            })
+    except Exception:
+        try:
+            import ctypes
+            u = ctypes.windll.user32
+            displays.append({"name": "DISPLAY1", "width": u.GetSystemMetrics(0),
+                             "height": u.GetSystemMetrics(1), "x": 0, "y": 0, "primary": True})
+        except Exception:
+            pass
+    info["displays"] = displays
+
+    # GPU (best-effort via the existing system monitor)
+    try:
+        from engine.system_monitor import SystemMonitor  # type: ignore
+        sm = SystemMonitor()
+        if hasattr(sm, "_gpu"):
+            info["gpu"] = sm._gpu()
+    except Exception:
+        info["gpu"] = None
+
+    return info
 
 @app.get("/api/geo/self")
 async def api_geo_self():

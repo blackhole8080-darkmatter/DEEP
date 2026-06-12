@@ -53,6 +53,42 @@ export const fetchKnowledgeList = () =>
     "/api/knowledge/list",
   );
 
+export interface Vitals {
+  cpu: number; ram: number; disk: number; ram_used_gb: number; ram_total_gb: number;
+  net_sent_mbs: number; net_recv_mbs: number; cores: number;
+}
+export const fetchVitals = () => get<Vitals>("/api/vitals");
+
+export interface Display { name: string; width: number; height: number; x: number; y: number; primary: boolean; }
+export interface SystemInfo {
+  hostname: string; os: string; arch: string; uptime_s: number;
+  cpu_model: string; cores_physical: number; cores_logical: number; cpu_freq_mhz: number | null;
+  per_core: number[];
+  battery?: { percent: number; plugged: boolean; secs_left: number | null };
+  displays: Display[];
+  gpu?: unknown;
+}
+export const fetchSystemInfo = () => get<SystemInfo>("/api/system/info");
+
+export interface GeoSelf { status: string; country: string; regionName: string; city: string; lat: number; lon: number; query: string; isp?: string; }
+export const fetchGeo = () => get<GeoSelf>("/api/geo/self");
+
+export async function mathSolve(query: string): Promise<{ ok: boolean; kind?: string; expression?: string; result?: string; engine?: string }> {
+  const r = await fetch("/api/math/solve", {
+    method: "POST", headers: { "content-type": "application/json" },
+    body: JSON.stringify({ query }),
+  });
+  return (await r.json()) as { ok: boolean; kind?: string; expression?: string; result?: string; engine?: string };
+}
+
+export async function scienceCompute(query: string): Promise<{ ok: boolean; verbal: string; result: unknown; media: unknown[] }> {
+  const r = await fetch("/api/science/compute", {
+    method: "POST", headers: { "content-type": "application/json" },
+    body: JSON.stringify({ query }),
+  });
+  return (await r.json()) as { ok: boolean; verbal: string; result: unknown; media: unknown[] };
+}
+
 export async function ingestDocument(file: File): Promise<{ ok: boolean; source?: string; chunks?: number; error?: string }> {
   const fd = new FormData();
   fd.append("file", file, file.name);

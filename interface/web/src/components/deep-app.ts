@@ -23,6 +23,9 @@ const lazyView: Record<string, () => Promise<unknown>> = {
   network: () => import("./ops/network-view"),
   audit: () => import("./ops/audit-view"),
   memory: () => import("./memory/memory-graph"),
+  system: () => import("./system/system-monitor"),
+  geo: () => import("./system/geo-view"),
+  calc: () => import("./science/calc-view"),
 };
 
 @customElement("deep-app")
@@ -67,8 +70,11 @@ export class DeepApp extends SignalWatcher(LitElement) {
     switch (this.route) {
       case "gallery": return html`<ds-gallery></ds-gallery>`;
       case "science": return html`<science-view></science-view>`;
+      case "calc": return html`<calc-view></calc-view>`;
       case "memory": return html`<memory-graph></memory-graph>`;
       case "network": return html`<network-view></network-view>`;
+      case "system": return html`<system-monitor></system-monitor>`;
+      case "geo": return html`<geo-view></geo-view>`;
       case "audit": return html`<audit-view></audit-view>`;
       case "ops": return html`<ops-view></ops-view>`;
       case "agents": return html`<agents-view></agents-view>`;
@@ -140,8 +146,11 @@ export class DeepApp extends SignalWatcher(LitElement) {
         <span class="spacer"></span>
         <nav>
           <a href="#home">chat</a>
+          <a href="#calc">calc</a>
           <a href="#science">science</a>
           <a href="#memory">memory</a>
+          <a href="#system">system</a>
+          <a href="#geo">geo</a>
           <a href="#network">network</a>
           <a href="#audit">audit</a>
           <a href="#ops">ops</a>
