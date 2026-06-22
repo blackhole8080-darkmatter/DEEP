@@ -247,8 +247,8 @@ export class ETISHud extends LitElement {
       height: 100%;
       overflow: hidden;
       font-family: var(--ds-font-mono, 'JetBrains Mono', 'Fira Code', monospace);
-      background: var(--ds-bg, #0a0c10);
-      color: var(--ds-text, #e0e6f0);
+      background: var(--ds-bg, var(--ds-bg));
+      color: var(--ds-text, var(--ds-text));
     }
 
     /* ── Top bar ── */
@@ -257,20 +257,20 @@ export class ETISHud extends LitElement {
       align-items: center;
       gap: 12px;
       padding: 10px 20px;
-      border-bottom: 1px solid rgba(0, 255, 136, 0.15);
-      background: rgba(0, 255, 136, 0.03);
+      border-bottom: 1px solid color-mix(in srgb, var(--ds-success) calc(0.15 * 100%), transparent);
+      background: color-mix(in srgb, var(--ds-success) calc(0.03 * 100%), transparent);
       flex-shrink: 0;
     }
     .etis-logo {
       font-size: 11px;
       font-weight: 700;
       letter-spacing: 4px;
-      color: #00ff88;
-      text-shadow: 0 0 12px rgba(0, 255, 136, 0.6);
+      color: var(--ds-success);
+      text-shadow: 0 0 12px color-mix(in srgb, var(--ds-success) calc(0.6 * 100%), transparent);
     }
     .etis-subtitle {
       font-size: 10px;
-      color: #4a5568;
+      color: var(--ds-text-muted);
       letter-spacing: 1px;
     }
     .etis-status {
@@ -283,18 +283,18 @@ export class ETISHud extends LitElement {
       width: 6px;
       height: 6px;
       border-radius: 50%;
-      background: #4a5568;
+      background: var(--ds-text-muted);
       transition: all 0.3s;
     }
-    .domain-dot.ok { background: #00ff88; box-shadow: 0 0 6px #00ff88; }
-    .domain-dot.err { background: #ff4466; box-shadow: 0 0 6px #ff4466; }
+    .domain-dot.ok { background: var(--ds-success); box-shadow: 0 0 6px var(--ds-success); }
+    .domain-dot.err { background: var(--ds-danger); box-shadow: 0 0 6px var(--ds-danger); }
 
     /* ── Nav tabs ── */
     .etis-nav {
       display: flex;
       gap: 2px;
       padding: 8px 20px 0;
-      border-bottom: 1px solid rgba(0, 255, 136, 0.1);
+      border-bottom: 1px solid color-mix(in srgb, var(--ds-success) calc(0.1 * 100%), transparent);
       flex-shrink: 0;
       overflow-x: auto;
     }
@@ -306,16 +306,16 @@ export class ETISHud extends LitElement {
       cursor: pointer;
       border: none;
       background: transparent;
-      color: #4a6880;
+      color: var(--ds-text-soft);
       border-bottom: 2px solid transparent;
       transition: all 0.2s;
       white-space: nowrap;
     }
-    .tab:hover { color: #00c8ff; }
+    .tab:hover { color: var(--ds-info); }
     .tab.active {
-      color: #00ff88;
-      border-bottom-color: #00ff88;
-      text-shadow: 0 0 8px rgba(0, 255, 136, 0.5);
+      color: var(--ds-success);
+      border-bottom-color: var(--ds-success);
+      text-shadow: 0 0 8px color-mix(in srgb, var(--ds-success) calc(0.5 * 100%), transparent);
     }
     .tab .tab-icon { margin-right: 5px; }
 
@@ -331,32 +331,32 @@ export class ETISHud extends LitElement {
 
     /* ── Error banner ── */
     .err-banner {
-      background: rgba(255, 68, 102, 0.1);
-      border: 1px solid rgba(255, 68, 102, 0.4);
+      background: color-mix(in srgb, var(--ds-danger) calc(0.1 * 100%), transparent);
+      border: 1px solid color-mix(in srgb, var(--ds-danger) calc(0.4 * 100%), transparent);
       border-radius: 4px;
       padding: 8px 12px;
       font-size: 11px;
-      color: #ff4466;
+      color: var(--ds-danger);
       display: flex;
       justify-content: space-between;
       align-items: center;
     }
     .err-banner button {
-      background: none; border: none; cursor: pointer; color: #ff4466; font-size: 14px;
+      background: none; border: none; cursor: pointer; color: var(--ds-danger); font-size: 14px;
     }
 
     /* ── Cards / panels ── */
     .card {
       background: rgba(255, 255, 255, 0.03);
-      border: 1px solid rgba(0, 255, 136, 0.08);
+      border: 1px solid color-mix(in srgb, var(--ds-success) calc(0.08 * 100%), transparent);
       border-radius: 6px;
       padding: 14px 16px;
       transition: border-color 0.2s;
     }
-    .card:hover { border-color: rgba(0, 255, 136, 0.2); }
+    .card:hover { border-color: color-mix(in srgb, var(--ds-success) calc(0.2 * 100%), transparent); }
     .card-header {
       font-size: 10px;
-      color: #00ff88;
+      color: var(--ds-success);
       letter-spacing: 2px;
       margin-bottom: 12px;
       display: flex;
@@ -367,7 +367,7 @@ export class ETISHud extends LitElement {
       content: '';
       flex: 1;
       height: 1px;
-      background: rgba(0, 255, 136, 0.1);
+      background: color-mix(in srgb, var(--ds-success) calc(0.1 * 100%), transparent);
     }
 
     /* ── Domain grid ── */
@@ -385,12 +385,12 @@ export class ETISHud extends LitElement {
       transition: all 0.2s;
     }
     .domain-card:hover {
-      border-color: rgba(0, 200, 255, 0.4);
-      background: rgba(0, 200, 255, 0.04);
+      border-color: color-mix(in srgb, var(--ds-info) calc(0.4 * 100%), transparent);
+      background: color-mix(in srgb, var(--ds-info) calc(0.04 * 100%), transparent);
     }
     .domain-card.active-domain {
-      border-color: rgba(0, 255, 136, 0.5);
-      background: rgba(0, 255, 136, 0.05);
+      border-color: color-mix(in srgb, var(--ds-success) calc(0.5 * 100%), transparent);
+      background: color-mix(in srgb, var(--ds-success) calc(0.05 * 100%), transparent);
     }
     .domain-card.unavail {
       opacity: 0.45;
@@ -399,15 +399,15 @@ export class ETISHud extends LitElement {
       font-size: 11px;
       font-weight: 700;
       letter-spacing: 1.5px;
-      color: #00c8ff;
+      color: var(--ds-info);
       margin-bottom: 6px;
     }
     .dc-name .dc-icon { margin-right: 6px; }
     .dc-status {
       font-size: 10px;
-      color: #00ff88;
+      color: var(--ds-success);
     }
-    .dc-status.err { color: #ff4466; }
+    .dc-status.err { color: var(--ds-danger); }
     .dc-caps {
       margin-top: 6px;
       display: flex;
@@ -419,14 +419,14 @@ export class ETISHud extends LitElement {
       padding: 1px 6px;
       border: 1px solid rgba(255,255,255,0.08);
       border-radius: 3px;
-      color: #4a6880;
+      color: var(--ds-text-soft);
       letter-spacing: 0.5px;
     }
 
     /* ── Terminal output ── */
     .term {
-      background: #050709;
-      border: 1px solid rgba(0, 255, 136, 0.15);
+      background: var(--ds-surface-1);
+      border: 1px solid color-mix(in srgb, var(--ds-success) calc(0.15 * 100%), transparent);
       border-radius: 4px;
       padding: 10px 12px;
       font-size: 11px;
@@ -436,12 +436,12 @@ export class ETISHud extends LitElement {
       white-space: pre-wrap;
       word-break: break-all;
     }
-    .term .ok { color: #00ff88; }
-    .term .err { color: #ff4466; }
-    .term .warn { color: #ffaa00; }
-    .term .dim { color: #4a5568; }
-    .term .hi { color: #00c8ff; }
-    .term .kev { color: #ff4466; font-weight: 700; background: rgba(255,68,102,0.1); padding: 1px 4px; border-radius: 2px; }
+    .term .ok { color: var(--ds-success); }
+    .term .err { color: var(--ds-danger); }
+    .term .warn { color: var(--ds-warning); }
+    .term .dim { color: var(--ds-text-muted); }
+    .term .hi { color: var(--ds-info); }
+    .term .kev { color: var(--ds-danger); font-weight: 700; background: color-mix(in srgb, var(--ds-danger) calc(0.1 * 100%), transparent); padding: 1px 4px; border-radius: 2px; }
 
     /* ── Form inputs ── */
     .field-row {
@@ -461,13 +461,13 @@ export class ETISHud extends LitElement {
     label {
       font-size: 9px;
       letter-spacing: 1.5px;
-      color: #4a6880;
+      color: var(--ds-text-soft);
     }
     input, select, textarea {
       background: rgba(0, 0, 0, 0.5);
-      border: 1px solid rgba(0, 255, 136, 0.15);
+      border: 1px solid color-mix(in srgb, var(--ds-success) calc(0.15 * 100%), transparent);
       border-radius: 4px;
-      color: #e0e6f0;
+      color: var(--ds-text);
       font-family: inherit;
       font-size: 11px;
       padding: 6px 10px;
@@ -475,22 +475,22 @@ export class ETISHud extends LitElement {
       transition: border-color 0.2s;
     }
     input:focus, select:focus, textarea:focus {
-      border-color: rgba(0, 255, 136, 0.45);
-      box-shadow: 0 0 0 2px rgba(0, 255, 136, 0.08);
+      border-color: color-mix(in srgb, var(--ds-success) calc(0.45 * 100%), transparent);
+      box-shadow: 0 0 0 2px color-mix(in srgb, var(--ds-success) calc(0.08 * 100%), transparent);
     }
     textarea {
       resize: vertical;
       min-height: 120px;
       line-height: 1.6;
     }
-    select option { background: #0a0c10; }
+    select option { background: var(--ds-bg); }
 
     /* ── ETIS action buttons ── */
     .etis-btn {
-      background: rgba(0, 255, 136, 0.08);
-      border: 1px solid rgba(0, 255, 136, 0.3);
+      background: color-mix(in srgb, var(--ds-success) calc(0.08 * 100%), transparent);
+      border: 1px solid color-mix(in srgb, var(--ds-success) calc(0.3 * 100%), transparent);
       border-radius: 4px;
-      color: #00ff88;
+      color: var(--ds-success);
       font-family: inherit;
       font-size: 10px;
       letter-spacing: 1.5px;
@@ -500,22 +500,22 @@ export class ETISHud extends LitElement {
       white-space: nowrap;
     }
     .etis-btn:hover {
-      background: rgba(0, 255, 136, 0.18);
-      box-shadow: 0 0 12px rgba(0, 255, 136, 0.2);
+      background: color-mix(in srgb, var(--ds-success) calc(0.18 * 100%), transparent);
+      box-shadow: 0 0 12px color-mix(in srgb, var(--ds-success) calc(0.2 * 100%), transparent);
     }
     .etis-btn:disabled {
       opacity: 0.4;
       cursor: not-allowed;
     }
     .etis-btn.danger {
-      background: rgba(255, 68, 102, 0.08);
-      border-color: rgba(255, 68, 102, 0.3);
-      color: #ff4466;
+      background: color-mix(in srgb, var(--ds-danger) calc(0.08 * 100%), transparent);
+      border-color: color-mix(in srgb, var(--ds-danger) calc(0.3 * 100%), transparent);
+      color: var(--ds-danger);
     }
     .etis-btn.blue {
-      background: rgba(0, 200, 255, 0.08);
-      border-color: rgba(0, 200, 255, 0.3);
-      color: #00c8ff;
+      background: color-mix(in srgb, var(--ds-info) calc(0.08 * 100%), transparent);
+      border-color: color-mix(in srgb, var(--ds-info) calc(0.3 * 100%), transparent);
+      color: var(--ds-info);
     }
 
     /* ── Severity badges ── */
@@ -537,19 +537,19 @@ export class ETISHud extends LitElement {
     .intel-item {
       padding: 10px 12px;
       border: 1px solid rgba(255,255,255,0.05);
-      border-left: 3px solid rgba(0,200,255,0.4);
+      border-left: 3px solid color-mix(in srgb, var(--ds-info) calc(0.4 * 100%), transparent);
       border-radius: 4px;
       margin-bottom: 8px;
       cursor: pointer;
       transition: all 0.2s;
     }
     .intel-item:hover { background: rgba(255,255,255,0.03); }
-    .intel-item.kev { border-left-color: #ff4466; background: rgba(255,68,102,0.04); }
+    .intel-item.kev { border-left-color: var(--ds-danger); background: color-mix(in srgb, var(--ds-danger) calc(0.04 * 100%), transparent); }
     .intel-item.critical { border-left-color: #ff0050; }
     .intel-item.high { border-left-color: #ff5000; }
-    .intel-item-title { font-size: 11px; color: #c8d8e8; margin-bottom: 4px; line-height: 1.4; }
-    .intel-item-meta { font-size: 9px; color: #4a6880; display: flex; gap: 10px; flex-wrap: wrap; }
-    .intel-item-meta .source { color: #00c8ff; }
+    .intel-item-title { font-size: 11px; color: var(--ds-text); margin-bottom: 4px; line-height: 1.4; }
+    .intel-item-meta { font-size: 9px; color: var(--ds-text-soft); display: flex; gap: 10px; flex-wrap: wrap; }
+    .intel-item-meta .source { color: var(--ds-info); }
 
     /* ── Metric row ── */
     .metric-row {
@@ -561,21 +561,21 @@ export class ETISHud extends LitElement {
       font-size: 11px;
     }
     .metric-row:last-child { border-bottom: none; }
-    .metric-label { color: #4a6880; }
-    .metric-value { color: #e0e6f0; font-family: inherit; }
-    .metric-value.green { color: #00ff88; }
-    .metric-value.red { color: #ff4466; }
-    .metric-value.blue { color: #00c8ff; }
-    .metric-value.amber { color: #ffaa00; }
+    .metric-label { color: var(--ds-text-soft); }
+    .metric-value { color: var(--ds-text); font-family: inherit; }
+    .metric-value.green { color: var(--ds-success); }
+    .metric-value.red { color: var(--ds-danger); }
+    .metric-value.blue { color: var(--ds-info); }
+    .metric-value.amber { color: var(--ds-warning); }
 
     /* ── Tags ── */
     .tag-row { display: flex; flex-wrap: wrap; gap: 4px; margin-top: 6px; }
     .tag {
       font-size: 9px;
       padding: 1px 7px;
-      border: 1px solid rgba(0,200,255,0.2);
+      border: 1px solid color-mix(in srgb, var(--ds-info) calc(0.2 * 100%), transparent);
       border-radius: 3px;
-      color: #00c8ff;
+      color: var(--ds-info);
       letter-spacing: 0.5px;
     }
 
@@ -592,8 +592,8 @@ export class ETISHud extends LitElement {
       display: inline-block;
       width: 12px;
       height: 12px;
-      border: 1.5px solid rgba(0,255,136,0.2);
-      border-top-color: #00ff88;
+      border: 1.5px solid color-mix(in srgb, var(--ds-success) calc(0.2 * 100%), transparent);
+      border-top-color: var(--ds-success);
       border-radius: 50%;
       animation: spin 0.6s linear infinite;
       vertical-align: middle;
@@ -604,8 +604,8 @@ export class ETISHud extends LitElement {
     /* ── Scrollbar ── */
     ::-webkit-scrollbar { width: 4px; }
     ::-webkit-scrollbar-track { background: transparent; }
-    ::-webkit-scrollbar-thumb { background: rgba(0,255,136,0.2); border-radius: 2px; }
-    ::-webkit-scrollbar-thumb:hover { background: rgba(0,255,136,0.4); }
+    ::-webkit-scrollbar-thumb { background: color-mix(in srgb, var(--ds-success) calc(0.2 * 100%), transparent); border-radius: 2px; }
+    ::-webkit-scrollbar-thumb:hover { background: color-mix(in srgb, var(--ds-success) calc(0.4 * 100%), transparent); }
   `;
 
   // ── Render helpers ────────────────────────────────────────────────────────────
@@ -672,7 +672,7 @@ export class ETISHud extends LitElement {
         <div class="card-header">LIVE THREAT INTEL</div>
         ${this.intelItems.length
           ? html`
-            <div style="font-size:11px; color:#4a6880; margin-bottom:8px;">
+            <div style="font-size:11px; color:var(--ds-text-soft); margin-bottom:8px;">
               ${this.intelItems.filter(i => i.is_kev).length} KEV &nbsp;·&nbsp;
               ${this.intelItems.filter(i => i.severity === "CRITICAL").length} CRITICAL &nbsp;·&nbsp;
               ${this.intelItems.length} total items
@@ -1147,7 +1147,7 @@ ${this.sandboxResult.timed_out ? html`<span class="err">⚠ TIMED OUT</span>` : 
           <button class="etis-btn" ?disabled=${this.intelLoading} @click=${() => void this.loadIntel()}>
             ${this.intelLoading ? html`<span class="spin"></span>FETCHING...` : "REFRESH FEED"}
           </button>
-          <span style="font-size:10px;color:#4a6880;margin-left:auto">${this.intelItems.length} items loaded</span>
+          <span style="font-size:10px;color:var(--ds-text-soft);margin-left:auto">${this.intelItems.length} items loaded</span>
         </div>
         ${this.intelItems.map(item => html`
           <div class="intel-item ${item.is_kev ? "kev" : item.severity?.toLowerCase()}"
@@ -1160,7 +1160,7 @@ ${this.sandboxResult.timed_out ? html`<span class="err">⚠ TIMED OUT</span>` : 
               ${item.cvss_score ? html`<span>CVSS ${item.cvss_score.toFixed(1)}</span>` : nothing}
               ${item.is_kev ? html`<span class="kev">🔴 KEV</span>` : nothing}
             </div>
-            ${item.summary ? html`<div style="font-size:10px;color:#4a6880;margin-top:5px">${item.summary.slice(0, 150)}…</div>` : nothing}
+            ${item.summary ? html`<div style="font-size:10px;color:var(--ds-text-soft);margin-top:5px">${item.summary.slice(0, 150)}…</div>` : nothing}
             ${(item.tags || []).length ? html`
               <div class="tag-row">${item.tags.slice(0, 6).map(t => html`<span class="tag">${t}</span>`)}</div>
             ` : nothing}

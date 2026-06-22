@@ -44,6 +44,26 @@ export class DsButton extends LitElement {
     .primary:hover:not(:disabled) { background: var(--ds-accent); filter: brightness(1.1); box-shadow: var(--ds-glow); }
     .danger { border-color: rgba(229, 115, 106, 0.4); color: var(--ds-danger); background: rgba(229, 115, 106, 0.08); }
     .danger:hover:not(:disabled) { background: rgba(229, 115, 106, 0.16); }
+
+    /* ETIS overrides */
+    :host-context([data-skin="etis"]) .primary {
+      background: rgba(var(--ds-periwinkle-rgb), 0.08);
+      border-color: var(--ds-accent);
+      color: var(--ds-accent);
+    }
+    :host-context([data-skin="etis"]) .primary:hover:not(:disabled) {
+      background: rgba(var(--ds-periwinkle-rgb), 0.15);
+      box-shadow: var(--ds-glow);
+    }
+    :host-context([data-skin="etis"]) .danger {
+      border-color: var(--ds-danger);
+      color: var(--ds-danger);
+      background: rgba(255, 68, 102, 0.08);
+    }
+    :host-context([data-skin="etis"]) .danger:hover:not(:disabled) {
+      background: rgba(255, 68, 102, 0.16);
+      box-shadow: 0 0 12px rgba(255, 68, 102, 0.2);
+    }
   `;
 
   render() {

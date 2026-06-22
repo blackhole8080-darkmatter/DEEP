@@ -2,10 +2,10 @@
 // document root so all --ds-* token overrides (themes.css) take effect.
 import { signal } from "@lit-labs/signals";
 
-export type Skin = "calm" | "neon";
+export type Skin = "calm" | "neon" | "etis";
 const KEY = "deep_skin";
 
-export const skin = signal<Skin>((localStorage.getItem(KEY) as Skin) || "calm");
+export const skin = signal<Skin>((localStorage.getItem(KEY) as Skin) || "etis");
 
 export function applySkin(next: Skin): void {
   skin.set(next);
@@ -15,7 +15,10 @@ export function applySkin(next: Skin): void {
 }
 
 export function cycleSkin(): void {
-  applySkin(skin.get() === "calm" ? "neon" : "calm");
+  const current = skin.get();
+  if (current === "calm") applySkin("neon");
+  else if (current === "neon") applySkin("etis");
+  else applySkin("calm");
 }
 
 // ── Accent colors ────────────────────────────────────────────────────────────

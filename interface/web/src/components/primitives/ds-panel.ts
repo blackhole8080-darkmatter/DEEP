@@ -46,6 +46,19 @@ export class DsPanel extends LitElement {
     .body { padding: var(--ds-space-4); }
     @keyframes rise { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: none; } }
     @media (prefers-reduced-motion: reduce) { section { animation: none; } }
+
+    /* ETIS overrides */
+    :host-context([data-skin="etis"]) header {
+      font-family: var(--ds-font-mono);
+      font-size: 10px;
+      letter-spacing: 2px;
+      color: var(--ds-accent);
+      border-bottom: 1px solid rgba(var(--ds-periwinkle-rgb), 0.2);
+    }
+    :host-context([data-skin="etis"]) section:hover {
+      border-color: rgba(var(--ds-periwinkle-rgb), 0.4);
+      box-shadow: 0 0 12px rgba(var(--ds-periwinkle-rgb), 0.1);
+    }
   `;
 
   render() {

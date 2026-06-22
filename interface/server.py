@@ -1347,7 +1347,7 @@ async def root():
     """Root serves the modern UI (Vite + Lit)."""
     built = static_path / "app-dist" / "index.html"
     if built.exists():
-        return FileResponse(str(built))
+        return FileResponse(str(built), headers={"Cache-Control": "no-cache"})
     return HTMLResponse(
         "<h1>DEEP modern UI not built yet</h1>"
         "<p>Run <code>cd interface/web &amp;&amp; npm install &amp;&amp; npm run build</code></p>",
@@ -1359,7 +1359,7 @@ async def modern_ui():
     """Modern UI (Vite + Lit)."""
     built = static_path / "app-dist" / "index.html"
     if built.exists():
-        return FileResponse(str(built))
+        return FileResponse(str(built), headers={"Cache-Control": "no-cache"})
     return HTMLResponse(
         "<h1>DEEP modern UI not built yet</h1>"
         "<p>Run <code>cd interface/web &amp;&amp; npm install &amp;&amp; npm run build</code></p>",

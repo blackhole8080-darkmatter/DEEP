@@ -1,6 +1,6 @@
 /* DEEP modern frontend — base reset + primitives (calm modern minimal). */
 *, *::before, *::after { box-sizing: border-box; }
-html, body { height: 100%; margin: 0; }
+html, body { width: 100vw; height: 100vh; margin: 0; overflow: hidden; }
 body {
   background: var(--ds-bg);
   color: var(--ds-text);

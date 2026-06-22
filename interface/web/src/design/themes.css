@@ -63,3 +63,59 @@
 
 /* Accent text + primary buttons get a glow in neon mode. */
 :root[data-skin="neon"] .neon-glow { text-shadow: 0 0 10px currentColor; }
+
+/* ── ETIS: professional cyber/terminal multi-color ─────────────────────────── */
+:root[data-skin="etis"] {
+  /* canvas + surfaces: deep dark charcoal/blue */
+  --ds-bg:          #0a0c10;
+  --ds-surface-1:   #0f121a;
+  --ds-surface-2:   #151924;
+  --ds-surface-3:   #1c2130;
+  --ds-glass:       rgba(10, 12, 16, 0.72);
+  --ds-glass-thin:  rgba(10, 12, 16, 0.48);
+  --ds-scrim:       rgba(5, 6, 8, 0.7);
+
+  /* text: cool white with faint cyan */
+  --ds-text:        #e0e6f0;
+  --ds-text-soft:   #4a6880;
+  --ds-text-muted:  #4a5568;
+  --ds-text-faint:  rgba(74, 104, 128, 0.3);
+  --ds-on-accent:   #0a0c10;
+
+  /* ETIS palette */
+  --ds-neon-green:  #00ff88;
+  --ds-neon-red:    #ff4466;
+  --ds-neon-blue:   #00c8ff;
+  --ds-neon-amber:  #ffaa00;
+
+  /* map semantic variables to ETIS palette */
+  --ds-success:     var(--ds-neon-green);
+  --ds-danger:      var(--ds-neon-red);
+  --ds-info:        var(--ds-neon-blue);
+  --ds-warning:     var(--ds-neon-amber);
+
+  /* PRIMARY accent: ETIS green by default */
+  --ds-accent:      var(--ds-neon-green);
+  --ds-periwinkle-rgb: 0, 255, 136; /* approximated rgb for glowing */
+
+  /* borders */
+  --ds-border:        rgba(0, 255, 136, 0.08);
+  --ds-border-strong: rgba(0, 255, 136, 0.15);
+  --ds-border-accent: rgba(0, 255, 136, 0.3);
+  --ds-focus-ring:    0 0 0 2px var(--ds-bg), 0 0 0 4px rgba(0, 255, 136, 0.45);
+
+  /* punchier glow + elevation */
+  --ds-glow:        0 0 12px rgba(0, 255, 136, 0.2);
+  --ds-glow-strong: 0 0 24px rgba(0, 255, 136, 0.4);
+  --ds-elev-2: 0 4px 14px rgba(0, 0, 0, 0.55), 0 0 0 1px rgba(0, 255, 136, 0.08);
+  --ds-elev-3: 0 12px 34px rgba(0, 0, 0, 0.6), 0 0 24px rgba(0, 255, 136, 0.12);
+  --ds-elev-4: 0 24px 64px rgba(0, 0, 0, 0.65), 0 0 40px rgba(0, 255, 136, 0.18);
+}
+
+/* Reduced motion for glows in ETIS mode */
+@media (prefers-reduced-motion: reduce) {
+  :root[data-skin="etis"] {
+    --ds-glow: 0 0 4px rgba(0, 255, 136, 0.1);
+    --ds-glow-strong: 0 0 8px rgba(0, 255, 136, 0.2);
+  }
+}

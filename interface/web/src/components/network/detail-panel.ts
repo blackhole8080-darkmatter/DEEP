@@ -22,13 +22,13 @@ export class NetworkDetailPanel extends LitElement {
     .panel { background: var(--ds-surface-1); border-left: 1px solid var(--ds-border); padding: var(--ds-space-4); height: 100%; overflow-y: auto; }
     .header { display: flex; align-items: center; gap: var(--ds-space-2); margin-bottom: var(--ds-space-3); }
     .layer-badge { padding: 1px 8px; border-radius: var(--ds-radius-pill); font-size: var(--ds-text-xs); font-weight: 600; text-transform: uppercase; }
-    .layer-lan { background: rgba(16,185,129,0.12); color: #10b981; }
-    .layer-wifi { background: rgba(245,158,11,0.12); color: #f59e0b; }
-    .layer-bluetooth { background: rgba(139,92,246,0.12); color: #8b5cf6; }
-    .layer-vpn { background: rgba(0,229,255,0.12); color: #00e5ff; }
-    .layer-internet { background: rgba(239,68,68,0.12); color: #ef4444; }
-    .layer-dns { background: rgba(217,70,239,0.12); color: #d946ef; }
-    .layer-ai { background: rgba(59,130,246,0.12); color: #3b82f6; }
+    .layer-lan { background: color-mix(in srgb, var(--ds-success) 12%, transparent); color: var(--ds-success); }
+    .layer-wifi { background: color-mix(in srgb, var(--ds-warning) 12%, transparent); color: var(--ds-warning); }
+    .layer-bluetooth { background: color-mix(in srgb, var(--ds-iris, var(--ds-iris, #8b5cf6)) 12%, transparent); color: var(--ds-iris, #8b5cf6); }
+    .layer-vpn { background: color-mix(in srgb, var(--ds-info) 12%, transparent); color: var(--ds-info); }
+    .layer-internet { background: color-mix(in srgb, var(--ds-danger) 12%, transparent); color: var(--ds-danger); }
+    .layer-dns { background: color-mix(in srgb, var(--ds-coral, var(--ds-coral, #d946ef)) 12%, transparent); color: var(--ds-coral, #d946ef); }
+    .layer-ai { background: color-mix(in srgb, var(--ds-sky, var(--ds-sky, #3b82f6)) 12%, transparent); color: var(--ds-sky, #3b82f6); }
     .section { margin-bottom: var(--ds-space-4); }
     .section-title { font-size: var(--ds-text-xs); color: var(--ds-text-faint); text-transform: uppercase; letter-spacing: var(--ds-tracking-wide); margin-bottom: var(--ds-space-2); }
     .meta-grid { display: grid; grid-template-columns: 1fr 1fr; gap: var(--ds-space-2); }

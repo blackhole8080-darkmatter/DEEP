@@ -14,11 +14,6 @@ interface TopoEdge {
   relation: string; strength: number; metadata: Record<string, any>;
 }
 
-const LAYER_COLORS: Record<string, string> = {
-  lan: "#10b981", wifi: "#f59e0b", bluetooth: "#8b5cf6",
-  vpn: "#00e5ff", internet: "#ef4444", dns: "#d946ef", ai: "#3b82f6",
-  cross: "#94a3b8",
-};
 const LAYER_Z: Record<string, number> = {
   lan: 0, wifi: 1, bluetooth: 1, vpn: 2, internet: 3, dns: 1, ai: 3, cross: 0,
 };
@@ -39,6 +34,10 @@ export class TopologyCanvas extends LitElement {
   private dragNode: string | null = null;
   private lastMouse = { x: 0, y: 0 };
   private time = 0;
+
+  // Resolved theme colors
+  private _colors: Record<string, string> = {};
+  private _themeColors = { accent: "#00e5ff", threat: "#ef4444" };
 
   static styles = css`
     :host { display: block; width: 100%; height: 100%; position: relative; }
@@ -63,6 +62,20 @@ export class TopologyCanvas extends LitElement {
   firstUpdated(): void {
     this.canvas = this.renderRoot.querySelector("canvas")!;
     this.ctx = this.canvas.getContext("2d")!;
+    const style = getComputedStyle(document.body);
+    this._colors = {
+      lan: style.getPropertyValue('--ds-success').trim() || '#10b981',
+      wifi: style.getPropertyValue('--ds-warning').trim() || '#f59e0b',
+      bluetooth: style.getPropertyValue('--ds-iris').trim() || '#8b5cf6',
+      vpn: style.getPropertyValue('--ds-info').trim() || '#00e5ff',
+      internet: style.getPropertyValue('--ds-danger').trim() || '#ef4444',
+      dns: style.getPropertyValue('--ds-coral').trim() || '#d946ef',
+      ai: style.getPropertyValue('--ds-sky').trim() || '#3b82f6',
+      cross: style.getPropertyValue('--ds-text-muted').trim() || '#94a3b8'
+    };
+    this._themeColors.accent = style.getPropertyValue('--ds-accent').trim() || '#00e5ff';
+    this._themeColors.threat = style.getPropertyValue('--ds-danger').trim() || '#ef4444';
+    
     this._resize();
     this._initPositions();
     this._loop();
@@ -166,7 +179,7 @@ export class TopologyCanvas extends LitElement {
       const isThreat = e.metadata?.threat_flag;
       ctx.beginPath();
       ctx.moveTo(a.x, a.y); ctx.lineTo(b.x, b.y);
-      ctx.strokeStyle = isThreat ? "rgba(239,68,68,0.4)" : (LAYER_COLORS[e.layer] || "#00e5ff") + "28";
+      ctx.strokeStyle = isThreat ? "rgba(239,68,68,0.4)" : (this._colors[e.layer] || this._themeColors.accent) + "28";
       ctx.lineWidth = isThreat ? 2.5 : Math.max(0.5, e.strength * 1.5);
       if (e.layer === "vpn") { ctx.setLineDash([4, 4]); } else if (e.layer === "wifi") { ctx.setLineDash([2, 3]); } else { ctx.setLineDash([]); }
       ctx.stroke();
@@ -189,7 +202,7 @@ export class TopologyCanvas extends LitElement {
       const isSelected = this.selected === n.id;
       const r = n.node_type === "gateway" ? 18 : n.layer === "ai" ? 12 : 8;
       const scale = isHover ? 1.4 : isSelected ? 1.2 : 1;
-      const color = LAYER_COLORS[n.layer] || "#00e5ff";
+      const color = this._colors[n.layer] || this._themeColors.accent;
       const threat = n.metadata?.threat_type || n.metadata?.rogue;
 
       ctx.beginPath();
@@ -199,7 +212,7 @@ export class TopologyCanvas extends LitElement {
 
       ctx.beginPath();
       ctx.arc(n.x, n.y, r * scale, 0, Math.PI * 2);
-      ctx.fillStyle = threat ? "#ef4444" : color;
+      ctx.fillStyle = threat ? this._themeColors.threat : color;
       ctx.fill();
 
       if (isSelected || isHover) {
@@ -279,7 +292,7 @@ export class TopologyCanvas extends LitElement {
     return html`
       <canvas></canvas>
       <div class="legend">
-        ${Object.entries(LAYER_COLORS).map(([layer, color]) => html`
+        ${Object.entries(this._colors).map(([layer, color]) => html`
           <div class="legend-item">
             <span class="dot" style="background:${color}"></span>
             <span>${layer}</span>
