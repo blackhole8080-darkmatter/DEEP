@@ -1,0 +1,246 @@
+/* ============================================================================
+ * DEEP — ANIMATIONS  (shared keyframes for the cinematic overhaul)
+ * ========================================================================== */
+
+/* ── Page / view transitions ── */
+@keyframes fade-up {
+  from { opacity: 0; transform: translateY(12px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+@keyframes fade-in {
+  from { opacity: 0; }
+  to   { opacity: 1; }
+}
+@keyframes scale-in {
+  from { opacity: 0; transform: scale(0.96); }
+  to   { opacity: 1; transform: scale(1); }
+}
+
+/* ── Glitch ── */
+@keyframes glitch-in {
+  0%   { opacity: 0; transform: translateX(-6px); clip-path: inset(40% 0 40% 0); }
+  20%  { opacity: 1; transform: translateX(4px); clip-path: inset(10% 0 60% 0); }
+  40%  { transform: translateX(-2px); clip-path: inset(30% 0 30% 0); }
+  60%  { transform: translateX(2px); clip-path: inset(0 0 50% 0); }
+  80%  { transform: translateX(-1px); clip-path: inset(20% 0 40% 0); }
+  100% { transform: translateX(0); clip-path: inset(0 0 0 0); }
+}
+
+/* ── Neon pulse / glow ── */
+@keyframes neon-pulse {
+  0%, 100% { box-shadow: 0 0 12px var(--glow-color, var(--ds-accent)); }
+  50%      { box-shadow: 0 0 28px var(--glow-color, var(--ds-accent)), 0 0 48px var(--glow-color, var(--ds-accent)); }
+}
+@keyframes text-glow {
+  0%, 100% { text-shadow: 0 0 8px var(--glow-color, var(--ds-accent)); }
+  50%      { text-shadow: 0 0 20px var(--glow-color, var(--ds-accent)), 0 0 40px var(--glow-color, var(--ds-accent)); }
+}
+@keyframes border-flow {
+  0%   { background-position: 0% 50%; }
+  50%  { background-position: 100% 50%; }
+  100% { background-position: 0% 50%; }
+}
+
+/* ── Scan line ── */
+@keyframes scan-line {
+  0%   { top: -2px; opacity: 0; }
+  10%  { opacity: 1; }
+  90%  { opacity: 1; }
+  100% { top: 100%; opacity: 0; }
+}
+
+/* ── Shimmer / skeleton ── */
+@keyframes shimmer {
+  0%   { background-position: -200% 0; }
+  100% { background-position: 200% 0; }
+}
+
+/* ── Orbit / rotate ── */
+@keyframes spin-slow {
+  from { transform: rotate(0deg); }
+  to   { transform: rotate(360deg); }
+}
+
+/* ── Breathe / orb ── */
+@keyframes breathe {
+  0%, 100% { transform: scale(1); opacity: 0.6; }
+  50%      { transform: scale(1.15); opacity: 1; }
+}
+
+/* ── Terminal flicker ── */
+@keyframes flicker {
+  0%, 100% { opacity: 1; }
+  92%  { opacity: 1; }
+  93%  { opacity: 0.8; }
+  94%  { opacity: 1; }
+  98%  { opacity: 1; }
+  99%  { opacity: 0.4; }
+}
+
+/* ── Waveform / bars ── */
+@keyframes bar-bounce {
+  0%, 100% { transform: scaleY(0.3); }
+  50%      { transform: scaleY(1); }
+}
+
+/* ── Ring expand ── */
+@keyframes ring-expand {
+  0%   { transform: scale(1); opacity: 0.6; }
+  100% { transform: scale(2.5); opacity: 0; }
+}
+
+/* ── Focus-mode dim ── */
+@keyframes focus-dim {
+  from { opacity: 1; }
+  to   { opacity: 0.35; }
+}
+@keyframes focus-restore {
+  from { opacity: 0.35; }
+  to   { opacity: 1; }
+}
+
+/* ── Toast slide-in ── */
+@keyframes toast-in {
+  from { transform: translateX(120%); opacity: 0; }
+  to   { transform: translateX(0); opacity: 1; }
+}
+@keyframes toast-out {
+  from { transform: translateX(0); opacity: 1; }
+  to   { transform: translateX(120%); opacity: 0; }
+}
+
+/* ── Sidebar glow indicator ── */
+@keyframes sidebar-glow {
+  0%, 100% { box-shadow: inset 3px 0 0 var(--ds-accent); }
+  50%      { box-shadow: inset 3px 0 0 var(--ds-accent), inset 3px 0 12px rgba(var(--ds-periwinkle-rgb), 0.3); }
+}
+
+/* ── HUD keyframes ─────────────────────────────────────────────────────────── */
+
+@keyframes hud-enter {
+  from { opacity: 0; transform: translateY(16px) scale(0.98); }
+  to   { opacity: 1; transform: translateY(0) scale(1); }
+}
+
+@keyframes hud-morph {
+  from { opacity: 0.6; transform: scale(0.96); }
+  to   { opacity: 1; transform: scale(1); }
+}
+
+@keyframes hud-ripple {
+  0%   { transform: scale(1); opacity: 0.6; }
+  100% { transform: scale(2.5); opacity: 0; }
+}
+
+@keyframes decode-text {
+  0%   { opacity: 0; filter: blur(4px); }
+  50%  { opacity: 0.7; filter: blur(2px); }
+  100% { opacity: 1; filter: blur(0px); }
+}
+
+@keyframes gauge-rip {
+  0%   { transform: rotate(0deg); }
+  25%  { transform: rotate(-4deg); }
+  50%  { transform: rotate(4deg); }
+  75%  { transform: rotate(-2deg); }
+  100% { transform: rotate(0deg); }
+}
+
+@keyframes fold-in {
+  from { transform: perspective(800px) rotateY(-90deg); opacity: 0; }
+  to   { transform: perspective(800px) rotateY(0deg); opacity: 1; }
+}
+
+@keyframes shard-break {
+  0%   { clip-path: polygon(50% 0%, 100% 25%, 100% 75%, 50% 100%, 0% 75%, 0% 25%); opacity: 1; }
+  50%  { clip-path: polygon(55% 5%, 95% 20%, 105% 80%, 45% 105%, -5% 70%, 5% 20%); opacity: 0.6; }
+  100% { clip-path: polygon(50% 0%, 100% 25%, 100% 75%, 50% 100%, 0% 75%, 0% 25%); opacity: 1; }
+}
+
+@keyframes slot-blur {
+  0%   { filter: blur(0px); }
+  50%  { filter: blur(4px); opacity: 0.7; }
+  100% { filter: blur(0px); }
+}
+
+@keyframes echo-trail {
+  0%   { text-shadow: 0 0 0 rgba(0,229,255,0.8); }
+  50%  { text-shadow: 0 0 12px rgba(0,229,255,0.4), 0 0 24px rgba(0,229,255,0.2); }
+  100% { text-shadow: 0 0 0 rgba(0,229,255,0); }
+}
+
+@keyframes bracket-pulse {
+  0%, 100% { opacity: 0.6; }
+  50%      { opacity: 1; }
+}
+
+@keyframes grid-scroll {
+  from { background-position: 0 0; }
+  to   { background-position: 0 60px; }
+}
+
+@keyframes scan-sweep {
+  0%   { background-position: 200% 200%; }
+  50%  { background-position: -20% -20%; }
+  100% { background-position: 200% 200%; }
+}
+
+@keyframes mesh-shift {
+  from { background-position: 0% 0%, 100% 100%; }
+  to   { background-position: 100% 100%, 0% 0%; }
+}
+
+@keyframes stator-rotate {
+  from { transform: rotate(0deg); }
+  to   { transform: rotate(360deg); }
+}
+
+@keyframes hud-particle-drift {
+  0%   { transform: translate(0, 0) scale(1); opacity: 1; }
+  100% { transform: translate(var(--drift-x), var(--drift-y)) scale(0); opacity: 0; }
+}
+
+/* ── Neon flicker (realistic phosphor) ── */
+@keyframes neon-flicker {
+  0%, 100% { opacity: 1; }
+  2%        { opacity: 0.85; }
+  4%        { opacity: 1; }
+  8%        { opacity: 0.9; }
+  70%       { opacity: 1; }
+  72%       { opacity: 0.75; }
+  74%       { opacity: 1; }
+  96%       { opacity: 1; }
+  97%       { opacity: 0.6; }
+  98%       { opacity: 1; }
+}
+
+/* ── Aurora breathing ── */
+@keyframes aurora-drift {
+  0%   { transform: scale(1)    rotate(0deg);   opacity: 0.8; }
+  33%  { transform: scale(1.05) rotate(1.5deg); opacity: 1; }
+  66%  { transform: scale(0.97) rotate(-1deg);  opacity: 0.85; }
+  100% { transform: scale(1)    rotate(0deg);   opacity: 0.8; }
+}
+
+/* ── Particle pop burst ── */
+@keyframes particle-pop {
+  0%   { transform: scale(0);   opacity: 1; }
+  60%  { transform: scale(1.4); opacity: 0.8; }
+  100% { transform: scale(2);   opacity: 0; }
+}
+
+/* ── Neon rim sweep (used on widget slots) ── */
+@keyframes rim-sweep {
+  from { --rim-angle: 0deg; }
+  to   { --rim-angle: 360deg; }
+}
+
+/* ── Glow pulse strong (statusbar dot etc.) ── */
+@keyframes glow-pulse-strong {
+  0%, 100% {
+    box-shadow: 0 0 6px currentColor, 0 0 12px currentColor;
+  }
+  50% {
+    box-shadow: 0 0 14px currentColor, 0 0 28px currentColor, 0 0 48px currentColor;
+  }
+}

@@ -2,10 +2,12 @@
 // category-shaded, click → verified data) + physics constants & formulas.
 import { LitElement, html, css } from "lit";
 import { customElement, state } from "lit/decorators.js";
+import { unsafeHTML } from "lit/directives/unsafe-html.js";
 import {
   fetchPeriodicTable, fetchElement, fetchPhysicsConstants, fetchPhysicsFormulas,
   type ElementInfo,
 } from "../../core/api";
+import { katexStyles, renderTeX } from "../../core/math";
 import "../primitives/ds-panel";
 
 function gridPos(e: ElementInfo): { row: number; col: number } | null {
@@ -21,7 +23,7 @@ export class ScienceView extends LitElement {
   @state() private elements: ElementInfo[] = [];
   @state() private detail: ElementInfo | null = null;
   @state() private constants: { name: string; value: number; unit: string; symbol: string }[] = [];
-  @state() private formulas: { name: string; era: string; domain: string; formula: string }[] = [];
+  @state() private formulas: { name: string; era: string; domain: string; formula: string; latex?: string | null }[] = [];
 
   connectedCallback(): void {
     super.connectedCallback();
@@ -30,7 +32,7 @@ export class ScienceView extends LitElement {
     void fetchPhysicsFormulas().then((d) => (this.formulas = d.formulas)).catch(() => {});
   }
 
-  static styles = css`
+  static styles = [katexStyles, css`
     :host {
       display: grid;
       gap: var(--ds-space-5);
@@ -70,7 +72,11 @@ export class ScienceView extends LitElement {
     .mono { font-family: var(--ds-font-mono); font-size: var(--ds-text-xs); }
     .list { display: grid; gap: 4px; max-height: 300px; overflow-y: auto; }
     .era { color: var(--ds-text-faint); text-transform: uppercase; font-size: 0.6rem; letter-spacing: var(--ds-tracking-wide); }
-  `;
+    .frow { display: grid; gap: 2px; border-bottom: 1px solid var(--ds-border); padding: 6px 0; }
+    .frow .fname { font-size: var(--ds-text-xs); color: var(--ds-text-soft); }
+    .frow .ftex { overflow-x: auto; }
+    .frow .ftex .katex { color: var(--ds-text); font-size: 1.05em; }
+  `];
 
   private async pick(z: number): Promise<void> {
     const d = await fetchElement(z).catch(() => null);
@@ -127,9 +133,14 @@ export class ScienceView extends LitElement {
           </div>
         </ds-panel>
         <ds-panel heading="Formula library · ancient → modern">
-          <div class="list mono">
+          <div class="list">
             ${this.formulas.map(
-              (f) => html`<div class="row"><span>${f.name} <span class="era">${f.era}</span></span><b>${f.formula}</b></div>`,
+              (f) => html`<div class="frow">
+                <span class="fname">${f.name} <span class="era">${f.era}</span></span>
+                ${f.latex
+                  ? html`<div class="ftex">${unsafeHTML(renderTeX(f.latex, true))}</div>`
+                  : html`<b class="mono">${f.formula}</b>`}
+              </div>`,
             )}
           </div>
         </ds-panel>

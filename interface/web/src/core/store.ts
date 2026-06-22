@@ -40,6 +40,19 @@ export const isStreaming = computed(() =>
   messages.get().some((m) => m.streaming),
 );
 
+// ── HUD mode (derived from cognitive signals) ──
+export type HudMode = "idle" | "listening" | "thinking" | "speaking" | "alert";
+export const hudMode = computed<HudMode>(() => {
+  const t = thinking.get();
+  const s = isStreaming.get();
+  const c = connection.get();
+  if (c !== "open") return "alert";
+  if (s) return "speaking";
+  if (t) return "thinking";
+  // listening is derived elsewhere from voice state; default to idle
+  return "idle";
+});
+
 // ── Actions ────────────────────────────────────────────────────────────────
 export function sendChat(text: string, image: string | null = null): void {
   if (!text.trim() && !image) return;

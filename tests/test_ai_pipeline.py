@@ -100,7 +100,7 @@ async def test_intent_classifier_trains_and_classifies():
 
         assert clf._pipeline is not None, "Model should be loaded or trained"
 
-        intent, confidence = clf.classify("turn off the lights")
+        intent, confidence = await clf.classify("turn off the lights")
         assert intent == "system_control", (
             f"Expected 'system_control', got '{intent}' (confidence={confidence:.2f})"
         )

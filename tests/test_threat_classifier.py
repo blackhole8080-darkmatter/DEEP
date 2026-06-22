@@ -271,7 +271,7 @@ async def test_deduplication_within_30s() -> None:
 
     event_bus = AsyncMock()
     classifier = ThreatClassifier(
-        event_bus=event_bus, redis_state=MagicMock(),
+        event_bus=event_bus, redis_state=AsyncMock(),
         network_baseline=AsyncMock(), system_baseline=None,
     )
 
@@ -348,6 +348,11 @@ def test_save_load_roundtrip() -> None:
         pred1 = trainer.scaler.transform(X_test)
         pred2 = trainer2.scaler.transform(X_test)
 
+        # eval() mode is required for deterministic inference: BatchNorm uses
+        # running stats and Dropout is disabled. Without it, Dropout randomness
+        # makes the two forward passes differ even with identical weights.
+        model.eval()
+        model2.eval()
         with torch.no_grad():
             out1 = model(torch.FloatTensor(pred1).to(trainer.device)).cpu().numpy()
             out2 = model2(torch.FloatTensor(pred2).to(trainer2.device)).cpu().numpy()

@@ -8,6 +8,14 @@ from ..domain.interfaces import ToolExecutor
 from ..domain.models import ToolResult
 from ..integrations import integration_manager
 
+# Modern decorator-driven tool registry (strangler replacement for the legacy
+# if/elif below). Importing builtin runs its @tool decorators (registration).
+from core.tools.registry import TOOL_SPECS
+import core.tools.builtin  # noqa: F401  — side-effect: registers built-in tools
+import core.tools.ml       # noqa: F401  — side-effect: registers ML tools
+import core.tools.files    # noqa: F401  — side-effect: registers file/code tools
+import core.tools.etis     # noqa: F401  — side-effect: registers ETIS domain tools
+
 logger = logging.getLogger(__name__)
 
 class DeepToolRegistry(ToolExecutor):
@@ -29,8 +37,15 @@ class DeepToolRegistry(ToolExecutor):
         self.interactive = interactive_manager
         
         from ..integrations.local_system import LocalSystem
+        from ..integrations.personal_finance import PersonalFinanceEngine
+        from ..integrations.email import EmailIntegration
+
+        from ..integrations.phone_control import PhoneControl
 
         self.local_system = LocalSystem()  # sandboxed FS + code intelligence
+        self.finance = PersonalFinanceEngine()
+        self.email = EmailIntegration()
+        self.phone = PhoneControl()  # ADB (Android) + Shortcuts (iPhone) bridge
         self.agent_factory = None
         self.plugin_manager = None  # set by server after plugins start; bridges plugin tools
 
@@ -106,10 +121,7 @@ class DeepToolRegistry(ToolExecutor):
                     "end": "Optional end time, ISO 8601 (defaults to start + 1 hour)"
                 }
             },
-            "get_time": {
-                "description": "Get current exact date and time.",
-                "args": {}
-            },
+            # get_time migrated to the @tool registry (core/tools/builtin.py)
             "science_compute": {
                 "description": ("Run a scientific or technical computation across 16 domains "
                                 "(maths, physics, quantum mechanics, chemistry, biology, "
@@ -142,37 +154,8 @@ class DeepToolRegistry(ToolExecutor):
                 "args": {"query": "e.g. 'price a call option stock 105 strike 100' or "
                                   "'optimize my portfolio' or 'stock risk VaR'"}
             },
-            "read_file": {
-                "description": "Read a file. Optionally pass start/end line numbers to read a range (returns numbered lines).",
-                "args": {"filepath": "Path to the file (absolute or relative to workspace)",
-                         "start": "Optional 1-based start line", "end": "Optional end line"}
-            },
-            "write_file": {
-                "description": "Create or fully overwrite a file. Use for NEW files; for editing existing code use edit_file instead.",
-                "args": {"filepath": "Path to the file", "content": "The full text to write"}
-            },
-            "edit_file": {
-                "description": "Surgically edit an existing file via exact find/replace (no clobbering). 'old' must match the file exactly and be unique unless replace_all is true.",
-                "args": {"filepath": "Path to the file", "old": "Exact text to replace",
-                         "new": "Replacement text", "replace_all": "Optional bool, replace every occurrence"}
-            },
-            "list_directory": {
-                "description": "List all files and folders in a directory.",
-                "args": {"path": "Path to the directory (absolute or relative to workspace)"}
-            },
-            "glob_files": {
-                "description": "Find files by glob pattern (e.g. '**/*.py') under the workspace or a given path.",
-                "args": {"pattern": "Glob pattern, e.g. **/*.py", "path": "Optional base directory"}
-            },
-            "search_code": {
-                "description": "Search file contents across the codebase (grep). Returns file:line: matches. Use this to FIND code before reading/editing.",
-                "args": {"query": "Text/regex to search for", "path": "Optional base directory",
-                         "glob": "Optional file filter, e.g. *.py"}
-            },
-            "run_command": {
-                "description": "Execute a terminal command on the local machine (e.g. python script.py). Use cautiously.",
-                "args": {"command": "The terminal command to run"}
-            },
+            # read_file / write_file / edit_file / list_directory / glob_files /
+            # search_code / run_command migrated to the @tool registry (core/tools/files.py)
             "cyber_scan_network": {
                 "description": "Scans the local network using ARP to find connected devices.",
                 "args": {}
@@ -262,22 +245,8 @@ class DeepToolRegistry(ToolExecutor):
                 }
             },
             # ---- Machine learning: knowledge + real model training ----
-            "ml_list": {
-                "description": "List every ML algorithm Deep knows, grouped by family.",
-                "args": {}
-            },
-            "ml_explain": {
-                "description": "Explain one ML algorithm: what it does, when to use it, and the library.",
-                "args": {"query": "Algorithm name, e.g. 'xgboost', 'lstm', 'dbscan'"}
-            },
-            "ml_recommend": {
-                "description": "Recommend the best ML algorithm(s) for a described problem.",
-                "args": {"problem": "e.g. 'detect anomalies in network traffic'"}
-            },
-            "ml_runnable": {
-                "description": "List which ML algorithms Deep can actually TRAIN/RUN right now.",
-                "args": {}
-            },
+            # ml_list / ml_explain / ml_recommend / ml_runnable migrated to the
+            # @tool registry (core/tools/ml.py).
             "ml_train": {
                 "description": "Train a real ML model via scikit-learn/XGBoost. Data is a CSV path OR 'internal:processes'/'internal:network'. Supervised algos need a target column.",
                 "args": {
@@ -300,6 +269,137 @@ class DeepToolRegistry(ToolExecutor):
             "train_task_model": {
                 "description": "(Re)train the personal task-completion model from the latest scheduler history.",
                 "args": {}
+            },
+            # ---- Personal Finance ----
+            "add_transaction": {
+                "description": "Record a financial transaction (income or expense). DEEP auto-categorises based on description keywords.",
+                "args": {
+                    "date": "YYYY-MM-DD",
+                    "amount": "Positive for income, negative for expense",
+                    "description": "e.g. 'ICA Supermarket' or 'Salary June'",
+                    "category": "Optional override (auto-detected if omitted)",
+                    "currency": "Default SEK"
+                }
+            },
+            "spending_summary": {
+                "description": "Get a spending breakdown by category for the last N months with net income/spent.",
+                "args": {"months": "Default 1"}
+            },
+            "set_budget": {
+                "description": "Set a monthly budget limit for a spending category.",
+                "args": {"category": "e.g. 'food'", "limit": "Amount", "currency": "Default SEK"}
+            },
+            "get_budget_status": {
+                "description": "Show current spend vs budget for every category this month.",
+                "args": {}
+            },
+            "add_bill": {
+                "description": "Track a recurring bill or subscription with due date and frequency.",
+                "args": {
+                    "name": "e.g. 'Netflix'",
+                    "amount": "Amount",
+                    "frequency": "monthly/weekly/yearly (default monthly)",
+                    "next_due": "YYYY-MM-DD (optional, defaults to 30 days)"
+                }
+            },
+            "upcoming_bills": {
+                "description": "List bills due within the next N days.",
+                "args": {"days": "Default 14"}
+            },
+            "detect_spending_anomalies": {
+                "description": "Find unusual transactions that deviate from historical patterns in a category.",
+                "args": {"category": "Optional: check one category; default checks all"}
+            },
+            # ---- Email ----
+            "inbox_summary": {
+                "description": "Check unread count and recent email subjects.",
+                "args": {"limit": "Number of recent messages (default 20)"}
+            },
+            "search_emails": {
+                "description": "Search inbox by sender, subject, or body keyword.",
+                "args": {"query": "Search term", "limit": "Default 10"}
+            },
+            "send_email": {
+                "description": "Send an email via SMTP.",
+                "args": {
+                    "to": "Recipient address",
+                    "subject": "Email subject",
+                    "body": "Email body (plain text)"
+                }
+            },
+            "track_email": {
+                "description": "Flag an email thread as needing a reply (follow-up tracking).",
+                "args": {
+                    "msg_id": "Message ID",
+                    "sender": "Sender address",
+                    "subject": "Subject line",
+                    "notes": "Optional reminder note"
+                }
+            },
+            "awaiting_replies": {
+                "description": "List email threads you've flagged as needing a reply.",
+                "args": {}
+            },
+            # ---- Long-Running Missions ----
+            "create_mission": {
+                "description": "Start a complex, multi-step autonomous mission that DEEP executes in the background over minutes or hours. Examples: research a topic, plan a trip, audit a codebase, generate a report.",
+                "args": {
+                    "goal": "High-level mission description, e.g. 'Research quantum AI and write a blog summary'"
+                }
+            },
+            "list_missions": {
+                "description": "List active and recent autonomous missions with their progress.",
+                "args": {"status": "Optional filter: pending, running, completed, failed"}
+            },
+            "mission_status": {
+                "description": "Get detailed status of a specific mission including subtasks.",
+                "args": {"mission_id": "The mission ID"}
+            },
+            "cancel_mission": {
+                "description": "Cancel an in-progress mission.",
+                "args": {"mission_id": "The mission ID"}
+            },
+            # ---- Phone Control (Android via ADB, iPhone via Shortcuts) ----
+            "phone_status": {
+                "description": "Check whether DEEP can control the phone: lists connected Android devices (adb) and iPhone shortcut readiness. Use FIRST before other phone tools.",
+                "args": {}
+            },
+            "phone_connect": {
+                "description": "Connect to an Android phone over Wi-Fi (wireless ADB) at host:port, e.g. '192.168.1.42:5555' or the port shown under Wireless debugging. Makes it the active device for subsequent phone tools. Run phone_pair first on Android 11+ if not already paired.",
+                "args": {"address": "host:port, e.g. 192.168.1.42:5555"}
+            },
+            "phone_pair": {
+                "description": "Android 11+ one-time wireless pairing. Use the host:port and 6-digit code from Settings → Developer options → Wireless debugging → 'Pair device with pairing code'. After pairing, use phone_connect with the (different) connect port.",
+                "args": {"address": "pairing host:port", "code": "6-digit pairing code"}
+            },
+            "phone_screenshot": {
+                "description": "Capture the Android phone's screen RIGHT NOW and look at it with local AI vision (LLaVA). Use to see what's on the phone before deciding where to tap. Returns a description + the saved frame path.",
+                "args": {"question": "Optional: what to look for on the phone screen"}
+            },
+            "phone_tap": {
+                "description": "Tap the Android phone screen at pixel coordinates (x, y). Get coordinates by calling phone_screenshot first.",
+                "args": {"x": "X pixel", "y": "Y pixel"}
+            },
+            "phone_swipe": {
+                "description": "Swipe/scroll on the Android phone from (x1,y1) to (x2,y2). Use for scrolling, unlocking, or dragging.",
+                "args": {"x1": "start X", "y1": "start Y", "x2": "end X", "y2": "end Y",
+                         "duration_ms": "Optional swipe duration in ms (default 300)"}
+            },
+            "phone_text": {
+                "description": "Type text into the currently focused field on the Android phone.",
+                "args": {"text": "The text to type"}
+            },
+            "phone_key": {
+                "description": "Press a hardware/navigation key on the Android phone. Accepts aliases: home, back, enter, recents, power, wake, volup, voldown, search, del, space — or any raw KEYCODE_*.",
+                "args": {"key": "e.g. 'back', 'home', 'enter'"}
+            },
+            "phone_open_app": {
+                "description": "Launch an app on the Android phone by its package name (e.g. com.whatsapp, com.android.chrome).",
+                "args": {"package": "Android package name"}
+            },
+            "phone_shortcut": {
+                "description": "iPhone: trigger a Siri Shortcut by name (iOS blocks raw taps; this is the command-driven path). Requires DEEP_IPHONE_SHORTCUT_WEBHOOK configured.",
+                "args": {"name": "Shortcut name", "input": "Optional text input to pass to the shortcut"}
             }
         }
         
@@ -308,6 +408,9 @@ class DeepToolRegistry(ToolExecutor):
         for name, info in self.available_tools.items():
             args_str = json.dumps(info['args'])
             desc += f"- {name}: {info['description']} | Args: {args_str}\n"
+        # Tools migrated to the modern @tool registry.
+        for name, spec in TOOL_SPECS.items():
+            desc += f"- {name}: {spec.description} | Args: {json.dumps(spec.args)}\n"
         desc += "\nTo use a tool, YOU MUST output ONLY this exact format: [TOOL:{\"name\": \"tool_name\", \"args\": {\"arg\": \"value\"}}]"
         return desc
         
@@ -325,7 +428,7 @@ class DeepToolRegistry(ToolExecutor):
             return {"result": None, "verbal": f"Science engine error: {e}", "module": None}
 
     def list_tools(self) -> List[str]:
-        return list(self.available_tools.keys())
+        return list(self.available_tools.keys()) + list(TOOL_SPECS.keys())
         
     async def execute_tool(self, tool_name: str, args: Dict[str, Any]) -> ToolResult:
         import asyncio
@@ -333,10 +436,13 @@ class DeepToolRegistry(ToolExecutor):
         logger.info(f"[TOOL] Executing {tool_name} with {args}")
         
         try:
-            if tool_name == "get_time":
-                return ToolResult(True, datetime.now().strftime("%Y-%m-%d %H:%M:%S"), tool_name)
+            # Modern registry first (strangler): if a tool has been migrated to
+            # the @tool decorator, dispatch it here. Legacy if/elif handles the rest.
+            spec = TOOL_SPECS.get(tool_name)
+            if spec is not None:
+                return await spec.handler(self, args)
 
-            elif tool_name in ("science_compute", "solve_math", "run_simulation", "quant_finance"):
+            if tool_name in ("science_compute", "solve_math", "run_simulation", "quant_finance"):
                 query = args.get("query", "")
                 if not query:
                     return ToolResult(False, "Missing query", tool_name)
@@ -504,50 +610,9 @@ class DeepToolRegistry(ToolExecutor):
                     return ToolResult(False, str(res["error"]), tool_name)
                 return ToolResult(True, json.dumps(res), tool_name)
 
-            elif tool_name == "read_file":
-                def _as_int(v):
-                    try:
-                        return int(v)
-                    except (TypeError, ValueError):
-                        return None
-                content = await self.local_system.read_file(
-                    args.get("filepath", ""), _as_int(args.get("start")), _as_int(args.get("end")))
-                ok = not content.startswith("ERROR")
-                return ToolResult(ok, content, tool_name)
+            # read_file/write_file/edit_file/list_directory/glob_files/search_code/
+            # run_command → core/tools/files.py
 
-            elif tool_name == "write_file":
-                res = await self.local_system.write_file(
-                    args.get("filepath", ""), args.get("content", ""))
-                return ToolResult(not res.startswith("ERROR"), res, tool_name)
-
-            elif tool_name == "edit_file":
-                ra = args.get("replace_all")
-                replace_all = ra in (True, "true", "True", "1", 1)
-                res = await self.local_system.edit_file(
-                    args.get("filepath", ""), args.get("old", ""),
-                    args.get("new", ""), replace_all)
-                return ToolResult(not res.startswith("ERROR"), res, tool_name)
-
-            elif tool_name == "list_directory":
-                res = await self.local_system.list_directory(args.get("path", "."))
-                return ToolResult(not res.startswith("ERROR"), str(res), tool_name)
-
-            elif tool_name == "glob_files":
-                res = await self.local_system.glob_files(
-                    args.get("pattern", "*"), args.get("path"))
-                return ToolResult(not res.startswith("ERROR"), res, tool_name)
-
-            elif tool_name == "search_code":
-                res = await self.local_system.search_code(
-                    args.get("query", ""), args.get("path"), args.get("glob"))
-                return ToolResult(not res.startswith("ERROR"), res, tool_name)
-
-            elif tool_name == "run_command":
-                cmd = args.get("command", "")
-                res = await self.local_system.run_command(cmd)
-                output = f"Exit code: {res['exit_code']}\nSTDOUT:\n{res['stdout']}\nSTDERR:\n{res['stderr']}"
-                return ToolResult(res["exit_code"] == 0, output, tool_name)
-                
             elif tool_name == "cyber_scan_network":
                 res = await self.cyber.scan_network_arp()
                 return ToolResult(True, res, tool_name)
@@ -671,24 +736,7 @@ class DeepToolRegistry(ToolExecutor):
                 response = self.interactive.create_and_store("confirmation", message, [{"action": action}])
                 return ToolResult(True, f"[INTERACTIVE_RESPONSE:{response.to_json()}]", tool_name)
                 
-            elif tool_name in ("ml_list", "ml_explain", "ml_recommend"):
-                try:
-                    from ...ai import ml_catalog
-                except ImportError:
-                    from ai import ml_catalog
-                if tool_name == "ml_list":
-                    return ToolResult(True, ml_catalog.list_all(), tool_name)
-                if tool_name == "ml_explain":
-                    return ToolResult(True, ml_catalog.explain(args.get("query", "")), tool_name)
-                return ToolResult(True, ml_catalog.recommend(args.get("problem", "")), tool_name)
-
-            elif tool_name == "ml_runnable":
-                try:
-                    from ...ai import ml_runner
-                except ImportError:
-                    from ai import ml_runner
-                algos = ml_runner.runnable_algorithms()
-                return ToolResult(True, "Trainable now: " + ", ".join(algos), tool_name)
+            # ml_list / ml_explain / ml_recommend / ml_runnable → core/tools/ml.py
 
             elif tool_name == "ml_train":
                 try:
@@ -730,6 +778,209 @@ class DeepToolRegistry(ToolExecutor):
                 if tool_name == "train_task_model":
                     return ToolResult(True, personal_models.train_task_completion(db_path, self._ml_models_dir()), tool_name)
                 return ToolResult(True, personal_models.predict_task_completion(db_path, self._ml_models_dir()), tool_name)
+
+            # ---- Personal Finance ----
+            elif tool_name == "add_transaction":
+                r = self.finance.add_transaction(
+                    args.get("date", datetime.now().strftime("%Y-%m-%d")),
+                    float(args.get("amount", 0)),
+                    args.get("description", ""),
+                    category=args.get("category"),
+                    currency=args.get("currency", "SEK"),
+                )
+                return ToolResult(True, r.get("verbal", "Recorded."), tool_name)
+
+            elif tool_name == "spending_summary":
+                r = self.finance.spending_summary(months=int(args.get("months", 1)))
+                return ToolResult(True, r.get("verbal", json.dumps(r)), tool_name)
+
+            elif tool_name == "set_budget":
+                r = self.finance.set_budget(
+                    args.get("category", ""), float(args.get("limit", 0)), args.get("currency", "SEK"))
+                return ToolResult(True, r.get("verbal", "Budget set."), tool_name)
+
+            elif tool_name == "get_budget_status":
+                r = self.finance.get_budget_status()
+                lines = [f"{b['category']}: {b['spent']:.0f}/{b['limit']:.0f} ({b['percent']:.0f}%)" for b in r]
+                return ToolResult(True, "Budgets this month:\n" + "\n".join(lines), tool_name)
+
+            elif tool_name == "add_bill":
+                r = self.finance.add_bill(
+                    args.get("name", ""), float(args.get("amount", 0)),
+                    frequency=args.get("frequency", "monthly"),
+                    next_due=args.get("next_due"),
+                )
+                return ToolResult(True, r.get("verbal", "Bill added."), tool_name)
+
+            elif tool_name == "upcoming_bills":
+                r = self.finance.upcoming_bills(days=int(args.get("days", 14)))
+                if not r:
+                    return ToolResult(True, "No upcoming bills.", tool_name)
+                lines = [f"{b['name']} ({b['amount']:.0f}) due {b['next_due']}" for b in r]
+                return ToolResult(True, "Upcoming bills:\n" + "\n".join(lines), tool_name)
+
+            elif tool_name == "detect_spending_anomalies":
+                r = self.finance.detect_anomalies(category=args.get("category"))
+                if not r:
+                    return ToolResult(True, "No spending anomalies detected.", tool_name)
+                lines = [f"{a['description']} ({a['amount']:.0f}) — {a['z_score']:.1f}σ" for a in r]
+                return ToolResult(True, "Anomalies:\n" + "\n".join(lines), tool_name)
+
+            # ---- Email ----
+            elif tool_name == "inbox_summary":
+                r = self.email.inbox_summary(limit=int(args.get("limit", 20)))
+                return ToolResult(True, r.get("verbal", json.dumps(r)), tool_name)
+
+            elif tool_name == "search_emails":
+                r = self.email.search(args.get("query", ""), limit=int(args.get("limit", 10)))
+                return ToolResult(True, r.get("verbal", json.dumps(r)), tool_name)
+
+            elif tool_name == "send_email":
+                r = self.email.send(args.get("to", ""), args.get("subject", ""), args.get("body", ""))
+                return ToolResult(r.get("ok", False), r.get("verbal", ""), tool_name)
+
+            elif tool_name == "track_email":
+                r = self.email.track_thread(
+                    args.get("msg_id", ""), args.get("sender", ""), args.get("subject", ""),
+                    notes=args.get("notes", ""),
+                )
+                return ToolResult(True, r.get("verbal", ""), tool_name)
+
+            elif tool_name == "awaiting_replies":
+                r = self.email.awaiting_reply()
+                if not r:
+                    return ToolResult(True, "No emails awaiting reply.", tool_name)
+                lines = [f"{t['subject']} from {t['sender']}" for t in r]
+                return ToolResult(True, "Awaiting replies:\n" + "\n".join(lines), tool_name)
+
+            # ---- Long-Running Missions ----
+            elif tool_name == "create_mission":
+                from ..long_running_orchestrator import LongRunningOrchestrator
+                orch = LongRunningOrchestrator()
+                m = orch.create_mission(args.get("goal", ""))
+                return ToolResult(True, f"Mission '{m.id}' created: {m.goal}. Planning subtasks now…", tool_name)
+
+            elif tool_name == "list_missions":
+                from ..long_running_orchestrator import LongRunningOrchestrator
+                orch = LongRunningOrchestrator()
+                status = args.get("status")
+                missions = orch.list_missions(status=status, limit=10)
+                if not missions:
+                    return ToolResult(True, "No missions found.", tool_name)
+                lines = [f"{m.id} | {m.status} | {m.progress_pct:.0f}% | {m.goal[:50]}" for m in missions]
+                return ToolResult(True, "Missions:\n" + "\n".join(lines), tool_name)
+
+            elif tool_name == "mission_status":
+                from ..long_running_orchestrator import LongRunningOrchestrator
+                orch = LongRunningOrchestrator()
+                try:
+                    d = orch.get_mission_detail(args.get("mission_id", ""))
+                    m = d["mission"]
+                    subs = d["subtasks"]
+                    lines = [f"Mission {m['id']} — {m['status']} ({m['progress_pct']:.0f}%)"]
+                    lines.append(f"Goal: {m['goal']}")
+                    for s in subs:
+                        lines.append(f"  [{s['status']}] {s['description']}")
+                    return ToolResult(True, "\n".join(lines), tool_name)
+                except Exception as e:
+                    return ToolResult(False, str(e), tool_name)
+
+            elif tool_name == "cancel_mission":
+                from ..long_running_orchestrator import LongRunningOrchestrator
+                orch = LongRunningOrchestrator()
+                orch.cancel_mission(args.get("mission_id", ""))
+                return ToolResult(True, "Mission cancelled.", tool_name)
+
+            # ---- Phone Control ----
+            elif tool_name == "phone_status":
+                return ToolResult(True, await self.phone.status(), tool_name)
+
+            elif tool_name == "phone_connect":
+                err = self.phone._need_android()
+                if err:
+                    return ToolResult(False, err, tool_name)
+                addr = args.get("address", "")
+                if not addr:
+                    return ToolResult(False, "Missing address (host:port).", tool_name)
+                ok, msg = await self.phone.android.connect(addr)
+                return ToolResult(ok, msg, tool_name)
+
+            elif tool_name == "phone_pair":
+                err = self.phone._need_android()
+                if err:
+                    return ToolResult(False, err, tool_name)
+                addr, code = args.get("address", ""), args.get("code", "")
+                if not addr or not code:
+                    return ToolResult(False, "Need both address (host:port) and the 6-digit code.", tool_name)
+                ok, msg = await self.phone.android.pair(addr, code)
+                return ToolResult(ok, msg, tool_name)
+
+            elif tool_name == "phone_screenshot":
+                err = self.phone._need_android()
+                if err:
+                    return ToolResult(False, err, tool_name)
+                ok, path = await self.phone.android.screenshot()
+                if not ok:
+                    return ToolResult(False, f"Could not capture the phone screen: {path}", tool_name)
+                from ..integrations.vision_llava import llava_vision
+                q = args.get("question") or "Describe what is on this phone screen — the app, UI elements, and any tappable buttons with their rough positions."
+                analysis = await llava_vision.analyze_image(path, q)
+                return ToolResult(True, f"[Phone screen captured -> {path}]\n\n{analysis}", tool_name)
+
+            elif tool_name == "phone_tap":
+                err = self.phone._need_android()
+                if err:
+                    return ToolResult(False, err, tool_name)
+                try:
+                    x, y = int(args.get("x")), int(args.get("y"))
+                except (TypeError, ValueError):
+                    return ToolResult(False, "x and y must be integers.", tool_name)
+                ok, msg = await self.phone.android.tap(x, y)
+                return ToolResult(ok, msg, tool_name)
+
+            elif tool_name == "phone_swipe":
+                err = self.phone._need_android()
+                if err:
+                    return ToolResult(False, err, tool_name)
+                try:
+                    x1, y1 = int(args.get("x1")), int(args.get("y1"))
+                    x2, y2 = int(args.get("x2")), int(args.get("y2"))
+                    dur = int(args.get("duration_ms", 300))
+                except (TypeError, ValueError):
+                    return ToolResult(False, "x1,y1,x2,y2 must be integers.", tool_name)
+                ok, msg = await self.phone.android.swipe(x1, y1, x2, y2, dur)
+                return ToolResult(ok, msg, tool_name)
+
+            elif tool_name == "phone_text":
+                err = self.phone._need_android()
+                if err:
+                    return ToolResult(False, err, tool_name)
+                ok, msg = await self.phone.android.text(args.get("text", ""))
+                return ToolResult(ok, msg, tool_name)
+
+            elif tool_name == "phone_key":
+                err = self.phone._need_android()
+                if err:
+                    return ToolResult(False, err, tool_name)
+                ok, msg = await self.phone.android.key(args.get("key", ""))
+                return ToolResult(ok, msg, tool_name)
+
+            elif tool_name == "phone_open_app":
+                err = self.phone._need_android()
+                if err:
+                    return ToolResult(False, err, tool_name)
+                pkg = args.get("package", "")
+                if not pkg:
+                    return ToolResult(False, "Missing package name.", tool_name)
+                ok, msg = await self.phone.android.open_app(pkg)
+                return ToolResult(ok, msg, tool_name)
+
+            elif tool_name == "phone_shortcut":
+                name = args.get("name", "")
+                if not name:
+                    return ToolResult(False, "Missing shortcut name.", tool_name)
+                ok, msg = await self.phone.iphone.run_shortcut(name, args.get("input", ""))
+                return ToolResult(ok, msg, tool_name)
 
             else:
                 return ToolResult(False, f"Unknown tool: {tool_name}", tool_name)

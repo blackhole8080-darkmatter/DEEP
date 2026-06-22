@@ -7,6 +7,14 @@ export interface Group { id: string; label: string; tabs: Tab[]; }
 
 export const GROUPS: Group[] = [
   {
+    id: "life",
+    label: "Life",
+    tabs: [
+      { route: "finance", label: "finance" },
+      { route: "email", label: "email" },
+    ],
+  },
+  {
     id: "network",
     label: "Network",
     tabs: [
@@ -17,6 +25,7 @@ export const GROUPS: Group[] = [
       { route: "memory", label: "memory" },
       { route: "agents", label: "agents" },
       { route: "ops", label: "ops" },
+      { route: "missions", label: "missions" },
     ],
   },
   {

@@ -158,6 +158,10 @@ class ThreatModelTrainer:
             "history": history,
         }
 
+    def evaluate(self, X_test: np.ndarray, y_test: np.ndarray) -> dict[str, float]:
+        """Public accuracy evaluation on a held-out set. Returns {"accuracy": x}."""
+        return {"accuracy": self._evaluate(X_test, y_test)}
+
     def _evaluate(self, X_test: np.ndarray, y_test: np.ndarray) -> float:
         if self.scaler is None:
             return 0.0

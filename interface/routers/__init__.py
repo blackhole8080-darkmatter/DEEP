@@ -5,7 +5,10 @@ Cohesive, single-service endpoint groups extracted from the former
 server.py mounts via `app.include_router(...)`.
 """
 
-from interface.routers import research, predictive, evolution, knowledge_graph, threat
+from interface.routers import (
+    research, predictive, evolution, knowledge_graph, threat, workspace, reference, system, security,
+    etis,
+)
 
 ROUTERS = [
     research.router,
@@ -13,6 +16,12 @@ ROUTERS = [
     evolution.router,
     knowledge_graph.router,
     threat.router,
+    workspace.router,
+    reference.router,
+    system.router,
+    security.router,
+    etis.router,
 ]
 
 __all__ = ["ROUTERS"]
+

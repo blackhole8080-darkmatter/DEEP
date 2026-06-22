@@ -7,6 +7,7 @@ import json
 import asyncio
 import hashlib
 import sys
+from contextlib import asynccontextmanager
 # The mac_vendor_lookup library's sync lookup() leaks an un-awaited coroutine
 # when used outside a main-thread event loop. Vendor enrichment degrades
 # gracefully to the OUI fallback table, so silence this known-benign warning.
@@ -37,7 +38,17 @@ import tempfile
 import os
 
 # Add parent to path for imports
-sys.path.insert(0, str(Path(__file__).parent.parent))
+_PROJECT_ROOT = Path(__file__).resolve().parent.parent
+sys.path.insert(0, str(_PROJECT_ROOT))
+
+# Anchor the working directory to the project root so the many relative paths
+# (data/, .env, logs/, chroma, knowledge_graph/) resolve no matter where the
+# process was launched from. This lets launchers/IDEs/preview tools start the
+# server with any cwd (previously they had to cd into the DEEP folder first).
+try:
+    os.chdir(_PROJECT_ROOT)
+except Exception:
+    pass
 
 from core.config import Settings
 from core.metrics import metrics
@@ -45,9 +56,8 @@ from core.event_bus import EventBus
 from core.infrastructure.async_brain import AsyncBrain
 from core.multi_llm_router import OllamaClient, ProviderConfig, LLMProvider
 from core.application.tool_registry import DeepToolRegistry
-from core.voice_web import VoiceWeb
 from core.ltm_memory import LongTermMemory
-from core.local_stt import LocalSTT
+# core.voice_web / core.local_stt imports removed (VoiceWeb/LocalSTT stubbed above)
 from core.agent_factory import AgentFactory
 from core.security.network_monitor import NetworkMonitor
 from core.research_engine import ResearchEngine
@@ -66,10 +76,20 @@ from knowledge import (
     KnowledgeStore, KnowledgeIngester,
     BreakthroughDetector, BriefingEngine, ConceptLinker,
 )
-from voice import (
-    WakeWordDetector, STTEngine, TTSEngine, audio_utils,
-    BluetoothAudioManager, WhisperEar, SpatialAudio,
-)
+# ── Voice subsystem removed (voice/ hard-deleted). These stubs keep the existing
+#    instantiation/usage sites in this file as harmless no-ops so the server boots
+#    without voice; the voice HTTP endpoints are disabled further below. ──
+class _VoiceStub:
+    def __init__(self, *a, **k):
+        pass
+    def __getattr__(self, _name):
+        async def _noop(*a, **k):
+            return None
+        return _noop
+WakeWordDetector = STTEngine = TTSEngine = _VoiceStub
+BluetoothAudioManager = WhisperEar = SpatialAudio = _VoiceStub
+VoiceWeb = LocalSTT = VoiceSecurity = AlertManager = VoiceAssistant = ActionRegistry = _VoiceStub
+audio_utils = _VoiceStub()
 from network import (
     TailscaleManager, RemoteAccessManager,
     NetworkScanner, ThreatMonitor,
@@ -80,8 +100,24 @@ from core.redis_state import RedisStateManager
 from core.device_registry import DeviceRegistry
 from core.audit_trail import AuditTrail
 from core.session_manager import SessionManager
+from core.network_topology_graph import get_network_graph
+from core.network_graph_builder import NetworkGraphBuilder
+from core.network_ai_analyst import NetworkAIAnalyst
+# voice imports removed (ActionRegistry/VoiceSecurity/AlertManager/VoiceAssistant stubbed above)
 
-app = FastAPI(title="DEEP", version="2.0")
+@asynccontextmanager
+async def lifespan(app: "FastAPI"):
+    """Modern FastAPI lifespan (replaces the deprecated @app.on_event handlers).
+    startup_event/shutdown_event are defined later in this module and resolved at
+    call time — they run after the module is fully imported, so forward refs are safe."""
+    await startup_event()
+    try:
+        yield
+    finally:
+        await shutdown_event()
+
+
+app = FastAPI(title="DEEP", version="2.0", lifespan=lifespan)
 
 # Central event bus — all inter-module communication routes through this
 event_bus = EventBus()
@@ -189,6 +225,7 @@ from core.proactive_core import ProactiveCore
 proactive_core = ProactiveCore(event_bus=event_bus, predictive=predictive_engine)
 self_eval = SelfEvaluationEngine(event_bus=event_bus)
 knowledge_graph = KnowledgeGraph(event_bus=event_bus)
+proactive_core.kg = knowledge_graph   # graph-derived inferences → proactive nudges
 plugin_manager = PluginManager(event_bus=event_bus)
 
 # ── AI Neural Network Layer ─────────────────────────────────────────────
@@ -243,6 +280,10 @@ pihole = PiholeClient(event_bus=event_bus, redis_state=redis_state)
 # ── Passive Proximity Monitor (v2) ─────────────────────────────────────────
 proximity = ProximityMonitor(event_bus=event_bus, redis_state=redis_state)
 
+# ── Unified Multi-Layer Network Graph (v3) ─────────────────────────────────
+net_graph = get_network_graph()
+net_graph_builder = NetworkGraphBuilder(event_bus=event_bus, graph=net_graph)
+
 # ── Shared State Layer (v2) ───────────────────────────────────────────────
 device_registry = DeviceRegistry(event_bus=event_bus, redis_state=redis_state)
 
@@ -287,11 +328,20 @@ tts = TTSEngine(
     spatial_audio=spatial_audio,
 )
 
+# ── DEEP Voice AI Assistant (v4) ────────────────────────────────────────
+voice_security = VoiceSecurity(event_bus=event_bus)
+alert_manager = AlertManager(
+    event_bus=event_bus,
+    voice_security=voice_security,
+    tts_callback=lambda text, priority="normal": asyncio.create_task(
+        event_bus.publish("tts_speak", {"text": text, "priority": priority})
+    ),
+)
+
 # ── Bluetooth Private Ear (v2) ──────────────────────────────────────────
 bt_audio = BluetoothAudioManager(event_bus=event_bus, redis_state=redis_state)
 whisper_ear = WhisperEar(event_bus=event_bus, bt_audio=bt_audio)
 
-@app.on_event("startup")
 async def startup_event():
     # Start the central event bus first
     await event_bus.start()
@@ -471,36 +521,7 @@ async def startup_event():
     except Exception as e:
         print(f"[DEEP] ConceptLinker init error: {e}")
 
-    # Start Voice Hardware Layer
-    audio_devices = audio_utils.list_audio_devices()
-    print(f"[DEEP] Audio devices: {len(audio_devices)} found")
-    for dev in audio_devices[:8]:
-        print(f"   {dev['index']}: {dev['name']} (in={dev['max_input_channels']}, out={dev['max_output_channels']})")
-
-    try:
-        await audio_utils.play_startup_sound()
-        print("[DEEP] Startup sound played")
-    except Exception as e:
-        print(f"[DEEP] Startup sound error: {e}")
-
-    try:
-        await tts.ensure_model()
-        await tts.start()
-        print("[DEEP] TTSEngine started")
-    except Exception as e:
-        print(f"[DEEP] TTSEngine init error: {e}")
-
-    try:
-        await stt.start()
-        print("[DEEP] STTEngine started")
-    except Exception as e:
-        print(f"[DEEP] STTEngine init error: {e}")
-
-    try:
-        await wake_detector.start()
-        print("[DEEP] WakeWordDetector started")
-    except Exception as e:
-        print(f"[DEEP] WakeWordDetector init error: {e}")
+    # Voice hardware/assistant startup removed (voice subsystem deleted).
 
     # Start Network Layer (v2)
     try:
@@ -545,6 +566,19 @@ async def startup_event():
         print("[DEEP] ProximityMonitor started")
     except Exception as e:
         print(f"[DEEP] ProximityMonitor init error: {e}")
+
+    # Start Unified Network Graph (v3)
+    try:
+        await net_graph_builder.start()
+        print("[DEEP] NetworkGraphBuilder started")
+    except Exception as e:
+        print(f"[DEEP] NetworkGraphBuilder init error: {e}")
+
+    try:
+        await net_ai_analyst.start()
+        print("[DEEP] NetworkAIAnalyst started")
+    except Exception as e:
+        print(f"[DEEP] NetworkAIAnalyst init error: {e}")
 
     # Start Bluetooth Private Ear (v2)
     try:
@@ -616,6 +650,8 @@ async def startup_event():
             "tts_complete": "tts_complete",
             "tts_error": "tts_error",
             "tts_interrupted": "tts_interrupted",
+            "voice_state_changed": "voice_state_changed",
+            "alert_spoken": "alert_spoken",
             "papers_ingested": "papers_ingested",
             "ingest_error": "ingest_error",
             "breakthrough_detected": "breakthrough_detected",
@@ -713,7 +749,6 @@ async def _correlation_loop():
             pass
 
 
-@app.on_event("shutdown")
 async def shutdown_event():
     """Graceful shutdown: stop all modules then the event bus."""
     try:
@@ -805,6 +840,10 @@ async def shutdown_event():
     except Exception:
         pass
     try:
+        await voice_assistant.stop()
+    except Exception:
+        pass
+    try:
         await wake_detector.stop()
     except Exception:
         pass
@@ -860,6 +899,14 @@ async def shutdown_event():
         await tailscale.stop()
     except Exception:
         pass
+    try:
+        await net_ai_analyst.stop()
+    except Exception:
+        pass
+    try:
+        await net_graph_builder.stop()
+    except Exception:
+        pass
     # Stop SessionManager and AuditTrail LAST to capture shutdown events
     try:
         await session_mgr.end_session()
@@ -885,6 +932,22 @@ ollama_config = ProviderConfig(
     max_tokens=1024
 )
 ollama_client = OllamaClient(ollama_config)
+
+# ── DEEP Voice AI Assistant: Action Registry (needs ollama_client) ────────
+action_registry = ActionRegistry(
+    event_bus=event_bus,
+    scanner=scanner,
+    device_registry=device_registry,
+    threat_monitor=threat_monitor,
+    tailscale=tailscale,
+    pihole=pihole,
+    network_graph=net_graph,
+    llm_client=ollama_client,
+    settings=settings,
+)
+
+# ── Network AI Analyst (needs ollama_client) ──────────────────────────────
+net_ai_analyst = NetworkAIAnalyst(llm_client=ollama_client, event_bus=event_bus, graph=net_graph)
 
 # ── Knowledge-graph LLM extractor ──────────────────────────────────────────
 # Give the graph a real extractor (replaces the capitalized-word regex) using the
@@ -960,258 +1023,13 @@ async def _docs_scan_loop():
             print(f"[PersonalRAG] scan error: {e}")
         await asyncio.sleep(120)   # re-scan the folder every 2 min
 
-@app.get("/api/docs/search")
-async def docs_search(q: str, k: int = 5):
-    """Search Aryan's ingested documents — 'what did I write about X' with citations."""
-    return personal_rag.search(q, k=k)
+# /api/docs/* and /api/world/* moved to interface/routers/workspace.py
 
-@app.post("/api/docs/scan")
-async def docs_scan(force: bool = False):
-    """Ingest new/changed files in the watch folder now."""
-    return personal_rag.scan(force=force)
-
-@app.get("/api/docs/stats")
-async def docs_stats():
-    """What documents DEEP has ingested + the watch-folder path."""
-    return personal_rag.stats()
-
-@app.get("/api/world")
-async def get_world_model():
-    """DEEP's persistent model of who Aryan is — projects, people, priorities, episodes."""
-    return world_model.to_dict()
-
-@app.post("/api/world/refresh")
-async def refresh_world_model_now():
-    """Force a re-synthesis of the world model from the graph + recent conversation."""
-    await _refresh_world_model()
-    return {"success": True, **world_model.to_dict()}
-
-async def _stream_sse(provider: str, url: str, headers: dict, payload: dict, extract, timeout):
-    """Shared SSE streaming loop for cloud LLM providers.
-
-    `extract(parsed_json) -> Iterable[str]` pulls the text token(s) out of one
-    decoded SSE data frame. The HTTP call, status check, `data:`/`[DONE]`
-    handling, and JSON-decode guarding are identical across providers.
-    """
-    import aiohttp
-    async with aiohttp.ClientSession() as sess:
-        async with sess.post(url, headers=headers or None, json=payload, timeout=timeout) as resp:
-            if resp.status != 200:
-                raise Exception(f"{provider} {resp.status}: {(await resp.text())[:200]}")
-            async for raw in resp.content:
-                line = raw.decode("utf-8").strip()
-                if not line.startswith("data: "):
-                    continue
-                data_str = line[6:]
-                if data_str == "[DONE]":
-                    break
-                try:
-                    for tok in extract(json.loads(data_str)):
-                        if tok:
-                            yield tok
-                except (json.JSONDecodeError, KeyError, IndexError):
-                    pass
-
-
-def _claude_extract(d: dict):
-    if d.get("type") == "content_block_delta" and d.get("delta", {}).get("type") == "text_delta":
-        return (d["delta"].get("text", ""),)
-    return ()
-
-
-def _groq_extract(d: dict):
-    return (d["choices"][0]["delta"].get("content"),)
-
-
-def _gemini_extract(d: dict):
-    return tuple(p["text"] for p in d["candidates"][0]["content"]["parts"] if "text" in p)
-
-
-def _parse_data_url(data_url: str):
-    """Split a 'data:image/png;base64,XXXX' URL into (media_type, base64_data).
-
-    Accepts a bare base64 string too (defaults to image/png).
-    """
-    import re as _re
-    m = _re.match(r"data:(?P<mt>[\w/+.-]+);base64,(?P<data>.+)$", data_url or "", _re.S)
-    if m:
-        mt = m.group("mt")
-        # Anthropic accepts jpeg/png/gif/webp only.
-        if mt not in ("image/jpeg", "image/png", "image/gif", "image/webp"):
-            mt = "image/png"
-        return mt, m.group("data")
-    return "image/png", (data_url or "")
-
-
-async def stream_ollama_vision_tokens(system_prompt: str, prompt: str, image_b64: str,
-                                      model: str, base_url: str, max_tokens: int = 1024):
-    """Stream a vision response from a LOCAL Ollama model (e.g. llava) — fully
-    offline, no API keys. Ollama's /api/generate accepts an `images` array of
-    bare base64 strings (no data-URL prefix)."""
-    import aiohttp
-    url = f"{base_url.rstrip('/')}/api/generate"
-    payload = {
-        "model": model,
-        "system": system_prompt,
-        "prompt": prompt or "Describe this image for Aryan.",
-        "images": [image_b64],
-        "stream": True,
-        "options": {"num_predict": max_tokens},
-    }
-    timeout = aiohttp.ClientTimeout(total=None, connect=10, sock_read=120)
-    async with aiohttp.ClientSession(timeout=timeout) as session:
-        async with session.post(url, json=payload) as resp:
-            resp.raise_for_status()
-            async for line in resp.content:
-                if not line.strip():
-                    continue
-                try:
-                    d = json.loads(line)
-                except Exception:
-                    continue
-                if d.get("response"):
-                    yield d["response"]
-                if d.get("done"):
-                    break
-
-
-def stream_claude_tokens(system_prompt: str, messages: list, model: str, api_key: str, max_tokens: int = 1024):
-    """Stream tokens directly from Claude's SSE API."""
-    import aiohttp
-    return _stream_sse(
-        "Claude",
-        "https://api.anthropic.com/v1/messages",
-        {"x-api-key": api_key, "anthropic-version": "2023-06-01", "content-type": "application/json"},
-        {"model": model, "max_tokens": max_tokens, "system": system_prompt,
-         "messages": messages, "stream": True},
-        _claude_extract,
-        aiohttp.ClientTimeout(total=120, connect=10),
-    )
-
-
-def stream_groq_tokens(system_prompt: str, messages: list, model: str, api_key: str, max_tokens: int = 1024):
-    """Stream tokens from Groq (OpenAI-compatible SSE). Very fast, free tier."""
-    import aiohttp
-    return _stream_sse(
-        "Groq",
-        "https://api.groq.com/openai/v1/chat/completions",
-        {"Authorization": f"Bearer {api_key}", "content-type": "application/json"},
-        {"model": model, "max_tokens": max_tokens, "stream": True,
-         "messages": [{"role": "system", "content": system_prompt}] + messages},
-        _groq_extract,
-        aiohttp.ClientTimeout(total=None, connect=10, sock_read=60),
-    )
-
-
-def stream_gemini_tokens(system_prompt: str, messages: list, model: str, api_key: str, max_tokens: int = 1024):
-    """Stream tokens from Google Gemini (SSE). Free tier."""
-    import aiohttp
-    # Map OpenAI-style roles → Gemini roles (assistant → model)
-    contents = [
-        {"role": ("model" if m["role"] == "assistant" else "user"),
-         "parts": [{"text": m["content"]}]}
-        for m in messages
-    ]
-    return _stream_sse(
-        "Gemini",
-        f"https://generativelanguage.googleapis.com/v1beta/models/{model}"
-        f":streamGenerateContent?alt=sse&key={api_key}",
-        {},
-        {"system_instruction": {"parts": [{"text": system_prompt}]},
-         "contents": contents,
-         "generationConfig": {"maxOutputTokens": max_tokens}},
-        _gemini_extract,
-        aiohttp.ClientTimeout(total=None, connect=10, sock_read=60),
-    )
-
-
-class RoutingLLM:
-    """Tool-capable routing client for AsyncBrain.
-
-    AsyncBrain's [TOOL:] parsing is model-agnostic, so any provider that streams
-    text can drive tools. This client builds an ordered cloud fallback chain
-    (Groq → Gemini → Claude, per `chat_provider_order`) and finally local Ollama,
-    so tool-calling works across every configured cloud provider — not just Groq.
-    Exposes last_provider for the reasoning panel.
-    """
-    def __init__(self, local_client, app_settings):
-        self._local = local_client
-        self._settings = app_settings
-        self.last_provider = f"ollama:{app_settings.ollama_model}"
-        self.config = type("Cfg", (), {"model": app_settings.groq_model})()
-
-    def _cloud_chain(self):
-        """Ordered (provider, model, key, streamer) tuples for configured clouds."""
-        s = self._settings
-        avail = {
-            "groq": (s.groq_model, s.groq_api_key, stream_groq_tokens,
-                     bool(s.groq_api_key and len(s.groq_api_key) > 10)),
-            "gemini": (s.gemini_model, s.gemini_api_key, stream_gemini_tokens,
-                       bool(s.gemini_api_key and len(s.gemini_api_key) > 10)),
-            # Respect the same opt-in gate the fast chat path uses for Claude.
-            "claude": (s.claude_model, s.claude_api_key, stream_claude_tokens,
-                       bool(s.prefer_claude_when_available and s.claude_api_key and len(s.claude_api_key) > 20)),
-        }
-        order = [p.strip().lower() for p in s.chat_provider_order.split(",") if p.strip()]
-        chain = []
-        for p in order:
-            entry = avail.get(p)
-            if entry and entry[3]:
-                model, key, streamer, _ = entry
-                chain.append((p, model, key, streamer))
-        return chain
-
-    async def generate_stream(self, system_prompt: str, user_prompt: str,
-                              temperature: float = 0.7, max_tokens: int = 1024, **kw):
-        msgs = [{"role": "user", "content": user_prompt}]
-        # Honour the caller's budget up to a configurable ceiling (was a flat
-        # 1024 that truncated the 70B model on hard queries). Groq 429s are now
-        # handled by retry/backoff + provider fallthrough rather than a tiny cap.
-        ceiling = int(getattr(self._settings, "chat_max_tokens_complex", 4096))
-        cap = min(max_tokens, ceiling)
-        attempts = max(1, int(getattr(self._settings, "llm_retry_attempts", 1)) + 1)
-        backoff = float(getattr(self._settings, "llm_retry_backoff_s", 0.8))
-        for provider, model, key, streamer in self._cloud_chain():
-            emitted = False
-            for attempt in range(attempts):
-                try:
-                    async for tok in streamer(system_prompt, msgs, model, key, cap):
-                        emitted = True
-                        self.last_provider = f"{provider}:{model}"
-                        yield tok
-                    if emitted:
-                        return
-                    break  # provider returned nothing — try next provider
-                except Exception as e:
-                    # Once tokens have been emitted we can't safely retry/resend.
-                    if emitted:
-                        return
-                    transient = any(s in str(e).lower() for s in ("429", "timeout", "timed out", "rate", "503", "502", "500"))
-                    if transient and attempt < attempts - 1:
-                        print(f"[DEEP] {provider} transient error ({type(e).__name__}); "
-                              f"retry {attempt + 1}/{attempts - 1} after {backoff}s")
-                        await asyncio.sleep(backoff * (attempt + 1))
-                        continue
-                    print(f"[DEEP] {provider} brain stream failed, trying next provider: "
-                          f"{type(e).__name__}: {str(e)[:160]}")
-                    break  # move to next provider
-        # Final fallback: local Ollama (always available, also tool-capable).
-        self.last_provider = f"ollama:{self._settings.ollama_model}"
-        async for tok in self._local.generate_stream(
-            system_prompt=system_prompt, user_prompt=user_prompt,
-            temperature=temperature, max_tokens=max_tokens, **kw
-        ):
-            yield tok
-
-    async def generate(self, *a, **k):
-        return await self._local.generate(*a, **k)
-    async def health_check(self):
-        try: return await self._local.health_check()
-        except Exception: return True
-    async def close(self):
-        try: await self._local.close()
-        except Exception: pass
-
+from core.llm.providers import (
+    stream_ollama_vision_tokens, stream_claude_tokens, stream_groq_tokens,
+    stream_gemini_tokens, _parse_data_url,
+)
+from core.llm.router import RoutingLLM, GroqAgentLLM
 
 brain = AsyncBrain(
     llm_client=RoutingLLM(ollama_client, settings),
@@ -1221,30 +1039,18 @@ brain = AsyncBrain(
     enable_autonomous=True
 )
 
-
-class GroqAgentLLM:
-    """Adapter so sub-agents run on fast Groq (same interface the factory expects)."""
-    def __init__(self, api_key: str, model: str):
-        self.api_key = api_key
-        self.model = model
-        self.model_name = model
-        self.config = type("Cfg", (), {"model": model})()
-
-    async def generate_stream(self, system_prompt: str, user_prompt: str, temperature: float = 0.7, max_tokens: int = 1024, **_):
-        # Cap per-step tokens to stay under Groq's free-tier per-minute limit (agents loop several times).
-        capped = min(max_tokens, 700)
-        async for tok in stream_groq_tokens(system_prompt, [{"role": "user", "content": user_prompt}], self.model, self.api_key, capped):
-            yield tok
-
-    async def generate(self, system_prompt: str, user_prompt: str, **kw):
-        out = ""
-        async for t in self.generate_stream(system_prompt, user_prompt, **kw):
-            out += t
-        return out
-
-    async def health_check(self) -> bool:
-        return bool(self.api_key and len(self.api_key) > 10)
-
+# ── DEEP Voice AI Assistant (v4) ────────────────────────────────────────
+voice_assistant = VoiceAssistant(
+    event_bus=event_bus,
+    wake_word_detector=wake_detector,
+    stt_engine=stt,
+    tts_engine=tts,
+    brain=brain,
+    action_registry=action_registry,
+    voice_security=voice_security,
+    alert_manager=alert_manager,
+    user_name="Aryan",
+)
 
 # Agents run on Groq when configured (fast + capable), else fall back to local Ollama.
 _agent_llm = (GroqAgentLLM(settings.groq_api_key, settings.groq_model)
@@ -1324,7 +1130,8 @@ async def math_solve(payload: dict):
         res = _sr.solve(text)
         if res:
             return {"ok": True, "kind": res["kind"], "expression": res["expression"],
-                    "result": res["result"], "engine": res["engine"]}
+                    "result": res["result"], "engine": res["engine"],
+                    "latex": res.get("latex"), "latex_expr": res.get("latex_expr")}
         return {"ok": False, "result": None}
     except Exception as e:
         return {"ok": False, "result": None, "error": str(e)}
@@ -1357,6 +1164,11 @@ async def science_compute(payload: dict):
         "module": res.get("module"),
         "function": res.get("function"),
         "result": _sci_sanitize(res.get("result")),
+        # Symbolic engines (compute.py) emit render-ready TeX + exact symbolic /
+        # numeric forms; surface them so the UI can typeset with KaTeX.
+        "latex": res.get("latex"),
+        "symbolic": res.get("symbolic"),
+        "numeric": _sci_sanitize(res.get("numeric")),
         "media": media,
     }
 
@@ -1418,6 +1230,30 @@ def build_jarvis_context(ws_id: int, user_input: str) -> str:
     except Exception as e:
         print(f"[LTM Error] {e}")
 
+    # Knowledge-graph recall — the READ half of the memory loop. The write half
+    # (ingest_llm after each turn) already runs; this injects the entities most
+    # SEMANTICALLY relevant to the turn plus how they connect, so the brain
+    # reasons over what it knows instead of letting the graph sit idle.
+    kg_context = ""
+    try:
+        if user_input:
+            hits = knowledge_graph.semantic_search(user_input, k=5, min_score=0.35)
+            if hits:
+                lines = []
+                for h in hits[:5]:
+                    bit = h["name"]
+                    desc = (h.get("description") or "").strip()
+                    if desc:
+                        bit += f" — {desc}"
+                    nbrs = knowledge_graph.get_neighbors(h["name"])[:4]
+                    rel = "; ".join(f"{n['relation']} {n['entity']['name']}" for n in nbrs)
+                    if rel:
+                        bit += f" ({rel})"
+                    lines.append("- " + bit)
+                kg_context = "\n=== KNOWLEDGE GRAPH (relevant to this) ===\n" + "\n".join(lines) + "\n"
+    except Exception as e:
+        print(f"[KG recall Error] {e}")
+
     # Learned user preferences — inject so Deep adapts to Aryan over time
     pref_context = ""
     try:
@@ -1436,6 +1272,7 @@ def build_jarvis_context(ws_id: int, user_input: str) -> str:
         f"User: Aryan\n"
         f"System: Deep neural interface v2 - all modules online\n"
         f"{pref_context}"
+        f"{kg_context}"
         f"{ltm_context}"
         f"{history_text}"
     )
@@ -1507,25 +1344,25 @@ def store_turn(ws_id: int, role: str, content: str):
 
 @app.get("/")
 async def root():
-    return FileResponse(str(static_path / "index.html"))
-
-@app.get("/ai")
-async def ai_ui():
-    """Advanced AI System UI"""
-    return FileResponse(str(static_path / "ai-system-ui.html"))
-
-@app.get("/app")
-async def modern_ui():
-    """Modern UI (Vite + Lit) — coexists with /ai during migration. Falls back
-    to the legacy UI with a hint if the new frontend hasn't been built yet."""
+    """Root serves the modern UI (Vite + Lit)."""
     built = static_path / "app-dist" / "index.html"
     if built.exists():
         return FileResponse(str(built))
     return HTMLResponse(
         "<h1>DEEP modern UI not built yet</h1>"
-        "<p>Run <code>cd interface/web &amp;&amp; npm install &amp;&amp; npm run build</code>, "
-        "or use the dev server (<code>npm run dev</code>). The legacy UI is at "
-        "<a href='/ai'>/ai</a>.</p>",
+        "<p>Run <code>cd interface/web &amp;&amp; npm install &amp;&amp; npm run build</code></p>",
+        status_code=200,
+    )
+
+@app.get("/app")
+async def modern_ui():
+    """Modern UI (Vite + Lit)."""
+    built = static_path / "app-dist" / "index.html"
+    if built.exists():
+        return FileResponse(str(built))
+    return HTMLResponse(
+        "<h1>DEEP modern UI not built yet</h1>"
+        "<p>Run <code>cd interface/web &amp;&amp; npm install &amp;&amp; npm run build</code></p>",
         status_code=200,
     )
 
@@ -1619,6 +1456,35 @@ async def websocket(ws: WebSocket):
     except WebSocketDisconnect:
         manager.disconnect(ws)
         session_history.pop(id(ws), None)  # clean up history on disconnect
+
+
+@app.websocket("/ws/voice")
+async def websocket_voice(ws: WebSocket):
+    """Lightweight WebSocket for the voice-status-orb frontend component.
+    Forwards voice_state_changed and alert_spoken events."""
+    await ws.accept()
+    try:
+        async def _voice_forward(event_name: str, payload: dict):
+            if event_name == "voice_state_changed":
+                await ws.send_json({"type": "state", **payload})
+            elif event_name == "alert_spoken":
+                await ws.send_json({"type": "alert", **payload})
+        event_bus.subscribe("voice_state_changed", _voice_forward)
+        event_bus.subscribe("alert_spoken", _voice_forward)
+        try:
+            while True:
+                data = await ws.receive_text()
+                msg = json.loads(data)
+                if msg.get("type") == "command" and msg.get("command") == "stop":
+                    if voice_security:
+                        voice_security.trigger_kill()
+        except WebSocketDisconnect:
+            pass
+        finally:
+            event_bus.unsubscribe("voice_state_changed", _voice_forward)
+            event_bus.unsubscribe("alert_spoken", _voice_forward)
+    except Exception:
+        pass
 
 async def handle_chat(ws: WebSocket, msg: dict):
     """Process chat message with real AI streaming"""
@@ -2018,146 +1884,7 @@ async def handle_voice(ws: WebSocket, msg: dict):
         # Reuse the normal chat pipeline so voice answers exactly like text.
         await handle_chat(ws, {"text": transcript, "mode": msg.get("mode", "auto")})
 
-@app.get("/api/briefing")
-async def briefing():
-    """JARVIS startup briefing — date, time, greeting, status."""
-    now  = datetime.now()
-    date = now.strftime("%A, %B %d, %Y")
-    time = now.strftime("%I:%M %p")
-    tod  = _time_of_day()
-
-    greeting_map = {
-        "morning":   "Good morning, sir.",
-        "afternoon": "Good afternoon, sir.",
-        "evening":   "Good evening, sir.",
-        "night":     "Working late again, sir.",
-    }
-    greeting = greeting_map.get(tod, "Hello, sir.")
-
-    try:
-        brain_health = brain.health_check()
-        # health_check may return a coroutine if LLM client is async
-        if asyncio.iscoroutine(brain_health):
-            brain_health = await brain_health
-        ai_status = "all neural systems are nominal" if brain_health.status.value == "ok" else "AI backend is currently offline"
-        brain_status = brain_health.status.value
-    except Exception:
-        ai_status = "online"
-        brain_status = "ok"
-
-    return {
-        "greeting": greeting,
-        "date": date,
-        "time": time,
-        "time_of_day": tod,
-        "briefing": (
-            f"{greeting} It is currently {time} on {date}. "
-            f"DEEP is online and {ai_status}. "
-            f"I am ready to assist you."
-        ),
-        "model": settings.ollama_model,
-        "status": brain_status,
-    }
-
-
-@app.get("/api/status")
-async def system_status():
-    """Return a brief human-readable system status."""
-    try:
-        _h = brain.health_check()
-        if asyncio.iscoroutine(_h):
-            _h.close()  # suppress RuntimeWarning; status unknown
-            raise RuntimeError("async health_check not awaitable here")
-        b_status = _h.status.value
-        b_latency = _h.latency_ms
-    except Exception:
-        b_status = "ok"
-        b_latency = None
-    return {
-        "deep": "online",
-        "brain": b_status,
-        "model": settings.ollama_model,
-        "latency_ms": b_latency,
-        "time": datetime.now().strftime("%I:%M %p"),
-        "date": datetime.now().strftime("%A, %B %d, %Y"),
-    }
-
-
-@app.get("/api/health")
-async def health_check():
-    """Check AI system health"""
-    brain_health = await brain.health_check()
-    return {
-        "status": "healthy" if brain_health.status.value == "ok" else "unhealthy",
-        "brain": {
-            "status": brain_health.status.value,
-            "message": brain_health.message,
-            "latency_ms": brain_health.latency_ms,
-            "model": brain_health.metadata.get("llm_model") if brain_health.metadata else None
-        },
-        "timestamp": datetime.now().isoformat()
-    }
-
-_provider_health_cache: dict = {"ts": 0.0, "data": None}
-
-@app.get("/api/providers/health")
-async def providers_health(force: bool = False):
-    """
-    Validate each configured AI provider key cheaply (list endpoints — no token
-    cost) so a dead/invalid key never degrades DEEP silently. Cached for 5 min.
-
-    Note: these checks confirm KEY VALIDITY + REACHABILITY. Billing/quota limits
-    (out-of-credit, rate-exceeded) only surface on an actual generation call, so
-    a provider can read 'ok' here yet still fail at generate time — flagged in UI.
-    """
-    import time as _t, aiohttp
-    now = _t.time()
-    if not force and _provider_health_cache["data"] and now - _provider_health_cache["ts"] < 300:
-        return _provider_health_cache["data"]
-
-    async def _probe(name, method, url, headers):
-        out = {"provider": name, "configured": True, "ok": False, "detail": ""}
-        try:
-            timeout = aiohttp.ClientTimeout(total=8)
-            async with aiohttp.ClientSession(timeout=timeout) as s:
-                async with s.request(method, url, headers=headers) as r:
-                    if r.status == 200:
-                        out["ok"] = True; out["detail"] = "key valid - reachable"
-                    elif r.status in (401, 403):
-                        out["detail"] = f"invalid/unauthorized key ({r.status})"
-                    elif r.status == 429:
-                        out["ok"] = True; out["detail"] = "reachable - rate-limited (429)"
-                    else:
-                        out["detail"] = f"HTTP {r.status}"
-        except Exception as e:
-            out["detail"] = f"unreachable: {type(e).__name__}"
-        return out
-
-    results = []
-    # Ollama (local) — always primary; list tags
-    results.append(await _probe("ollama", "GET", f"{settings.ollama_base_url.rstrip('/')}/api/tags", {}))
-    if settings.groq_api_key and len(settings.groq_api_key) > 10:
-        results.append(await _probe("groq", "GET", "https://api.groq.com/openai/v1/models",
-                                    {"Authorization": f"Bearer {settings.groq_api_key}"}))
-    if settings.gemini_api_key and len(settings.gemini_api_key) > 10:
-        results.append(await _probe("gemini", "GET",
-                                    f"https://generativelanguage.googleapis.com/v1beta/models?key={settings.gemini_api_key}", {}))
-    for keyname, key in (("claude", settings.claude_api_key),
-                         ("anthropic", getattr(settings, "anthropic_api_key", None))):
-        if key and len(key) > 20:
-            results.append(await _probe(keyname, "GET", "https://api.anthropic.com/v1/models",
-                                        {"x-api-key": key, "anthropic-version": "2023-06-01"}))
-
-    healthy = sum(1 for r in results if r["ok"])
-    data = {
-        "providers": results,
-        "healthy": healthy,
-        "total": len(results),
-        "note": "Key validity only - billing/quota limits appear at generation time.",
-        "checked_at": datetime.now().isoformat(),
-    }
-    _provider_health_cache.update({"ts": now, "data": data})
-    return data
+# /api/briefing, /api/status, /api/health, /api/providers/health moved to interface/routers/system.py
 
 @app.post("/api/vision/screen")
 async def vision_screen(payload: dict | None = None):
@@ -2289,172 +2016,25 @@ async def knowledge_list():
     return {"ok": True, "documents": list(docs.values()), "count": len(docs)}
 
 
-@app.get("/api/physics/constants")
-async def physics_constants():
-    """All curated physical constants (exact CODATA values)."""
-    try:
-        from core.reasoning import physics_oracle as _phys
-        return {"ok": True, "constants": [{"name": k, **v} for k, v in _phys.CONSTANTS.items()]}
-    except Exception as e:
-        return {"ok": False, "error": str(e), "constants": []}
+# /api/physics/* and /api/chem/* moved to interface/routers/reference.py
 
-@app.get("/api/physics/formulas")
-async def physics_formulas(era: str | None = None):
-    """Curated physics formula library, optionally filtered by era."""
-    try:
-        from core.reasoning import physics_oracle as _phys
-        fs = _phys.FORMULAS
-        if era:
-            fs = [f for f in fs if f["era"] == era.lower()]
-        return {"ok": True, "formulas": fs}
-    except Exception as e:
-        return {"ok": False, "error": str(e), "formulas": []}
-
-@app.get("/api/chem/table")
-async def chem_table():
-    """All 118 elements (minimal data) for the visual periodic table.
-
-    The first build does 118 synchronous mendeleev/SQLAlchemy lookups, so it is
-    offloaded to a thread to avoid blocking the event loop (subsequent calls hit
-    the in-module cache and return instantly)."""
-    try:
-        from core.reasoning import chem_oracle as _chem
-        # Synchronous, but hits the in-module cache after the first build (which
-        # is pre-warmed at startup). mendeleev/SQLAlchemy deadlocks under
-        # asyncio.to_thread, so it must run on the main thread.
-        return {"ok": True, "elements": _chem.table()}
-    except Exception as e:
-        return {"ok": False, "error": str(e), "elements": []}
-
-@app.get("/api/chem/element/{q}")
-async def chem_element(q: str):
-    """Full verified metadata for one element (symbol, name, or atomic number)."""
-    try:
-        from core.reasoning import chem_oracle as _chem
-        data = _chem.lookup(q)
-        if data:
-            return {"ok": True, "element": data}
-        return {"ok": False, "error": f"unknown element: {q}"}
-    except Exception as e:
-        return {"ok": False, "error": str(e)}
-
-@app.get("/debug/events")
-async def debug_events():
-    """Live debug feed of recent events from the EventBus."""
-    return {
-        "history": event_bus.get_history(),
-        "status": event_bus.status(),
-    }
-
-@app.get("/api/metrics")
-async def api_metrics():
-    """Observability snapshot: chat throughput, per-provider latency/errors,
-    rate-limit and auth rejections, and uptime. Useful for tuning the provider
-    fallback chain."""
-    return metrics.snapshot()
+# /debug/events and /api/metrics moved to interface/routers/system.py
 
 @app.get("/api/tts")
 async def text_to_speech(text: str):
-    """Generate and return audio for text using high-quality neural voice."""
-    if not text:
-        return {"error": "Missing text"}
-    
-    res = await voice_engine.generate_audio(text)
-    if not res.success or not res.file_path:
-        return {"error": "TTS failed"}
-        
-    return FileResponse(res.file_path, media_type="audio/mp3")
+    """Voice subsystem removed — TTS is disabled."""
+    return {"error": "voice subsystem disabled"}
 
 @app.post("/api/transcribe")
 async def transcribe_audio(file: UploadFile = File(...)):
-    """Accept an audio webm file from the browser and transcribe it offline with Whisper."""
-    with tempfile.NamedTemporaryFile(delete=False, suffix=".webm") as temp_audio:
-        content = await file.read()
-        temp_audio.write(content)
-        temp_path = temp_audio.name
-        
-    try:
-        transcript = await stt_engine.transcribe_audio(temp_path)
-        return {"transcript": transcript.strip()}
-    except Exception as e:
-        print(f"[STT Error] {e}")
-        return {"error": str(e)}
-    finally:
-        if os.path.exists(temp_path):
-            os.unlink(temp_path)
+    """Voice subsystem removed — transcription is disabled."""
+    return {"error": "voice subsystem disabled"}
 
 # ═══════════════════════════════════════════════════════════════════════════════
 # SECURITY ENDPOINTS
 # ═══════════════════════════════════════════════════════════════════════════════
 
-@app.get("/api/security/status")
-async def security_status():
-    """Current network security status summary."""
-    try:
-        summary = netmon.get_trust_summary()
-        snapshot = await netmon.get_snapshot()
-        return {
-            "status": "active",
-            "summary": summary,
-            "local_ip": snapshot.local_ip,
-            "subnet": snapshot.subnet,
-            "gateway": snapshot.gateway,
-            "interface": snapshot.interface,
-            "active_connections": snapshot.active_connections,
-            "listening_ports": snapshot.listening_ports,
-            "last_scan": snapshot.timestamp.isoformat(),
-        }
-    except Exception as e:
-        return {"status": "error", "error": str(e)}
-
-@app.get("/api/security/devices")
-async def security_devices():
-    """List all discovered network devices."""
-    try:
-        devices = netmon.get_devices()
-        return {"devices": [d.to_dict() for d in devices]}
-    except Exception as e:
-        return {"error": str(e)}
-
-@app.get("/api/security/events")
-async def security_events(limit: int = 50, acknowledged: Optional[str] = None):
-    """Get security events."""
-    try:
-        from core.security.network_monitor import SecuritySeverity
-        events = netmon.get_events(limit=limit)
-        if acknowledged is not None:
-            ack = acknowledged.lower() == "true"
-            events = [e for e in events if e.acknowledged == ack]
-        return {"events": [e.to_dict() for e in events]}
-    except Exception as e:
-        return {"error": str(e)}
-
-@app.post("/api/security/acknowledge")
-async def acknowledge_security_event(data: dict):
-    """Acknowledge a security event."""
-    event_id = data.get("event_id")
-    if not event_id:
-        return {"error": "Missing event_id"}
-    success = netmon.acknowledge_event(event_id)
-    return {"success": success}
-
-@app.post("/api/security/trust")
-async def trust_device(data: dict):
-    """Mark a device as trusted."""
-    mac = data.get("mac")
-    if not mac:
-        return {"error": "Missing mac"}
-    netmon.trust_device(mac)
-    return {"success": True}
-
-@app.post("/api/security/block")
-async def block_device(data: dict):
-    """Mark a device as blocked/suspicious."""
-    mac = data.get("mac")
-    if not mac:
-        return {"error": "Missing mac"}
-    netmon.block_device(mac)
-    return {"success": True}
+# /api/security/{status,devices,events,acknowledge,trust,block} moved to interface/routers/security.py
 
 # ── Research, Predictive, Evolution, and Knowledge-Graph endpoints have moved
 #    to interface/routers/{research,predictive,evolution,knowledge_graph}.py and
@@ -2612,6 +2192,145 @@ async def respond_to_interactive(data: dict):
     
     result = interactive_manager.process_selection(response_id, selection)
     return result
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# FINANCE ENDPOINTS
+# ═══════════════════════════════════════════════════════════════════════════════
+
+from core.integrations.personal_finance import PersonalFinanceEngine
+_finance_api = PersonalFinanceEngine()
+
+@app.get("/api/finance/summary")
+async def finance_summary(months: int = 1):
+    return _finance_api.spending_summary(months=months)
+
+@app.get("/api/finance/transactions")
+async def finance_transactions(start: str = None, end: str = None, category: str = None, limit: int = 100):
+    return {"transactions": _finance_api.list_transactions(start_date=start, end_date=end, category=category, limit=limit)}
+
+@app.post("/api/finance/transaction")
+async def finance_add_transaction(data: dict):
+    return _finance_api.add_transaction(
+        data.get("date", datetime.now().strftime("%Y-%m-%d")),
+        float(data.get("amount", 0)),
+        data.get("description", ""),
+        category=data.get("category"),
+        currency=data.get("currency", "SEK"),
+        account=data.get("account", "default"),
+    )
+
+@app.get("/api/finance/budgets")
+async def finance_budgets():
+    return {"budgets": _finance_api.get_budget_status()}
+
+@app.post("/api/finance/budget")
+async def finance_set_budget(data: dict):
+    return _finance_api.set_budget(data.get("category", ""), float(data.get("limit", 0)), data.get("currency", "SEK"))
+
+@app.get("/api/finance/bills")
+async def finance_bills():
+    return {"bills": _finance_api.list_bills()}
+
+@app.get("/api/finance/bills/upcoming")
+async def finance_upcoming_bills(days: int = 14):
+    return {"bills": _finance_api.upcoming_bills(days=days)}
+
+@app.post("/api/finance/bill")
+async def finance_add_bill(data: dict):
+    return _finance_api.add_bill(
+        data.get("name", ""), float(data.get("amount", 0)),
+        frequency=data.get("frequency", "monthly"),
+        next_due=data.get("next_due"),
+        currency=data.get("currency", "SEK"),
+    )
+
+@app.get("/api/finance/anomalies")
+async def finance_anomalies(category: str = None):
+    return {"anomalies": _finance_api.detect_anomalies(category=category)}
+
+@app.get("/api/finance/accounts")
+async def finance_accounts():
+    return {"accounts": _finance_api.get_accounts()}
+
+@app.post("/api/finance/import")
+async def finance_import_csv(data: dict):
+    return _finance_api.import_csv(
+        data.get("csv", ""),
+        date_col=data.get("date_col", "date"),
+        amount_col=data.get("amount_col", "amount"),
+        desc_col=data.get("desc_col", "description"),
+        delimiter=data.get("delimiter", ","),
+    )
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# EMAIL ENDPOINTS
+# ═══════════════════════════════════════════════════════════════════════════════
+
+from core.integrations.email import EmailIntegration
+_email_api = EmailIntegration()
+
+@app.get("/api/email/inbox")
+async def email_inbox(limit: int = 20):
+    return _email_api.inbox_summary(limit=limit)
+
+@app.get("/api/email/search")
+async def email_search(q: str, limit: int = 10):
+    return _email_api.search(q, limit=limit)
+
+@app.post("/api/email/send")
+async def email_send(data: dict):
+    return _email_api.send(data.get("to", ""), data.get("subject", ""), data.get("body", ""))
+
+@app.post("/api/email/track")
+async def email_track(data: dict):
+    return _email_api.track_thread(
+        data.get("msg_id", ""), data.get("sender", ""), data.get("subject", ""),
+        notes=data.get("notes", ""),
+    )
+
+@app.get("/api/email/awaiting")
+async def email_awaiting():
+    return {"threads": _email_api.awaiting_reply()}
+
+@app.post("/api/email/replied")
+async def email_replied(data: dict):
+    return _email_api.mark_replied(data.get("msg_id", ""))
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# MISSION / LONG-RUNNING ORCHESTRATOR ENDPOINTS
+# ═══════════════════════════════════════════════════════════════════════════════
+
+from core.long_running_orchestrator import LongRunningOrchestrator
+_mission_api = LongRunningOrchestrator(event_bus=event_bus)
+
+@app.post("/api/missions")
+async def create_mission(data: dict):
+    goal = (data or {}).get("goal", "")
+    if not goal:
+        return {"error": "goal required"}
+    m = _mission_api.create_mission(goal)
+    return {"mission_id": m.id, "goal": m.goal, "status": m.status}
+
+@app.get("/api/missions")
+async def list_missions(status: str = None, limit: int = 20):
+    missions = _mission_api.list_missions(status=status, limit=limit)
+    return {"missions": [{
+        "id": m.id, "goal": m.goal, "status": m.status,
+        "progress_pct": m.progress_pct, "created_at": m.created_at,
+        "updated_at": m.updated_at, "error": m.error,
+    } for m in missions]}
+
+@app.get("/api/missions/{mission_id}")
+async def get_mission(mission_id: str):
+    try:
+        return _mission_api.get_mission_detail(mission_id)
+    except ValueError as e:
+        return {"error": str(e)}
+
+@app.post("/api/missions/{mission_id}/cancel")
+async def cancel_mission(mission_id: str):
+    _mission_api.cancel_mission(mission_id)
+    return {"mission_id": mission_id, "status": "cancelled"}
 
 # ═══════════════════════════════════════════════════════════════════════════════
 # KNOWLEDGE ENDPOINTS
@@ -2801,6 +2520,82 @@ async def network_pihole_queries(count: int = 50):
 async def network_wifi_status():
     """Evil twin detector status."""
     return evil_twin.status()
+
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# NETWORK TOPOGRAPH / COMMAND CENTER ENDPOINTS (v3)
+# ═══════════════════════════════════════════════════════════════════════════════
+
+@app.get("/api/network/graph")
+async def network_graph_full(layer: Optional[str] = None):
+    """Export full network graph (optionally filtered by layer)."""
+    try:
+        return net_graph.export_graph(layer=layer)
+    except Exception as e:
+        return {"error": str(e)}
+
+@app.get("/api/network/graph/{node_id}")
+async def network_graph_subgraph(node_id: str, depth: int = 1):
+    """Export subgraph centred on a node within N hops."""
+    try:
+        return net_graph.export_subgraph(centre_id=node_id, depth=depth)
+    except Exception as e:
+        return {"error": str(e)}
+
+@app.get("/api/network/stats")
+async def network_graph_stats():
+    """Graph statistics: node counts by layer, edge count, observations, inferences."""
+    try:
+        return net_graph.stats()
+    except Exception as e:
+        return {"error": str(e)}
+
+@app.get("/api/network/observations/{node_id}")
+async def network_observations(node_id: str, metric: Optional[str] = None, hours: int = 24):
+    """Time-series observations for a node."""
+    try:
+        return {"observations": net_graph.get_observations(node_id, metric=metric, hours=hours)}
+    except Exception as e:
+        return {"error": str(e)}
+
+@app.get("/api/network/inferences/{node_id}")
+async def network_inferences(node_id: str, inference_type: Optional[str] = None, limit: int = 20):
+    """AI-generated inferences for a node."""
+    try:
+        return {"inferences": net_graph.get_inferences(node_id, inference_type=inference_type, limit=limit)}
+    except Exception as e:
+        return {"error": str(e)}
+
+@app.post("/api/network/analyse")
+async def network_analyse(payload: dict):
+    """On-demand AI analysis of a device or the whole network."""
+    try:
+        scope = payload.get("scope", "device")
+        node_id = payload.get("node_id", "")
+        if scope == "device" and node_id:
+            result = await net_ai_analyst.analyse_device(node_id)
+        elif scope == "health":
+            result = await net_ai_analyst.generate_health_report()
+        elif scope == "threats":
+            result = await net_ai_analyst.summarise_threats()
+        else:
+            return {"error": "Invalid scope. Use 'device', 'health', or 'threats'."}
+        return {"analysis": result}
+    except Exception as e:
+        return {"error": str(e)}
+
+@app.post("/api/network/explain")
+async def network_explain(payload: dict):
+    """Explain an anomalous metric for a device."""
+    try:
+        node_id = payload.get("node_id", "")
+        metric = payload.get("metric", "")
+        value = float(payload.get("value", 0))
+        expected = float(payload.get("expected", 0))
+        result = await net_ai_analyst.explain_anomaly(node_id, metric, value, expected)
+        return {"explanation": result}
+    except Exception as e:
+        return {"error": str(e)}
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
@@ -3372,6 +3167,15 @@ _register_services(
     knowledge_graph=knowledge_graph,
     threat_classifier=threat_classifier,
     ltm=ltm,
+    personal_rag=personal_rag,
+    world_model=world_model,
+    refresh_world_model=_refresh_world_model,
+    settings=settings,
+    brain=brain,
+    event_bus=event_bus,
+    metrics=metrics,
+    time_of_day=_time_of_day,
+    netmon=netmon,
 )
 for _r in _DEEP_ROUTERS:
     app.include_router(_r)

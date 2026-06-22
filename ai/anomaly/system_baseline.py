@@ -9,6 +9,7 @@ from __future__ import annotations
 import asyncio
 import logging
 import sqlite3
+from contextlib import closing
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
@@ -92,7 +93,7 @@ class SystemBaseline:
 
     async def _init_db(self) -> None:
         """Create the system_snapshots table."""
-        with sqlite3.connect(str(self._db_path)) as conn:
+        with closing(sqlite3.connect(str(self._db_path))) as conn, conn:
             conn.execute(
                 """
                 CREATE TABLE IF NOT EXISTS system_snapshots (
@@ -211,7 +212,7 @@ class SystemBaseline:
 
     async def _store_snapshot(self, snapshot: SystemSnapshot) -> None:
         """Persist snapshot to SQLite."""
-        with sqlite3.connect(str(self._db_path)) as conn:
+        with closing(sqlite3.connect(str(self._db_path))) as conn, conn:
             conn.execute(
                 """
                 INSERT INTO system_snapshots
@@ -237,7 +238,7 @@ class SystemBaseline:
         """Return mean/std/p95/p99 for each metric at this hour/day."""
         cutoff = (datetime.now(timezone.utc) - timedelta(days=self._history_days)).isoformat()
 
-        with sqlite3.connect(str(self._db_path)) as conn:
+        with closing(sqlite3.connect(str(self._db_path))) as conn, conn:
             conn.row_factory = sqlite3.Row
             rows = conn.execute(
                 """
@@ -277,7 +278,7 @@ class SystemBaseline:
         """Return recent snapshots."""
         cutoff = (datetime.now(timezone.utc) - timedelta(hours=hours_back)).isoformat()
 
-        with sqlite3.connect(str(self._db_path)) as conn:
+        with closing(sqlite3.connect(str(self._db_path))) as conn, conn:
             conn.row_factory = sqlite3.Row
             rows = conn.execute(
                 """
@@ -299,7 +300,7 @@ class SystemBaseline:
         oldest = None
         baseline_ready = False
         try:
-            with sqlite3.connect(str(self._db_path)) as conn:
+            with closing(sqlite3.connect(str(self._db_path))) as conn, conn:
                 cur = conn.execute("SELECT COUNT(*) FROM system_snapshots")
                 total = cur.fetchone()[0]
                 cur = conn.execute("SELECT MIN(timestamp) FROM system_snapshots")

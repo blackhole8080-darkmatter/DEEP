@@ -69,6 +69,12 @@ class TaskType(Enum):
     RESEARCH = "research"     # Deep investigation
     CHAT = "chat"             # Casual conversation
     SUMMARY = "summary"       # Summarization
+    PHYSICS = "physics"        # Math-heavy, symbolic reasoning
+    EXPLOIT = "exploit"        # CVE/security analysis
+    RF_ANALYSIS = "rf_analysis" # Spectrum/signal pattern recognition
+    PROTOCOL_RE = "protocol_re" # Binary parsing, dissector generation
+    ROBOTICS = "robotics"       # Control theory, kinematics
+    OSINT = "osint"            # Passive reconnaissance synthesis
 
 
 @dataclass
@@ -412,6 +418,12 @@ class MultiLLMRouter:
         TaskType.GENERAL: [LLMProvider.OLLAMA, LLMProvider.GEMINI, LLMProvider.OPENAI],
         TaskType.CHAT: [LLMProvider.OLLAMA, LLMProvider.GEMINI, LLMProvider.OPENAI],
         TaskType.SUMMARY: [LLMProvider.OLLAMA, LLMProvider.GEMINI, LLMProvider.OPENAI],
+        TaskType.PHYSICS: [LLMProvider.CLAUDE, LLMProvider.OPENAI, LLMProvider.OLLAMA],
+        TaskType.EXPLOIT: [LLMProvider.CLAUDE, LLMProvider.OPENAI, LLMProvider.OLLAMA],
+        TaskType.RF_ANALYSIS: [LLMProvider.OLLAMA, LLMProvider.GEMINI, LLMProvider.CLAUDE],
+        TaskType.PROTOCOL_RE: [LLMProvider.CLAUDE, LLMProvider.OPENAI, LLMProvider.OLLAMA],
+        TaskType.ROBOTICS: [LLMProvider.CLAUDE, LLMProvider.OPENAI, LLMProvider.OLLAMA],
+        TaskType.OSINT: [LLMProvider.OLLAMA, LLMProvider.GEMINI, LLMProvider.CLAUDE],
     }
     
     def __init__(self, settings: Settings):
@@ -476,6 +488,20 @@ class MultiLLMRouter:
         """Classify the task type from the prompt"""
         prompt_lower = prompt.lower()
         
+        # Expert domain classification
+        if any(kw in prompt_lower for kw in ["quantum", "electromagnetic", "hamiltonian", "dispersion", "wavefunction", "lagrangian", "derive", "proof", "theorem", "physics", "plasma", "schrodinger", "schrödinger"]):
+            return TaskType.PHYSICS
+        if any(kw in prompt_lower for kw in ["cve", "exploit", "vulnerability", "hack", "penetration", "payload", "shellcode", "injection", "mitre", "attack", "red team", "cybersec"]):
+            return TaskType.EXPLOIT
+        if any(kw in prompt_lower for kw in ["frequency", "spectrum", "signal", "modulation", "sdr", "antenna", "wavelength", "iq", "fft", "waterfall"]):
+            return TaskType.RF_ANALYSIS
+        if any(kw in prompt_lower for kw in ["pcap", "packet", "protocol", "dissect", "binary", "reverse", "wireshark", "can bus", "modbus", "gatt", "ble"]):
+            return TaskType.PROTOCOL_RE
+        if any(kw in prompt_lower for kw in ["kinematics", "ros", "slam", "lidar", "pid", "trajectory", "inverse kinematics", "jacobian", "path planning", "robotics"]):
+            return TaskType.ROBOTICS
+        if any(kw in prompt_lower for kw in ["whois", "shodan", "crt.sh", "dnsrecon", "recon", "osint", "passive scan"]):
+            return TaskType.OSINT
+
         # Code detection
         if any(kw in prompt_lower for kw in ['code', 'program', 'function', 'script', 'python', 'javascript', 'bug', 'error', 'debug']):
             return TaskType.CODE

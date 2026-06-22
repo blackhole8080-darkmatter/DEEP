@@ -9,6 +9,7 @@ from __future__ import annotations
 import logging
 import random
 import sqlite3
+from contextlib import closing
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 from enum import IntEnum
@@ -145,7 +146,7 @@ class ThreatDatasetBuilder:
             return []
 
         cutoff = (datetime.now(timezone.utc) - timedelta(days=30)).isoformat()
-        with sqlite3.connect(str(self._anomaly_db_path)) as conn:
+        with closing(sqlite3.connect(str(self._anomaly_db_path))) as conn, conn:
             conn.row_factory = sqlite3.Row
             # Get timestamps of anomalies
             anomaly_times = [
@@ -186,7 +187,7 @@ class ThreatDatasetBuilder:
 
         # Try to join with audit_log if it exists in the same DB
         try:
-            with sqlite3.connect(str(self._anomaly_db_path)) as conn:
+            with closing(sqlite3.connect(str(self._anomaly_db_path))) as conn, conn:
                 conn.row_factory = sqlite3.Row
                 rows = conn.execute(
                     """

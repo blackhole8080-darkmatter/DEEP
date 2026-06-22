@@ -172,7 +172,10 @@ class TrainingDataExtractor:
     def _deduplicate(
         self, samples: list[TrainingSample], ratio_threshold: float = 0.95
     ) -> list[TrainingSample]:
-        """Remove near-identical commands, keeping the most recent."""
+        """Remove near-identical commands, keeping the most recent of each
+        duplicate group — without reordering the surviving samples (the dataset's
+        original ordering is preserved; only duplicates are dropped)."""
+        order = {id(s): i for i, s in enumerate(samples)}
         unique: list[TrainingSample] = []
         for s in sorted(samples, key=lambda x: x.timestamp or "", reverse=True):
             is_dup = False
@@ -183,7 +186,8 @@ class TrainingDataExtractor:
                     break
             if not is_dup:
                 unique.append(s)
-        return unique
+        # Restore original input order (dedup keeps recency, not position).
+        return sorted(unique, key=lambda s: order[id(s)])
 
     def _get_seed_data(self) -> dict[str, list[str]]:
         """Return SEED_DATA from ai.pipeline for supplementing."""

@@ -19,6 +19,7 @@ Role in DEEP:
 from __future__ import annotations
 
 import asyncio
+from contextlib import closing
 import logging
 import os
 from collections import Counter
@@ -142,7 +143,7 @@ class PatternMemory:
         oldest = None
         try:
             import sqlite3
-            with sqlite3.connect(self._db_path) as conn:
+            with closing(sqlite3.connect(self._db_path)) as conn, conn:
                 cur = conn.execute("SELECT COUNT(*) FROM interactions")
                 total = cur.fetchone()[0]
                 cur = conn.execute("SELECT MIN(timestamp) FROM interactions")

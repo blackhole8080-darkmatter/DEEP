@@ -21,7 +21,7 @@ const ROLES = ["researcher", "writer", "planner", "analyst", "coder"];
 @customElement("agents-view")
 export class AgentsView extends LitElement {
   @state() private tasks: AgentTask[] = [];
-  @state() private role = "planner";
+  @state() private agentRole = "planner";
   @query("textarea") private ta!: HTMLTextAreaElement;
   private timer?: ReturnType<typeof setInterval>;
 
@@ -49,10 +49,10 @@ export class AgentsView extends LitElement {
       const r = await fetch("/api/agents/task", {
         method: "POST",
         headers: { "content-type": "application/json" },
-        body: JSON.stringify({ role: this.role, task }),
+        body: JSON.stringify({ role: this.agentRole, task }),
       });
       const d = await r.json();
-      if (r.ok) { toast(`Agent launched (${this.role})`, "success"); this.ta.value = ""; void this.poll(); }
+      if (r.ok) { toast(`Agent launched (${this.agentRole})`, "success"); this.ta.value = ""; void this.poll(); }
       else toast(`Launch failed: ${d.detail ?? r.status}`, "danger");
     } catch { toast("Launch failed", "danger"); }
   }
@@ -99,7 +99,7 @@ export class AgentsView extends LitElement {
           <div class="roles">
             ${ROLES.map(
               (r) => html`
-                <button class="chip ${this.role === r ? "on" : ""}" @click=${() => (this.role = r)}>${r}</button>
+                <button class="chip ${this.agentRole === r ? "on" : ""}" @click=${() => (this.agentRole = r)}>${r}</button>
               `,
             )}
           </div>

@@ -11,10 +11,11 @@ Modern async Brain implementation with:
 from __future__ import annotations
 
 import asyncio
+import difflib
 import json
 import logging
 import time
-from typing import AsyncIterator, Dict, List, Optional, Any
+from typing import AsyncIterator, Dict, List, Optional, Any, Tuple
 
 from ..domain.interfaces import Agent, LLMClient, ToolExecutor
 from ..domain.models import AgentLoopResult, ToolResult
@@ -159,6 +160,7 @@ class AsyncBrain(Agent):
                 except Exception: pass
 
         loops = 0
+        seen_calls: Dict[str, str] = {}   # per-turn tool-call result cache (dedup)
         while loops < self.max_loops:
             loops += 1
             await _emit({"t": "model", "model": getattr(self.llm, "last_provider", None), "loop": loops})
@@ -215,37 +217,49 @@ class AsyncBrain(Agent):
                     yield buffer.replace("[TOOL", "")
                 break
                 
-            # If we hit a tool block, execute the tool. Extract the balanced
-            # JSON object (not just up to the first ']') so nested structures
-            # survive intact.
+            # Robust tool execution. Extract the balanced JSON object (not just up
+            # to the first ']') so nested structures survive, then validate the
+            # call BEFORE running it — a hallucinated name or malformed JSON costs
+            # one correctable nudge instead of a dead turn.
             raw_tool = self._extract_tool_json(tool_content)
+            ok, name_or_err, tool_args = self._parse_tool_call(raw_tool, tools)
 
-            try:
-                import json
-                tool_data = json.loads(raw_tool) if raw_tool else {}
-                tool_name = tool_data.get("name")
-                tool_args = tool_data.get("args", {})
+            if not ok:
+                # Malformed / unknown tool → feed precise, model-correctable guidance.
+                await _emit({"t": "tool_result", "tool": "error", "result": name_or_err[:200]})
+                current_user_prompt += (
+                    f"\n\n[TOOL_ERROR: {name_or_err}]\n\n"
+                    "Re-issue a corrected tool call, or answer directly if no tool is needed."
+                )
+                if loops >= self.max_loops:
+                    yield "\n\n*(Tool execution limit reached)*"
+                    break
+                continue
 
-                await _emit({"t": "tool_call", "tool": tool_name, "args": tool_args})
-                # Let user know what we're doing
-                yield f"\n\n*(DEEP is using tool: {tool_name}...)*\n\n"
+            tool_name = name_or_err
+            await _emit({"t": "tool_call", "tool": tool_name, "args": tool_args})
+            yield f"\n\n*(DEEP is using tool: {tool_name}...)*\n\n"
 
-                if tools:
-                    # Execute tool natively async
-                    result = await tools.execute_tool(tool_name, tool_args)
-                    res_content = result.content
-                else:
-                    res_content = "Error: Tool executor not provided."
-                await _emit({"t": "tool_result", "tool": tool_name, "result": str(res_content)[:1500]})
+            # De-dupe identical calls within a turn (models often repeat a call,
+            # burning loops). Serve the cached result and nudge the model onward.
+            key = tool_name + "::" + json.dumps(tool_args, sort_keys=True, default=str)
+            if key in seen_calls:
+                res_content = (
+                    seen_calls[key]
+                    + "\n(Note: you already made this exact call this turn — "
+                    "use the result above and proceed; don't repeat it.)"
+                )
+            else:
+                res_content = await self._safe_execute(tools, tool_name, tool_args)
+                seen_calls[key] = res_content
 
-            except Exception as e:
-                res_content = f"Tool parsing/execution error: {e}"
-                await _emit({"t": "tool_result", "tool": "error", "result": str(e)[:200]})
-                
-            # Feed the result back into the prompt for the next loop
-            current_user_prompt += f"\n\n[TOOL_RESULT: {res_content}]\n\nPlease continue your response based on this information."
-            
-            # If we've reached max loops, stop
+            res_content = self._cap_result(res_content)
+            await _emit({"t": "tool_result", "tool": tool_name, "result": str(res_content)[:1500]})
+            current_user_prompt += (
+                f"\n\n[TOOL_RESULT: {res_content}]\n\n"
+                "Continue your response based on this information."
+            )
+
             if loops >= self.max_loops:
                 yield "\n\n*(Tool execution limit reached)*"
                 break
@@ -303,6 +317,86 @@ class AsyncBrain(Agent):
                 if depth == 0:
                     return tool_content[start:i + 1]
         return None  # not balanced yet
+
+    def _tool_settings(self) -> Tuple[float, int]:
+        """(per-tool timeout seconds, max result chars), config-driven."""
+        cfg = getattr(self.llm, "_settings", None)
+        timeout = float(getattr(cfg, "tool_timeout_seconds", 45.0)) if cfg else 45.0
+        max_chars = int(getattr(cfg, "tool_result_max_chars", 6000)) if cfg else 6000
+        return timeout, max_chars
+
+    def _parse_tool_call(
+        self, raw_tool: Optional[str], tools: Optional[ToolExecutor]
+    ) -> Tuple[bool, str, Dict[str, Any]]:
+        """Validate a raw '[TOOL:{...}]' payload before execution.
+
+        Returns (ok, name_or_error, args). On failure the error string is written
+        for the model so it can self-correct in ONE more loop — including a
+        fuzzy-matched suggestion for an unknown/misspelled tool name and the list
+        of valid tools, which is the single biggest cause of failed actions.
+        """
+        if not raw_tool:
+            return False, "Malformed tool call — no JSON object found. Use exactly: " \
+                          '[TOOL:{"name": "tool_name", "args": {...}}]', {}
+        try:
+            data = json.loads(raw_tool)
+        except Exception as e:
+            return False, f"Invalid tool JSON ({e}). Use exactly: " \
+                          '[TOOL:{"name": "tool_name", "args": {...}}]', {}
+        if not isinstance(data, dict) or not data.get("name"):
+            return False, 'Tool call missing a "name". Use: ' \
+                          '[TOOL:{"name": "tool_name", "args": {...}}]', {}
+
+        name = str(data["name"]).strip()
+        args = data.get("args", {})
+        if not isinstance(args, dict):
+            return False, f'"args" for {name} must be an object, e.g. {{"query": "..."}}.', {}
+
+        valid = list(tools.list_tools()) if tools else []
+        if valid and name not in valid:
+            # case-insensitive, then fuzzy
+            ci = next((v for v in valid if v.lower() == name.lower()), None)
+            if ci:
+                name = ci
+            else:
+                close = difflib.get_close_matches(name, valid, n=3, cutoff=0.6)
+                hint = f" Did you mean: {', '.join(close)}?" if close else ""
+                sample = ", ".join(valid[:40])
+                return False, f"Unknown tool '{name}'.{hint} Available tools: {sample}", {}
+
+        # Soft arg check: warn on unknown arg keys (don't block — schemas are loose).
+        schema = getattr(tools, "available_tools", {}).get(name, {}).get("args", {}) if tools else {}
+        if schema:
+            unknown = [k for k in args if k not in schema]
+            if unknown:
+                logger.info(f"[tool] {name} got unexpected args {unknown}; expected {list(schema)}")
+        return True, name, args
+
+    async def _safe_execute(
+        self, tools: Optional[ToolExecutor], name: str, args: Dict[str, Any]
+    ) -> str:
+        """Execute a tool with a hard timeout so a hung tool can't freeze the turn.
+        Returns the result content (or a clear, model-readable error string)."""
+        if not tools:
+            return "Error: no tool executor available."
+        timeout, _ = self._tool_settings()
+        try:
+            result = await asyncio.wait_for(tools.execute_tool(name, args), timeout=timeout)
+            return result.content
+        except asyncio.TimeoutError:
+            logger.warning(f"[tool] {name} timed out after {timeout}s")
+            return f"Tool '{name}' timed out after {timeout:.0f}s. Try a narrower request or a different approach."
+        except Exception as e:
+            logger.error(f"[tool] {name} failed: {e}")
+            return f"Tool '{name}' failed: {e}"
+
+    def _cap_result(self, text: str) -> str:
+        """Cap a tool result fed back into the prompt to keep context efficient."""
+        _, max_chars = self._tool_settings()
+        s = str(text)
+        if len(s) <= max_chars:
+            return s
+        return s[:max_chars] + f"\n…[truncated {len(s) - max_chars} chars]"
 
     def _build_system_prompt(self, tool_description: str) -> str:
         """Build the JARVIS-style system prompt with advanced reasoning capabilities."""

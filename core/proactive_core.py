@@ -84,11 +84,12 @@ class ProactiveCore:
     REPEAT_COOLDOWN_SECONDS = 6 * 3600
 
     def __init__(self, event_bus=None, predictive=None, meta=None, memory=None,
-                 data_dir: Optional[Path] = None) -> None:
+                 kg=None, data_dir: Optional[Path] = None) -> None:
         self.bus = event_bus
         self.predictive = predictive
         self.meta = meta
         self.memory = memory
+        self.kg = kg   # KnowledgeGraph → graph-derived inferences (habits/stale facts)
 
         self.data_dir = Path(data_dir) if data_dir else (
             Path(__file__).parent.parent / "data" / "proactive"
@@ -140,6 +141,7 @@ class ProactiveCore:
         candidates: List[Nudge] = []
         candidates.extend(self._from_reminders())     # highest priority
         candidates.extend(self._from_predictions())
+        candidates.extend(self._from_graph_inference())
         candidates.extend(self._from_goals())
         candidates.extend(self._from_idle())
 
@@ -209,6 +211,39 @@ class ProactiveCore:
                 body=f"{p.get('suggestion', '')} ({p.get('reason', '')})".strip(),
                 confidence=float(p.get("confidence", 0.5)),
             ))
+        return out
+
+    def _from_graph_inference(self) -> List[Nudge]:
+        """Surface actionable inferences from the knowledge graph — the JARVIS
+        'I noticed…' layer. Uses graph_inference (cheap; no GNN here). We only
+        promote *actionable* inference types to nudges (stale facts worth
+        revisiting, predicted connections), not bare habit statements."""
+        if not self.kg:
+            return []
+        try:
+            from core.graph_inference import infer
+            items = infer(self.kg, max_items=6)
+        except Exception:
+            return []
+        out: List[Nudge] = []
+        for it in items:
+            ty = it.get("type")
+            if ty not in ("stale", "connection"):
+                continue
+            # The inference 'score' measures the fact's strength, not how worth
+            # surfacing it is. A stale fact is low-strength *by design* — that's
+            # the point — so map to a worth-surfacing confidence that clears the
+            # ProactiveCore floor; a connection rides its prediction score.
+            conf = 0.55 if ty == "stale" else max(0.5, float(it.get("score", 0.5)))
+            out.append(Nudge(
+                id=f"nudge_kg_{int(time.time()*1000)}_{len(out)}",
+                kind="insight",
+                title="From what I've learned",
+                body=it.get("text", ""),
+                confidence=conf,
+            ))
+            if len(out) >= 2:
+                break
         return out
 
     def _from_goals(self) -> List[Nudge]:

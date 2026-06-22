@@ -27,11 +27,15 @@ GenerateFn = Callable[[str, str], Awaitable[str]]
 VALID_TYPES = {
     "person", "technology", "topic", "project", "place",
     "organization", "preference", "action", "concept", "unknown",
+    "vulnerability", "exploit", "protocol", "rf_frequency",
+    "hardware_device", "physics_concept", "threat_actor", "ioc", "network_device"
 }
 VALID_RELATIONS = {
     "likes", "uses", "knows", "created", "works_on", "located_in",
     "related_to", "mentioned_in", "prefers", "learns", "builds",
-    "studies", "has", "is_a",
+    "studies", "has", "is_a", "exploits", "patches", "affects",
+    "transmits_on", "implements", "derived_from", "attributed_to",
+    "communicates_with", "resolves_to"
 }
 
 # Obvious non-entities the model occasionally emits; dropped as a safety net.
@@ -43,8 +47,9 @@ _STOP = {
 
 _SYSTEM = (
     "You are a precise knowledge-graph extractor. From the user's text, extract "
-    "the real entities (people, technologies, topics, projects, places, "
-    "organizations, preferences, concepts) and the relationships between them.\n"
+    "the real entities (people, technologies, topics, projects, places, organizations, "
+    "preferences, concepts, vulnerabilities, exploits, protocols, rf frequencies, hardware devices, "
+    "physics concepts, threat actors, iocs, network devices) and the relationships between them.\n"
     "Rules:\n"
     "- Use a canonical name for each entity (e.g. 'Aryan', not 'hey aryan'; "
     "'Python', not 'python3'). Merge first-person references (I/me/my) to 'Aryan'.\n"

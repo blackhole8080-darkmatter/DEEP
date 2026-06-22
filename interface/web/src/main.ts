@@ -3,5 +3,7 @@
 import "./design/tokens.css";
 import "./design/themes.css";
 import "./design/base.css";
+import "./design/animations.css";
+import "./design/utilities.css";
 import "./core/theme";
 import "./components/deep-app";

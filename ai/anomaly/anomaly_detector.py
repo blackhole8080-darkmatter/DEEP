@@ -9,6 +9,7 @@ from __future__ import annotations
 import asyncio
 import logging
 import sqlite3
+from contextlib import closing
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
@@ -127,7 +128,7 @@ class AnomalyDetector:
         logger.info("[AnomalyDetector] Stopped")
 
     async def _init_db(self) -> None:
-        with sqlite3.connect(str(self._db_path)) as conn:
+        with closing(sqlite3.connect(str(self._db_path))) as conn, conn:
             conn.execute(
                 """
                 CREATE TABLE IF NOT EXISTS anomalies (
@@ -198,7 +199,7 @@ class AnomalyDetector:
 
     async def _get_system_snapshots_for_hour(self, hour: int) -> List[SystemSnapshot]:
         cutoff = (datetime.now(timezone.utc) - timedelta(days=30)).isoformat()
-        with sqlite3.connect(str(self._db_path)) as conn:
+        with closing(sqlite3.connect(str(self._db_path))) as conn, conn:
             conn.row_factory = sqlite3.Row
             rows = conn.execute(
                 "SELECT * FROM system_snapshots WHERE timestamp >= ? AND hour = ?",
@@ -209,7 +210,7 @@ class AnomalyDetector:
 
     async def _get_network_snapshots_for_hour(self, hour: int) -> List[NetworkFlowSnapshot]:
         cutoff = (datetime.now(timezone.utc) - timedelta(days=30)).isoformat()
-        with sqlite3.connect(str(self._db_path)) as conn:
+        with closing(sqlite3.connect(str(self._db_path))) as conn, conn:
             conn.row_factory = sqlite3.Row
             rows = conn.execute(
                 "SELECT * FROM network_baseline WHERE timestamp >= ? AND hour = ?",
@@ -350,7 +351,7 @@ class AnomalyDetector:
         """Log anomaly, publish events, and optionally speak alert."""
         import json
 
-        with sqlite3.connect(str(self._db_path)) as conn:
+        with closing(sqlite3.connect(str(self._db_path))) as conn, conn:
             conn.execute(
                 """
                 INSERT INTO anomalies
@@ -396,7 +397,7 @@ class AnomalyDetector:
 
     async def get_recent_anomalies(self, hours: int = 24) -> List[Anomaly]:
         cutoff = (datetime.now(timezone.utc) - timedelta(hours=hours)).isoformat()
-        with sqlite3.connect(str(self._db_path)) as conn:
+        with closing(sqlite3.connect(str(self._db_path))) as conn, conn:
             conn.row_factory = sqlite3.Row
             rows = conn.execute(
                 "SELECT * FROM anomalies WHERE timestamp >= ? ORDER BY timestamp DESC",
@@ -425,7 +426,7 @@ class AnomalyDetector:
         most_metric = None
         max_count = 0
 
-        with sqlite3.connect(str(self._db_path)) as conn:
+        with closing(sqlite3.connect(str(self._db_path))) as conn, conn:
             cur = conn.execute(
                 "SELECT COUNT(*) FROM anomalies WHERE timestamp LIKE ?",
                 (f"{today}%",),
@@ -449,7 +450,7 @@ class AnomalyDetector:
 
         baseline_age = 0
         try:
-            with sqlite3.connect(str(self._db_path)) as conn:
+            with closing(sqlite3.connect(str(self._db_path))) as conn, conn:
                 cur = conn.execute("SELECT MIN(timestamp) FROM system_snapshots")
                 oldest = cur.fetchone()[0]
                 if oldest:
@@ -483,7 +484,7 @@ class AnomalyDetector:
         total_today = 0
         try:
             today = datetime.now(timezone.utc).strftime("%Y-%m-%d")
-            with sqlite3.connect(str(self._db_path)) as conn:
+            with closing(sqlite3.connect(str(self._db_path))) as conn, conn:
                 cur = conn.execute(
                     "SELECT COUNT(*) FROM anomalies WHERE timestamp LIKE ?",
                     (f"{today}%",),

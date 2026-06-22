@@ -253,6 +253,11 @@ async def test_proximity_summary_empty():
     redis.set_global = AsyncMock()
 
     monitor = ProximityMonitor(event_bus=bus, redis_state=redis)
+    # Isolate from the durable store: sensors seed history from persisted state on
+    # init (real APs the running system has seen), which would otherwise make this
+    # "empty summary" assertion depend on live machine state.
+    monitor._wifi_sensor._ap_history.clear()
+    monitor._bt_sensor._bt_history.clear()
     summary = await monitor.get_proximity_summary()
 
     assert "wifi" in summary

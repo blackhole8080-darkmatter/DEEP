@@ -65,6 +65,67 @@ async def knowledge_search(q: str):
         return {"error": str(e)}
 
 
+@router.get("/semantic_search")
+async def knowledge_semantic_search(q: str, k: int = 8):
+    """Embedding-based entity lookup — finds entities by meaning, not substring.
+    This is what the brain should use to pull a relevant memory slice into context."""
+    try:
+        return {"results": services.knowledge_graph.semantic_search(q, k=k)}
+    except Exception as e:
+        return {"error": str(e)}
+
+
+@router.get("/inferences")
+async def knowledge_inferences(limit: int = 8, connections: bool = True):
+    """Proactive inferences derived from the graph: habits, hubs, stale facts, and
+    (optionally) GNN/analytics-predicted connections — the JARVIS 'you usually…' layer."""
+    try:
+        import asyncio
+        from core.graph_inference import infer, infer_connections
+        kg = services.knowledge_graph
+        items = infer(kg, max_items=limit)
+        if connections:
+            try:
+                entities = kg.get_all_entities()
+                rels = kg.get_all_relationships(limit=400)
+                from core.graph_enrich import enrich
+                ids = {e.get("id") for e in entities}
+                scoped = [r for r in rels if r.get("source") in ids and r.get("target") in ids]
+                entities, sim = await asyncio.to_thread(enrich, entities, scoped)
+                from core.graph_gnn import run_gnn
+                res = await asyncio.to_thread(run_gnn, entities, rels + sim, 40)
+                if res and res.get("predicted_links"):
+                    items += infer_connections(kg, res["predicted_links"], limit=4)
+            except Exception:
+                pass
+        return {"inferences": items}
+    except Exception as e:
+        return {"error": str(e)}
+
+
+@router.post("/decay")
+async def knowledge_decay(prune_below: float = 0.08):
+    """Run a decay sweep: drop relationships whose time-decayed belief has faded
+    below the threshold (the graph forgetting what it stopped hearing about)."""
+    try:
+        return {"success": True, **services.knowledge_graph.decay_sweep(prune_below)}
+    except Exception as e:
+        return {"error": str(e)}
+
+
+@router.post("/retract")
+async def knowledge_retract(data: dict):
+    """Weaken/remove a contradicted belief: {source, target, relation?, amount?}."""
+    src, tgt = data.get("source", ""), data.get("target", "")
+    if not src or not tgt:
+        return {"error": "Need source and target"}
+    try:
+        return {"success": True, **services.knowledge_graph.retract(
+            src, tgt, relation=data.get("relation"), amount=float(data.get("amount", 0.5)))}
+    except Exception as e:
+        return {"error": str(e)}
+
+
 @router.post("/teach")
 async def knowledge_teach(data: dict):
     """Ingest free text into the knowledge graph via the LLM extractor (clean, typed,

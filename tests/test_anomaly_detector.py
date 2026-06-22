@@ -10,6 +10,7 @@ import asyncio
 import sqlite3
 import sys
 import tempfile
+from contextlib import closing
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
@@ -50,7 +51,7 @@ async def test_system_baseline_store_snapshot() -> None:
         )
         await baseline._store_snapshot(snapshot)
 
-        with sqlite3.connect(db_path) as conn:
+        with closing(sqlite3.connect(db_path)) as conn:
             cur = conn.execute("SELECT COUNT(*) FROM system_snapshots")
             assert cur.fetchone()[0] == 1
         print("  ✓ SystemBaseline stores snapshot correctly")
@@ -339,7 +340,7 @@ async def test_network_baseline_store_and_publish() -> None:
         await baseline._store_snapshot(snapshot)
         await event_bus.publish("network_flow_recorded", snapshot.__dict__)
 
-        with sqlite3.connect(db_path) as conn:
+        with closing(sqlite3.connect(db_path)) as conn:
             cur = conn.execute("SELECT COUNT(*) FROM network_baseline")
             assert cur.fetchone()[0] == 1
 

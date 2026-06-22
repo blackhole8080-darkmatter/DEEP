@@ -40,6 +40,12 @@
   --ds-glass:       rgba(20, 22, 27, 0.72);   /* frosted overlay       */
   --ds-glass-thin:  rgba(20, 22, 27, 0.48);
   --ds-scrim:       rgba(6, 7, 10, 0.62);     /* modal backdrop        */
+  /* Living-brain glass: translucent so the deep-cortex-bg shows through.
+     deep = high-readability surfaces (sidebar/topbar), light = panels/cards. */
+  --ds-glass-deep:  rgba(10, 12, 20, 0.55);
+  --ds-glass-light: rgba(10, 12, 20, 0.30);
+  --ds-border-glass: rgba(255, 255, 255, 0.06);
+  --ds-border-glow:  rgba(var(--ds-periwinkle-rgb), 0.22);  /* skin-aware accent edge */
 
   /* ── Semantic text ─────────────────────────────────────────────────── */
   --ds-text:        var(--ds-white);
@@ -88,6 +94,23 @@
   --ds-glow:   0 0 24px rgba(var(--ds-periwinkle-rgb), 0.35);
   --ds-glow-strong: 0 0 48px rgba(var(--ds-periwinkle-rgb), 0.45);
 
+  /* extra neon glows */
+  --ds-glow-cyan:    0 0 24px rgba(0, 229, 255, 0.45);
+  --ds-glow-magenta: 0 0 24px rgba(255, 61, 240, 0.45);
+  --ds-glow-gold:    0 0 24px rgba(245, 185, 66, 0.45);
+  --ds-glow-ghost:   0 0 24px rgba(0, 229, 255, 0.12);
+  --ds-glow-danger:  0 0 24px rgba(229, 115, 106, 0.45);
+  --ds-glow-success: 0 0 24px rgba(86, 197, 150, 0.45);
+
+  /* ── HUD-specific tokens ─────────────────────────────────────────── */
+  --ds-hud-scan-color: rgba(0, 229, 255, 0.06);
+  --ds-hud-floor-fade: rgba(0, 229, 255, 0.08);
+  --ds-hud-hue: 0deg;
+  --ds-hud-panel-bg:
+    radial-gradient(600px 400px at 20% 0%, rgba(0,229,255,0.06), transparent),
+    radial-gradient(400px 600px at 80% 100%, rgba(124,147,255,0.05), transparent),
+    rgba(6, 8, 12, 0.55);
+
   /* ── Blur scale (glassmorphism) ────────────────────────────────────── */
   --ds-blur-sm: 6px;
   --ds-blur-md: 14px;
@@ -96,6 +119,7 @@
   /* ── Typography ────────────────────────────────────────────────────── */
   --ds-font-sans: "Inter", system-ui, -apple-system, "Segoe UI", sans-serif;
   --ds-font-mono: "JetBrains Mono", ui-monospace, "SF Mono", monospace;
+  --ds-font-display: "Rajdhani", system-ui, sans-serif;
   --ds-font-deva: "Noto Serif Devanagari", serif;
 
   --ds-text-xs:  0.75rem;

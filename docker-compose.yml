@@ -1,0 +1,133 @@
+# DEEP — Docker Compose for 24/7 home server deployment
+# Usage: docker compose up -d
+# The Python backend mounts the source for live development;
+# for production, build an image instead.
+
+services:
+  # ── PostgreSQL — relational data (tasks, finance, email tracking) ───────────
+  postgres:
+    image: postgres:16-alpine
+    container_name: deep-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: deep
+      POSTGRES_PASSWORD: ${DEEP_DB_PASSWORD:-deepsecret}
+      POSTGRES_DB: deep
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    ports:
+      - "5432:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U deep -d deep"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # ── Redis — state cache, pub/sub, session store ───────────────────────────
+  redis:
+    image: redis:7-alpine
+    container_name: deep-redis
+    restart: unless-stopped
+    volumes:
+      - redis_data:/data
+    ports:
+      - "6379:6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 3s
+      retries: 5
+
+  # ── ChromaDB — vector database for RAG / knowledge ──────────────────────────
+  chromadb:
+    image: chromadb/chroma:0.5.5
+    container_name: deep-chromadb
+    restart: unless-stopped
+    volumes:
+      - chroma_data:/chroma/chroma
+    ports:
+      - "8000:8000"
+    environment:
+      - IS_PERSISTENT=TRUE
+      - PERSIST_DIRECTORY=/chroma/chroma
+      - ANONYMIZED_TELEMETRY=FALSE
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/api/v1/heartbeat"]
+      interval: 15s
+      timeout: 10s
+      retries: 5
+
+  # ── Ollama — local LLM inference (optional but recommended) ─────────────────
+  ollama:
+    image: ollama/ollama:latest
+    container_name: deep-ollama
+    restart: unless-stopped
+    volumes:
+      - ollama_data:/root/.ollama
+    ports:
+      - "11434:11434"
+    # Uncomment for GPU support (NVIDIA)
+    # deploy:
+    #   resources:
+    #     reservations:
+    #       devices:
+    #         - driver: nvidia
+    #           count: 1
+    #           capabilities: [gpu]
+
+  # ── DEEP Server — the main brain ──────────────────────────────────────────
+  deep:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: deep-server
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      chromadb:
+        condition: service_healthy
+    ports:
+      - "7768:7768"
+    volumes:
+      - ./data:/app/data
+      - ./logs:/app/logs
+      - ./.env:/app/.env:ro
+    environment:
+      - DATABASE_URL=postgresql://deep:${DEEP_DB_PASSWORD:-deepsecret}@postgres:5432/deep
+      - REDIS_URL=redis://redis:6379/0
+      - CHROMA_URL=http://chromadb:8000
+      - OLLAMA_BASE_URL=http://ollama:11434
+      - PYTHONUNBUFFERED=1
+    env_file:
+      - .env
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:7768/api/health')"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 60s
+
+  # ── Sandbox Runner — isolated code execution (Docker-in-Docker or sibling) ──
+  # This service provides a pre-pulled image cache for the sandbox_executor.py.
+  # The actual sandbox containers are spawned by DEEP's SandboxExecutor as
+  # ephemeral sibling containers (Docker socket must be mounted in 'deep' service).
+  # Security: all sandbox containers are spawned with --network none --read-only
+  #           --memory 256m --cpus 0.5 --cap-drop ALL
+  sandbox-init:
+    image: python:3.11-slim
+    container_name: deep-sandbox-init
+    profiles: ["sandbox"]   # Only starts with: docker compose --profile sandbox up
+    entrypoint: ["echo", "Sandbox images pre-pulled. Ready for isolated execution."]
+    # To enable: uncomment the line below and mount Docker socket into 'deep' service
+    # volumes:
+    #   - /var/run/docker.sock:/var/run/docker.sock:ro
+
+
+volumes:
+  postgres_data:
+  redis_data:
+  chroma_data:
+  ollama_data:

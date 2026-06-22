@@ -3,9 +3,10 @@
   "configurations": [
     {
       "name": "DEEP",
-      "runtimeExecutable": "python",
-      "runtimeArgs": ["C:/Users/Aryan/Aryan_Private/DEEP/interface/server.py", ":7768"],
-      "port": 7768
+      "runtimeExecutable": "C:/Users/Aryan/Aryan_Private/myAi/DEEP/.venv/Scripts/python.exe",
+      "runtimeArgs": ["C:/Users/Aryan/Aryan_Private/myAi/DEEP/interface/server.py"],
+      "port": 7768,
+      "autoPort": false
     }
   ]
 }

@@ -1,5 +1,5 @@
 # =============================================================================
-# DEEP JARVIS - Requirements
+# DEEP — Expert Technical Intelligence System (ETIS) — Requirements
 # =============================================================================
 # Install core dependencies (RECOMMENDED for quick start):
 #   pip install -r requirements.txt
@@ -98,6 +98,34 @@ icalendar
 
 # --- Utilities ---
 tqdm
+
+# =============================================================================
+# ETIS Expert Domain Dependencies
+# =============================================================================
+
+# --- Physics Engine ---
+sympy              # Symbolic mathematics (core ETIS physics engine)
+matplotlib         # Plot generation (physics, RF spectrum, firmware entropy)
+
+# --- Cybersecurity / OSINT ---
+# aiohttp already included above
+pypdf              # PDF metadata extraction (OSINT)
+# dnspython is optional — fallback uses socket
+dnspython          # DNS query library for OSINT passive recon
+
+# --- RF / Wireless ---
+bleak              # Cross-platform BLE scanner (async, no root required)
+# pyrtlsdr         # RTL-SDR driver (requires RTL-SDR hardware + driver)
+#   pip install pyrtlsdr   (then install Zadig driver on Windows)
+
+# --- Protocol Analysis ---
+# scapy already included above
+dpkt               # Lightweight PCAP parser (fallback to scapy)
+
+# --- Hardware / Firmware ---
+# numpy, scipy already included above
+# pillow already included above (EXIF metadata)
+
 
 # =============================================================================
 # OPTIONAL: Advanced Features (Require Build Tools)

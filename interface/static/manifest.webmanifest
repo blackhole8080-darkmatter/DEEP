@@ -2,7 +2,7 @@
   "name": "DEEP — Neural Intelligence",
   "short_name": "DEEP",
   "description": "मनस् — your personal AI command center.",
-  "start_url": "/ai",
+  "start_url": "/app",
   "scope": "/",
   "display": "standalone",
   "orientation": "any",

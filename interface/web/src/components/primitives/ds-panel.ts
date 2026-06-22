@@ -16,11 +16,20 @@ export class DsPanel extends LitElement {
       overflow: hidden;
       animation: rise var(--ds-dur-base) var(--ds-ease-spring);
     }
-    .solid { background: var(--ds-surface-1); }
+    /* Default panels are now lightly translucent so the living-brain background
+       shows through — deeper fill + small blur keeps text readable (no heavy
+       blur here; that's reserved for sidebar/topbar to keep compositing cheap). */
+    .solid {
+      background: var(--ds-glass-deep);
+      -webkit-backdrop-filter: blur(var(--ds-blur-sm));
+      backdrop-filter: blur(var(--ds-blur-sm));
+      border-color: var(--ds-border-glass);
+    }
     .glass {
-      background: var(--ds-glass);
+      background: var(--ds-glass-light);
       -webkit-backdrop-filter: blur(var(--ds-blur-md));
       backdrop-filter: blur(var(--ds-blur-md));
+      border-color: var(--ds-border-glass);
     }
     header {
       display: flex;

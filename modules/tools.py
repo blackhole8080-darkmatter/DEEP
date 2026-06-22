@@ -255,8 +255,179 @@ class ToolBox:
                     data=str(args.get("data", "")),
                 ),
                 "desc": "Predicts using a previously trained+saved model. Args: {'model_name': 'iris_rf', 'data': 'new_data.csv'}"
-            }
+            },
+
+            # ══════════════════════════════════════════════════════════════════
+            # ETIS Expert Domain Tools
+            # ══════════════════════════════════════════════════════════════════
+
+            # ── Cybersecurity ──────────────────────────────────────────────────
+            "cve_lookup": {
+                "func": lambda args: self._cve_lookup(cve_id=str(args.get("cve_id", ""))),
+                "desc": "Full CVE record from NVD API v2.0 including CVSS, CWE, affected products, KEV status. Args: {'cve_id': 'CVE-2024-3400'}"
+            },
+            "cve_search": {
+                "func": lambda args: self._cve_search(
+                    keyword=str(args.get("keyword", "")),
+                    min_cvss=float(args.get("min_cvss", 7.0)),
+                    days_back=int(args.get("days_back", 30)),
+                ),
+                "desc": "Search NVD for recent CVEs by keyword. Args: {'keyword': 'palo alto', 'min_cvss': 7.0, 'days_back': 30}"
+            },
+            "mitre_ttp_search": {
+                "func": lambda args: self._mitre_ttp_search(query=str(args.get("query", ""))),
+                "desc": "Search MITRE ATT&CK techniques by keyword/ID. Args: {'query': 'T1190' or 'remote code execution'}"
+            },
+            "mitre_kill_chain": {
+                "func": lambda args: self._mitre_kill_chain(
+                    cve_id=str(args.get("cve_id", "")),
+                    description=str(args.get("description", "")),
+                ),
+                "desc": "Map a CVE to ATT&CK kill chain phases and techniques. Args: {'cve_id': 'CVE-2024-3400', 'description': 'RCE in...'}"
+            },
+            "osint_passive_recon": {
+                "func": lambda args: self._osint_passive_recon(target=str(args.get("target", ""))),
+                "desc": "Passive OSINT recon: DNS, cert transparency, geolocation, subdomain enumeration. Args: {'target': 'example.com' or '1.2.3.4'}"
+            },
+            "osint_metadata": {
+                "func": lambda args: self._osint_metadata(file_path=str(args.get("file_path", ""))),
+                "desc": "Extract metadata from file (PDF/DOCX/JPEG/PNG): author, GPS, creation date. Args: {'file_path': '/path/to/file.pdf'}"
+            },
+            "exploit_search": {
+                "func": lambda args: self._exploit_search(cve_id=str(args.get("cve_id", ""))),
+                "desc": "Search for public exploits (PoC-in-GitHub) for a CVE. Args: {'cve_id': 'CVE-2024-3400'}"
+            },
+            "kev_feed": {
+                "func": lambda args: self._kev_feed(days_back=int(args.get("days_back", 30))),
+                "desc": "Fetch CISA Known Exploited Vulnerabilities added in last N days. Args: {'days_back': 30}"
+            },
+
+            # ── RF / Wireless ──────────────────────────────────────────────────
+            "wifi_deep_scan": {
+                "func": lambda _: self._wifi_deep_scan(),
+                "desc": "Full WiFi scan: SSID/BSSID/channel/security/clients + evil twin detection. Arguments: none."
+            },
+            "bt_enumerate": {
+                "func": lambda args: self._bt_enumerate(scan_duration=float(args.get("scan_duration", 10.0))),
+                "desc": "BLE scan: discover nearby Bluetooth devices, RSSI distance, manufacturer data, AirTag detection. Args: {'scan_duration': 10.0}"
+            },
+            "spectrum_analyze": {
+                "func": lambda args: self._spectrum_analyze(
+                    center_freq=float(args.get("center_freq", 433.92e6)),
+                    bandwidth=float(args.get("bandwidth", 200e3)),
+                    duration=float(args.get("duration", 2.0)),
+                ),
+                "desc": "SDR spectrum analysis (RTL-SDR required). Args: {'center_freq': 433920000, 'bandwidth': 200000, 'duration': 2.0}"
+            },
+            "analyze_iq_file": {
+                "func": lambda args: self._analyze_iq_file(
+                    path=str(args.get("path", "")),
+                    sample_rate=float(args.get("sample_rate", 2e6)),
+                    center_freq=float(args.get("center_freq", 0.0)),
+                ),
+                "desc": "Offline IQ file analysis (FFT, waterfall). Args: {'path': 'capture.iq', 'sample_rate': 2000000}"
+            },
+            "identify_rf_protocol": {
+                "func": lambda args: self._identify_rf_protocol(
+                    center_freq=float(args.get("center_freq", 0)),
+                    bandwidth=float(args.get("bandwidth", 0)),
+                ),
+                "desc": "Identify radio protocol from frequency and bandwidth. Args: {'center_freq': 868.42e6, 'bandwidth': 25000}"
+            },
+
+            # ── Protocol RE ────────────────────────────────────────────────────
+            "parse_pcap": {
+                "func": lambda args: self._parse_pcap(file_path=str(args.get("file_path", ""))),
+                "desc": "Analyze PCAP file: flows, protocols, DNS, TLS SNIs, security findings. Args: {'file_path': 'capture.pcap'}"
+            },
+            "analyze_binary_protocol": {
+                "func": lambda args: self._analyze_binary_protocol(
+                    hex_samples=args.get("hex_samples", []),
+                ),
+                "desc": "Reverse engineer unknown binary protocol. Args: {'hex_samples': ['AABB0001000B...', ...]}"
+            },
+            "generate_dissector": {
+                "func": lambda args: self._generate_dissector(
+                    hex_samples=args.get("hex_samples", []),
+                    protocol_name=str(args.get("protocol_name", "unknown")),
+                    port=int(args.get("port", 9999)),
+                    transport=str(args.get("transport", "tcp")),
+                    output_path=args.get("output_path"),
+                ),
+                "desc": "Generate Wireshark Lua dissector from binary samples. Args: {'hex_samples': [...], 'protocol_name': 'MyProto', 'port': 9999}"
+            },
+
+            # ── Hardware / Firmware ────────────────────────────────────────────
+            "analyze_firmware": {
+                "func": lambda args: self._analyze_firmware(file_path=str(args.get("file_path", ""))),
+                "desc": "Firmware binary analysis: entropy map, architecture, filesystem carving, credential extraction. Args: {'file_path': 'firmware.bin'}"
+            },
+
+            # ── Physics ────────────────────────────────────────────────────────
+            "compute_physics": {
+                "func": lambda args: self._compute_physics(
+                    expression=str(args.get("expression", "")),
+                    variables=args.get("variables", {}),
+                    output=str(args.get("output", "symbolic")),
+                ),
+                "desc": "Physics computation: symbolic math, formula evaluation, LaTeX output. Args: {'expression': 'plasma_frequency', 'variables': {'n': 1e18}}"
+            },
+            "simulate_physics": {
+                "func": lambda args: self._simulate_physics(
+                    system=str(args.get("system", "pendulum")),
+                    params=args.get("params", {}),
+                    t_span=tuple(args.get("t_span", [0, 10])),
+                ),
+                "desc": "Simulate a physical system ODE. Systems: pendulum, lorenz, harmonic_oscillator, plasma_wave. Args: {'system': 'lorenz', 't_span': [0, 50]}"
+            },
+            "get_physics_constant": {
+                "func": lambda args: self._get_physics_constant(name=str(args.get("name", ""))),
+                "desc": "Lookup NIST CODATA physical constant. Args: {'name': 'speed_of_light' or 'boltzmann_constant'}"
+            },
+
+            # ── Robotics ───────────────────────────────────────────────────────
+            "robot_forward_kinematics": {
+                "func": lambda args: self._robot_fk(
+                    joint_angles=args.get("joint_angles", []),
+                    robot_model=str(args.get("robot_model", "ur5")),
+                ),
+                "desc": "Robot forward kinematics (UR5/PUMA560). Args: {'joint_angles': [0,0,0,0,0,0], 'robot_model': 'ur5'}"
+            },
+            "robot_inverse_kinematics": {
+                "func": lambda args: self._robot_ik(
+                    target_pos=tuple(args.get("target_pos", [0, 0, 0])),
+                    robot_model=str(args.get("robot_model", "ur5")),
+                ),
+                "desc": "Robot IK: compute joint angles to reach (x,y,z) position. Args: {'target_pos': [0.3, 0.2, 0.5], 'robot_model': 'ur5'}"
+            },
+
+            # ── Sandbox Execution ──────────────────────────────────────────────
+            "run_sandboxed": {
+                "func": lambda args: self._run_sandboxed(
+                    code=str(args.get("code", "")),
+                    language=str(args.get("language", "python")),
+                    timeout=int(args.get("timeout", 30)),
+                ),
+                "desc": "Execute code in isolated Docker sandbox (no network, memory-limited). Args: {'code': 'print(1+1)', 'language': 'python', 'timeout': 30}"
+            },
+            "sandbox_status": {
+                "func": lambda _: self._sandbox_status(),
+                "desc": "Check Docker sandbox availability and supported languages. Arguments: none."
+            },
+
+            # ── Intel Feeds ────────────────────────────────────────────────────
+            "intel_feed": {
+                "func": lambda args: self._intel_feed(days_back=int(args.get("days_back", 7))),
+                "desc": "Fetch live threat intel: CISA KEV + arXiv security/robotics/physics papers. Args: {'days_back': 7}"
+            },
+
+            # ── Cross-Domain Synthesis ─────────────────────────────────────────
+            "classify_domain": {
+                "func": lambda args: self._classify_domain(query=str(args.get("query", ""))),
+                "desc": "Classify a query into expert domains and suggest tool invocations. Args: {'query': 'analyze this AUV firmware for vulnerabilities'}"
+            },
         }
+
 
     def describe_tools(self) -> str:
         """Return structured schemas for the LLM's prompt context."""
@@ -1081,3 +1252,503 @@ class ToolBox:
             return ToolResult(ok=True, content=report)
         except Exception as e:
             return ToolResult(ok=False, content=f"ml_predict failed: {e}")
+
+    # ══════════════════════════════════════════════════════════════════════════
+    # ETIS Expert Domain Implementations
+    # ══════════════════════════════════════════════════════════════════════════
+
+    # ── Cybersecurity ──────────────────────────────────────────────────────────
+
+    def _cve_lookup(self, cve_id: str) -> ToolResult:
+        try:
+            import asyncio
+            try:
+                from domains.cybersec.cve_intel import CVEIntel
+            except ImportError:
+                return ToolResult(ok=False, content="[CVE] Domain module not found. Run from DEEP root directory.")
+            intel = CVEIntel()
+            result = asyncio.run(intel.lookup(cve_id.strip().upper()))
+            if result.error:
+                return ToolResult(ok=False, content=f"[CVE] {result.error}")
+            lines = [
+                f"[CVE] {result.cve_id}",
+                f"Severity: {result.severity} (CVSS {result.cvss_score:.1f})" if result.cvss_score else f"Severity: {result.severity}",
+                f"Published: {result.published}",
+                f"KEV: {'YES — actively exploited in the wild!' if result.is_kev else 'No'}",
+                f"Description: {result.description}",
+                f"CWEs: {', '.join(result.cwes) if result.cwes else 'None'}",
+                f"Affected: {', '.join(result.affected_products[:5]) if result.affected_products else 'Unknown'}",
+                f"References: {', '.join(result.references[:3])}",
+            ]
+            return ToolResult(ok=True, content="\n".join(lines))
+        except Exception as e:
+            return ToolResult(ok=False, content=f"[CVE] Lookup failed: {e}")
+
+    def _cve_search(self, keyword: str, min_cvss: float = 7.0, days_back: int = 30) -> ToolResult:
+        try:
+            import asyncio
+            from domains.cybersec.cve_intel import CVEIntel
+            intel = CVEIntel()
+            results = asyncio.run(intel.search_recent(keyword=keyword, min_cvss=min_cvss, days_back=days_back))
+            if not results:
+                return ToolResult(ok=True, content=f"[CVE] No CVEs found for '{keyword}' (CVSS≥{min_cvss}) in last {days_back}d.")
+            lines = [f"[CVE] Found {len(results)} CVEs for '{keyword}':"]
+            for r in results:
+                kev = " 🔴 KEV" if r.is_kev else ""
+                lines.append(f"  {r.cve_id} | CVSS {r.cvss_score:.1f} | {r.severity}{kev}")
+                lines.append(f"    {r.description[:120]}...")
+            return ToolResult(ok=True, content="\n".join(lines))
+        except Exception as e:
+            return ToolResult(ok=False, content=f"[CVE] Search failed: {e}")
+
+    def _mitre_ttp_search(self, query: str) -> ToolResult:
+        try:
+            import asyncio
+            from domains.cybersec.mitre_attack import MITREAttack
+            mitre = MITREAttack()
+            results = asyncio.run(mitre.search_techniques(query))
+            if not results:
+                return ToolResult(ok=True, content=f"[MITRE] No techniques found for: {query}")
+            lines = [f"[MITRE ATT&CK] Results for '{query}':"]
+            for t in results[:8]:
+                lines.append(f"  {t.technique_id} | {t.name} | Phase: {t.kill_chain_phase}")
+                lines.append(f"    {t.description[:150]}...")
+                if t.mitigations:
+                    lines.append(f"    Mitigations: {'; '.join(t.mitigations[:2])}")
+            return ToolResult(ok=True, content="\n".join(lines))
+        except Exception as e:
+            return ToolResult(ok=False, content=f"[MITRE] Search failed: {e}")
+
+    def _mitre_kill_chain(self, cve_id: str, description: str) -> ToolResult:
+        try:
+            import asyncio
+            from domains.cybersec.mitre_attack import MITREAttack
+            mitre = MITREAttack()
+            mapping = asyncio.run(mitre.map_cve_to_ttps(cve_id=cve_id, vuln_description=description))
+            lines = [f"[MITRE] Kill chain mapping for {cve_id or 'described vulnerability'}:"]
+            for ttp in mapping:
+                lines.append(f"  [{ttp.kill_chain_phase}] {ttp.technique_id} — {ttp.name}")
+                lines.append(f"    {ttp.description[:120]}...")
+            return ToolResult(ok=True, content="\n".join(lines) if mapping else f"[MITRE] No TTPs mapped.")
+        except Exception as e:
+            return ToolResult(ok=False, content=f"[MITRE] Mapping failed: {e}")
+
+    def _osint_passive_recon(self, target: str) -> ToolResult:
+        try:
+            import asyncio
+            from domains.cybersec.osint_engine import OSINTEngine
+            engine = OSINTEngine()
+            result = asyncio.run(engine.recon(target.strip()))
+            if result.error:
+                return ToolResult(ok=False, content=f"[OSINT] {result.error}")
+            lines = [
+                f"[OSINT] Passive recon: {result.target}",
+                f"IPs: {', '.join(result.ip_addresses[:10])}",
+                f"Subdomains ({len(result.subdomains)}): {', '.join(result.subdomains[:8])}",
+                f"Open Ports: {', '.join(str(p) for p in result.open_ports[:20])}",
+                f"SSL Issuer: {result.ssl_info.get('issuer', 'N/A') if result.ssl_info else 'N/A'}",
+                f"SSL Expires: {result.ssl_info.get('not_after', 'N/A') if result.ssl_info else 'N/A'}",
+                f"GeoIP: {result.geolocation.get('country', '?')}, {result.geolocation.get('org', '?')}",
+                f"Email Addresses: {', '.join(result.email_addresses[:5]) or 'None found'}",
+                f"Technology Stack: {', '.join(result.technology_stack[:5]) or 'Unknown'}",
+            ]
+            if result.shodan_data:
+                lines.append(f"Shodan Hostnames: {', '.join(result.shodan_data.get('hostnames', [])[:3])}")
+            return ToolResult(ok=True, content="\n".join(lines))
+        except Exception as e:
+            return ToolResult(ok=False, content=f"[OSINT] Recon failed: {e}")
+
+    def _osint_metadata(self, file_path: str) -> ToolResult:
+        try:
+            import asyncio
+            from domains.cybersec.osint_engine import OSINTEngine
+            engine = OSINTEngine()
+            result = asyncio.run(engine.extract_file_metadata(file_path))
+            if "error" in result:
+                return ToolResult(ok=False, content=f"[OSINT] {result['error']}")
+            import json
+            return ToolResult(ok=True, content=f"[OSINT] Metadata:\n{json.dumps(result, indent=2, default=str)}")
+        except Exception as e:
+            return ToolResult(ok=False, content=f"[OSINT] Metadata extraction failed: {e}")
+
+    def _exploit_search(self, cve_id: str) -> ToolResult:
+        try:
+            import asyncio
+            from domains.cybersec.exploit_lookup import ExploitLookup
+            lookup = ExploitLookup()
+            results = asyncio.run(lookup.search(cve_id.strip().upper()))
+            if not results:
+                return ToolResult(ok=True, content=f"[EXPLOIT] No public exploits found for {cve_id}.")
+            lines = [f"[EXPLOIT] {len(results)} exploit(s) found for {cve_id}:"]
+            for e in results[:5]:
+                lines.append(f"  [{e.exploit_type}] {e.title}")
+                lines.append(f"    PoC: {e.poc_url}")
+                if e.cvss_score:
+                    lines.append(f"    CVSS: {e.cvss_score:.1f}")
+            return ToolResult(ok=True, content="\n".join(lines))
+        except Exception as e:
+            return ToolResult(ok=False, content=f"[EXPLOIT] Search failed: {e}")
+
+    def _kev_feed(self, days_back: int = 30) -> ToolResult:
+        try:
+            import asyncio
+            from domains.cybersec.cve_intel import CVEIntel
+            intel = CVEIntel()
+            items = asyncio.run(intel.get_kev_recent(days_back=days_back))
+            if not items:
+                return ToolResult(ok=True, content=f"[KEV] No new entries in last {days_back} days.")
+            lines = [f"[KEV] CISA Known Exploited Vulnerabilities (last {days_back}d): {len(items)} entries"]
+            for item in items[:15]:
+                lines.append(f"  {item.get('cveID', '?')} | {item.get('vendorProject', '?')} {item.get('product', '')} | Due: {item.get('dueDate', '?')}")
+            return ToolResult(ok=True, content="\n".join(lines))
+        except Exception as e:
+            return ToolResult(ok=False, content=f"[KEV] Feed fetch failed: {e}")
+
+    # ── RF / Wireless ──────────────────────────────────────────────────────────
+
+    def _wifi_deep_scan(self) -> ToolResult:
+        try:
+            import asyncio
+            from domains.rf_signals.wifi_scanner import WiFiScanner
+            scanner = WiFiScanner()
+            result = asyncio.run(scanner.deep_scan())
+            if result.error:
+                return ToolResult(ok=False, content=f"[WIFI] {result.error}")
+            lines = [f"[WIFI] Found {len(result.networks)} networks:"]
+            for net in sorted(result.networks, key=lambda n: n.signal_strength, reverse=True)[:15]:
+                lines.append(f"  {net.ssid or '(hidden)'} | {net.bssid} | ch{net.channel} | {net.security} | {net.signal_strength} dBm")
+            if result.evil_twins:
+                lines.append(f"\n🚨 EVIL TWIN ALERTS ({len(result.evil_twins)}):")
+                for et in result.evil_twins:
+                    lines.append(f"  Possible evil twin of '{et.get('ssid')}': {et.get('bssid')} vs {et.get('legitimate_bssid')}")
+            return ToolResult(ok=True, content="\n".join(lines))
+        except Exception as e:
+            return ToolResult(ok=False, content=f"[WIFI] Scan failed: {e}")
+
+    def _bt_enumerate(self, scan_duration: float = 10.0) -> ToolResult:
+        try:
+            import asyncio
+            from domains.rf_signals.bt_enumerator import BTEnumerator
+            enumerator = BTEnumerator()
+            result = asyncio.run(enumerator.scan(duration=scan_duration))
+            if result.error:
+                return ToolResult(ok=False, content=f"[BT] {result.error}")
+            lines = [f"[BT] Found {len(result.devices)} BLE devices in {scan_duration:.0f}s:"]
+            for dev in sorted(result.devices, key=lambda d: d.rssi or -999, reverse=True)[:15]:
+                lines.append(f"  {dev.address} | {dev.name or '(unnamed)'} | {dev.rssi} dBm | ~{dev.estimated_distance_m:.1f}m")
+                if dev.is_airtag:
+                    lines.append(f"    🍎 Apple AirTag detected!")
+                if dev.manufacturer_data:
+                    mfr_id = list(dev.manufacturer_data.keys())[0]
+                    lines.append(f"    MFR ID: 0x{mfr_id:04X}")
+            return ToolResult(ok=True, content="\n".join(lines))
+        except Exception as e:
+            return ToolResult(ok=False, content=f"[BT] Scan failed: {e}")
+
+    def _spectrum_analyze(self, center_freq: float, bandwidth: float, duration: float) -> ToolResult:
+        try:
+            import asyncio
+            from domains.rf_signals.spectrum_analyzer import SpectrumAnalyzer
+            analyzer = SpectrumAnalyzer()
+            result = asyncio.run(analyzer.analyze_spectrum(center_freq=center_freq, bandwidth=bandwidth, duration=duration))
+            if result.error:
+                return ToolResult(ok=False, content=f"[SDR] {result.error}")
+            lines = [
+                f"[SPECTRUM] Center: {center_freq/1e6:.3f} MHz, BW: {bandwidth/1e6:.3f} MHz",
+                f"Peak: {result.peak_frequency/1e6:.3f} MHz ({result.peak_power:.1f} dBm)",
+                f"Noise floor: {result.noise_floor:.1f} dBm",
+                f"SNR: {result.snr:.1f} dB",
+            ]
+            if result.detected_signals:
+                lines.append(f"Detected signals ({len(result.detected_signals)}):")
+                for sig in result.detected_signals[:5]:
+                    lines.append(f"  {sig.center_freq/1e6:.3f} MHz | {sig.bandwidth/1e3:.0f} kHz BW | {sig.modulation} | {sig.power_dbm:.1f} dBm")
+            return ToolResult(ok=True, content="\n".join(lines))
+        except Exception as e:
+            return ToolResult(ok=False, content=f"[SDR] Spectrum analysis failed: {e}")
+
+    def _analyze_iq_file(self, path: str, sample_rate: float, center_freq: float) -> ToolResult:
+        try:
+            import asyncio
+            from domains.rf_signals.spectrum_analyzer import SpectrumAnalyzer
+            analyzer = SpectrumAnalyzer()
+            result = asyncio.run(analyzer.analyze_iq_file(path=path, sample_rate=sample_rate, center_freq=center_freq))
+            if result.error:
+                return ToolResult(ok=False, content=f"[IQ] {result.error}")
+            lines = [f"[IQ File] {path}", f"Signals: {len(result.detected_signals)}"]
+            for sig in result.detected_signals[:8]:
+                lines.append(f"  {sig.center_freq/1e6:.3f} MHz | {sig.modulation} | {sig.power_dbm:.1f} dBm")
+            return ToolResult(ok=True, content="\n".join(lines))
+        except Exception as e:
+            return ToolResult(ok=False, content=f"[IQ] Analysis failed: {e}")
+
+    def _identify_rf_protocol(self, center_freq: float, bandwidth: float) -> ToolResult:
+        try:
+            from domains.rf_signals.protocol_id import ProtocolIdentifier
+            pid = ProtocolIdentifier()
+            matches = pid.identify(center_freq_hz=center_freq, bandwidth_hz=bandwidth)
+            if not matches:
+                return ToolResult(ok=True, content=f"[RF] No known protocol matched at {center_freq/1e6:.3f} MHz.")
+            lines = [f"[RF PROTOCOL] Best matches for {center_freq/1e6:.3f} MHz, BW {bandwidth/1e3:.0f} kHz:"]
+            for m in matches[:5]:
+                lines.append(f"  [{m.confidence:.0%}] {m.protocol_name}")
+                lines.append(f"    Modulation: {m.modulation} | Range: {m.frequency_range}")
+                lines.append(f"    Use: {m.typical_use}")
+                if m.security_notes:
+                    lines.append(f"    ⚠ {m.security_notes}")
+            return ToolResult(ok=True, content="\n".join(lines))
+        except Exception as e:
+            return ToolResult(ok=False, content=f"[RF] Protocol ID failed: {e}")
+
+    # ── Protocol RE ────────────────────────────────────────────────────────────
+
+    def _parse_pcap(self, file_path: str) -> ToolResult:
+        try:
+            import asyncio
+            from domains.protocols.pcap_analyzer import PCAPAnalyzer
+            analyzer = PCAPAnalyzer()
+            report = asyncio.run(analyzer.analyze(file_path))
+            if report.error:
+                return ToolResult(ok=False, content=f"[PCAP] {report.error}")
+            lines = [
+                f"[PCAP] {file_path}",
+                f"Packets: {report.total_packets:,} | Bytes: {report.total_bytes:,} | Duration: {report.duration_s:.1f}s",
+                f"Flows: {len(report.flows)} | DNS queries: {len(report.dns_queries)} | TLS SNIs: {len(report.tls_snis)}",
+                f"Top flows:",
+            ]
+            for flow in report.flows[:5]:
+                lines.append(f"  {flow.src_ip}:{flow.src_port} → {flow.dst_ip}:{flow.dst_port} ({flow.app_layer}) {flow.byte_count:,}B")
+            if report.findings:
+                lines.append(f"\nSecurity Findings ({len(report.findings)}):")
+                for f2 in report.findings[:5]:
+                    lines.append(f"  [{f2.severity}] {f2.title}")
+                    lines.append(f"    {f2.description}")
+                    lines.append(f"    Recommendation: {f2.recommendation}")
+            if report.dns_queries:
+                lines.append(f"\nDNS queries: {', '.join(report.dns_queries[:10])}")
+            if report.tls_snis:
+                lines.append(f"TLS SNIs: {', '.join(report.tls_snis[:10])}")
+            return ToolResult(ok=True, content="\n".join(lines))
+        except Exception as e:
+            return ToolResult(ok=False, content=f"[PCAP] Analysis failed: {e}")
+
+    def _analyze_binary_protocol(self, hex_samples: list) -> ToolResult:
+        try:
+            from domains.protocols.binary_protocol import BinaryProtocolRE
+            samples = [bytes.fromhex(h.replace(" ", "")) for h in hex_samples]
+            re_engine = BinaryProtocolRE()
+            proto = re_engine.analyze(samples)
+            lines = [
+                f"[PROTO RE] Inferred Protocol from {len(samples)} samples",
+                f"Entropy: {proto.entropy_bits_per_byte:.2f} bits/byte | Confidence: {proto.confidence:.0%}",
+                f"Encrypted: {proto.is_encrypted} | Magic: {proto.has_magic} | Checksum: {proto.has_checksum} | Sequence: {proto.has_sequence}",
+                f"Header size: {proto.header_size}B",
+                f"Fields:",
+            ]
+            for field in proto.fields:
+                lines.append(f"  @{field.offset}+{field.size}B [{field.field_type}]: {field.description}")
+                lines.append(f"    Examples: {', '.join(field.example_values[:4])}")
+            if proto.security_issues:
+                lines.append(f"Security issues:")
+                for iss in proto.security_issues:
+                    lines.append(f"  ⚠ {iss}")
+            return ToolResult(ok=True, content="\n".join(lines))
+        except Exception as e:
+            return ToolResult(ok=False, content=f"[PROTO RE] Analysis failed: {e}")
+
+    def _generate_dissector(self, hex_samples: list, protocol_name: str, port: int, transport: str, output_path=None) -> ToolResult:
+        try:
+            from domains.protocols.binary_protocol import BinaryProtocolRE
+            from domains.protocols.dissector_gen import DissectorGenerator
+            samples = [bytes.fromhex(h.replace(" ", "")) for h in hex_samples]
+            re_engine = BinaryProtocolRE()
+            proto = re_engine.analyze(samples)
+            gen = DissectorGenerator()
+            lua = gen.generate(proto, protocol_name, port, transport, output_path)
+            preview = lua[:1000] + ("\n... [truncated]" if len(lua) > 1000 else "")
+            return ToolResult(ok=True, content=f"[DISSECTOR] Wireshark Lua dissector:\n\n{preview}")
+        except Exception as e:
+            return ToolResult(ok=False, content=f"[DISSECTOR] Generation failed: {e}")
+
+    # ── Hardware / Firmware ────────────────────────────────────────────────────
+
+    def _analyze_firmware(self, file_path: str) -> ToolResult:
+        try:
+            import asyncio
+            from domains.hardware.firmware_analyzer import FirmwareAnalyzer
+            analyzer = FirmwareAnalyzer()
+            report = asyncio.run(analyzer.analyze(file_path))
+            if report.error:
+                return ToolResult(ok=False, content=f"[FIRMWARE] {report.error}")
+            lines = [
+                f"[FIRMWARE] {file_path}",
+                f"Size: {report.file_size:,}B | MD5: {report.md5} | SHA256: {report.sha256}",
+                f"Architecture: {report.architecture.arch} ({report.architecture.endianness}-endian) [{report.architecture.confidence:.0%}]",
+                f"Evidence: {report.architecture.evidence}",
+                f"Entropy segments: {len(report.entropy_segments)}",
+            ]
+            type_counts: dict = {}
+            for seg in report.entropy_segments:
+                type_counts[seg.segment_type] = type_counts.get(seg.segment_type, 0) + 1
+            for seg_type, count in type_counts.items():
+                lines.append(f"  {seg_type}: {count} segment(s)")
+            if report.filesystems:
+                lines.append(f"\nFilesystem signatures ({len(report.filesystems)}):")
+                for fs in report.filesystems[:5]:
+                    lines.append(f"  @0x{fs.offset:08X}: {fs.description}")
+            if report.security_findings:
+                lines.append(f"\nSecurity Findings ({len(report.security_findings)}):")
+                for finding in report.security_findings[:10]:
+                    lines.append(f"  ⚠ {finding}")
+            if report.entropy_plot_path:
+                lines.append(f"\nEntropy plot: {report.entropy_plot_path}")
+            return ToolResult(ok=True, content="\n".join(lines))
+        except Exception as e:
+            return ToolResult(ok=False, content=f"[FIRMWARE] Analysis failed: {e}")
+
+    # ── Physics ────────────────────────────────────────────────────────────────
+
+    def _compute_physics(self, expression: str, variables: dict, output: str) -> ToolResult:
+        try:
+            from domains.physics.engine import PhysicsEngine
+            engine = PhysicsEngine()
+            result = engine.compute(expression=expression, variables=variables, output=output)
+            if result.get("error"):
+                return ToolResult(ok=False, content=f"[PHYSICS] {result['error']}")
+            import json
+            return ToolResult(ok=True, content=f"[PHYSICS]\n{json.dumps(result, indent=2, default=str)}")
+        except Exception as e:
+            return ToolResult(ok=False, content=f"[PHYSICS] Computation failed: {e}")
+
+    def _simulate_physics(self, system: str, params: dict, t_span: tuple) -> ToolResult:
+        try:
+            from domains.physics.engine import PhysicsEngine
+            engine = PhysicsEngine()
+            result = engine.simulate(system=system, params=params, t_span=t_span)
+            if result.get("error"):
+                return ToolResult(ok=False, content=f"[PHYSICS] {result['error']}")
+            import json
+            return ToolResult(ok=True, content=f"[PHYSICS SIM]\n{json.dumps(result, indent=2, default=str)}")
+        except Exception as e:
+            return ToolResult(ok=False, content=f"[PHYSICS] Simulation failed: {e}")
+
+    def _get_physics_constant(self, name: str) -> ToolResult:
+        try:
+            from domains.physics.engine import PhysicsEngine
+            engine = PhysicsEngine()
+            result = engine.get_constant(name)
+            if result.get("error"):
+                return ToolResult(ok=False, content=f"[PHYSICS] {result['error']}")
+            return ToolResult(ok=True, content=f"[PHYSICS CONSTANT] {name}:\n  Value: {result['value']}\n  Units: {result['unit']}")
+        except Exception as e:
+            return ToolResult(ok=False, content=f"[PHYSICS] Constant lookup failed: {e}")
+
+    # ── Robotics ───────────────────────────────────────────────────────────────
+
+    def _robot_fk(self, joint_angles: list, robot_model: str = "ur5") -> ToolResult:
+        try:
+            from domains.robotics.kinematics import make_ur5, make_puma560
+            arm = make_ur5() if robot_model.lower() == "ur5" else make_puma560()
+            result = arm.forward_kinematics([float(a) for a in joint_angles])
+            if result.error:
+                return ToolResult(ok=False, content=f"[ROBOTICS FK] {result.error}")
+            x, y, z = result.end_effector_position
+            return ToolResult(ok=True, content=(
+                f"[ROBOTICS FK] {robot_model.upper()} Forward Kinematics:\n"
+                f"End Effector Position: x={x:.4f}m  y={y:.4f}m  z={z:.4f}m\n"
+                f"Manipulability: {result.manipulability:.4f}\n"
+                f"Singularity: {'⚠ YES' if result.singularity_detected else 'No'}"
+            ))
+        except Exception as e:
+            return ToolResult(ok=False, content=f"[ROBOTICS FK] Failed: {e}")
+
+    def _robot_ik(self, target_pos: tuple, robot_model: str = "ur5") -> ToolResult:
+        try:
+            from domains.robotics.kinematics import make_ur5, make_puma560
+            import math
+            arm = make_ur5() if robot_model.lower() == "ur5" else make_puma560()
+            target = tuple(float(c) for c in target_pos)
+            result = arm.inverse_kinematics(target)
+            if result.error:
+                return ToolResult(ok=False, content=f"[ROBOTICS IK] {result.error}")
+            angles_deg = [math.degrees(q) for q in result.joint_angles_rad]
+            x, y, z = result.end_effector_position
+            error = ((x - target[0])**2 + (y - target[1])**2 + (z - target[2])**2) ** 0.5
+            return ToolResult(ok=True, content=(
+                f"[ROBOTICS IK] {robot_model.upper()} Inverse Kinematics:\n"
+                f"Target: ({target[0]:.3f}, {target[1]:.3f}, {target[2]:.3f})m\n"
+                f"Achieved: ({x:.4f}, {y:.4f}, {z:.4f})m | Error: {error*1000:.2f}mm\n"
+                f"Joint angles (deg): {', '.join(f'{a:.1f}°' for a in angles_deg)}"
+            ))
+        except Exception as e:
+            return ToolResult(ok=False, content=f"[ROBOTICS IK] Failed: {e}")
+
+    # ── Sandbox Execution ──────────────────────────────────────────────────────
+
+    def _run_sandboxed(self, code: str, language: str = "python", timeout: int = 30) -> ToolResult:
+        try:
+            import asyncio
+            from core.sandbox_executor import SandboxExecutor
+            executor = SandboxExecutor()
+            result = asyncio.run(executor.execute(code=code, language=language, timeout_seconds=timeout))
+            output_lines = [
+                f"[SANDBOX] Exit: {result.exit_code} | Time: {result.execution_time_ms:.0f}ms | Runtime: {result.runtime}",
+                f"--- stdout ---\n{result.stdout[:2000] or '(none)'}",
+            ]
+            if result.stderr:
+                output_lines.append(f"--- stderr ---\n{result.stderr[:500]}")
+            if result.timed_out:
+                output_lines.append("⚠ TIMED OUT")
+            return ToolResult(ok=result.exit_code == 0, content="\n".join(output_lines))
+        except Exception as e:
+            return ToolResult(ok=False, content=f"[SANDBOX] Execution failed: {e}")
+
+    def _sandbox_status(self) -> ToolResult:
+        try:
+            from core.sandbox_executor import SandboxExecutor
+            executor = SandboxExecutor()
+            docker_ok = executor._docker_available()
+            lines = [
+                f"[SANDBOX] Docker available: {'YES' if docker_ok else 'NO (subprocess fallback)'}",
+                f"Supported languages: Python 3, Bash, Node.js",
+                f"Security: {'--network none --cap-drop ALL --read-only (memory-limited)' if docker_ok else 'Local subprocess (no isolation)'}",
+                f"Max timeout: 120 seconds",
+            ]
+            return ToolResult(ok=True, content="\n".join(lines))
+        except Exception as e:
+            return ToolResult(ok=False, content=f"[SANDBOX] Status check failed: {e}")
+
+    # ── Intel Feeds ────────────────────────────────────────────────────────────
+
+    def _intel_feed(self, days_back: int = 7) -> ToolResult:
+        try:
+            import asyncio
+            from core.intel_feeds import get_intel_feeds
+            feeds = get_intel_feeds()
+            items = asyncio.run(feeds.fetch_all(days_back=days_back))
+            if not items:
+                return ToolResult(ok=True, content="[INTEL] No new intel items retrieved.")
+            lines = [f"[INTEL FEED] {len(items)} items (last {days_back}d):"]
+            for item in items[:20]:
+                kev_marker = " 🔴 KEV!" if item.is_kev else ""
+                lines.append(f"  [{item.severity}] [{item.source}] {item.published} {kev_marker}")
+                lines.append(f"    {item.title}")
+                if item.summary:
+                    lines.append(f"    {item.summary[:120]}...")
+                lines.append(f"    → {item.url}")
+            return ToolResult(ok=True, content="\n".join(lines))
+        except Exception as e:
+            return ToolResult(ok=False, content=f"[INTEL] Feed fetch failed: {e}")
+
+    # ── Cross-Domain Synthesis ─────────────────────────────────────────────────
+
+    def _classify_domain(self, query: str) -> ToolResult:
+        try:
+            import asyncio
+            from core.cross_domain_synthesizer import get_synthesizer
+            synth = get_synthesizer()
+            result = asyncio.run(synth.synthesize(query))
+            return ToolResult(ok=True, content=result.synthesis)
+        except Exception as e:
+            return ToolResult(ok=False, content=f"[DOMAIN] Classification failed: {e}")
+

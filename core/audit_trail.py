@@ -10,6 +10,7 @@ the chain and is detectable.
 from __future__ import annotations
 
 import asyncio
+from contextlib import closing
 import hashlib
 import json
 import logging
@@ -213,7 +214,7 @@ class AuditTrail:
                 await db.commit()
         else:
             import sqlite3
-            with sqlite3.connect(self._db_path) as db:
+            with closing(sqlite3.connect(self._db_path)) as db, db:
                 db.execute(
                     """
                     CREATE TABLE IF NOT EXISTS audit_log (
@@ -243,7 +244,7 @@ class AuditTrail:
                     return row[0] if row else None
         else:
             import sqlite3
-            with sqlite3.connect(self._db_path) as db:
+            with closing(sqlite3.connect(self._db_path)) as db, db:
                 row = db.execute("SELECT entry_hash FROM audit_log ORDER BY id DESC LIMIT 1").fetchone()
                 return row[0] if row else None
 
@@ -308,7 +309,7 @@ class AuditTrail:
                     entry.id = cursor.lastrowid
             else:
                 import sqlite3
-                with sqlite3.connect(self._db_path) as db:
+                with closing(sqlite3.connect(self._db_path)) as db, db:
                     cur = db.execute(
                         """
                         INSERT INTO audit_log
@@ -462,7 +463,7 @@ class AuditTrail:
                         return [dict(r) for r in await cursor.fetchall()]
         else:
             import sqlite3
-            with sqlite3.connect(self._db_path) as db:
+            with closing(sqlite3.connect(self._db_path)) as db, db:
                 db.row_factory = sqlite3.Row
                 if end_id:
                     rows = db.execute(
@@ -647,7 +648,7 @@ class AuditTrail:
                     return [dict(r) for r in await cursor.fetchall()]
         else:
             import sqlite3
-            with sqlite3.connect(self._db_path) as db:
+            with closing(sqlite3.connect(self._db_path)) as db, db:
                 db.row_factory = sqlite3.Row
                 return [dict(r) for r in db.execute(sql, params).fetchall()]
 
@@ -687,7 +688,7 @@ class AuditTrail:
     def _get_approximate_count(self) -> int:
         try:
             import sqlite3
-            with sqlite3.connect(self._db_path) as db:
+            with closing(sqlite3.connect(self._db_path)) as db, db:
                 row = db.execute("SELECT COUNT(*) FROM audit_log").fetchone()
                 return row[0] if row else 0
         except Exception:

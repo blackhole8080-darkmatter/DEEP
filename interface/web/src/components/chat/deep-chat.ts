@@ -7,6 +7,7 @@ import { messages, thinking, reasoningSteps, sendChat, isStreaming } from "../..
 import "./chat-message";
 import "./reasoning-trail";
 import "./composer";
+import "../inference-trace";
 
 @customElement("deep-chat")
 export class DeepChat extends SignalWatcher(LitElement) {
@@ -61,7 +62,14 @@ export class DeepChat extends SignalWatcher(LitElement) {
   render() {
     const msgs = messages.get();
     const steps = reasoningSteps.get();
+    const isThink = thinking.get();
+    const isStream = isStreaming.get();
+    let phase: "idle" | "perceive" | "recall" | "reason" | "generate" | "complete" = "idle";
+    if (isThink) phase = "reason";
+    else if (isStream) phase = "generate";
+    else if (msgs.length > 0 && !isThink && !isStream) phase = "complete";
     return html`
+      <inference-trace .phase=${phase}></inference-trace>
       <div class="scroll">
         ${msgs.length === 0
           ? html`<div class="empty">
@@ -69,10 +77,10 @@ export class DeepChat extends SignalWatcher(LitElement) {
               <p>Ask anything — drop an image for vision, or a document to absorb it.</p>
             </div>`
           : msgs.map((m) => html`<chat-message .msg=${m}></chat-message>`)}
-        ${steps.length && (thinking.get() || isStreaming.get())
+        ${steps.length && (isThink || isStream)
           ? html`<reasoning-trail .steps=${steps}></reasoning-trail>`
           : ""}
-        ${thinking.get()
+        ${isThink
           ? html`<div class="thinking"><span></span><span></span><span></span></div>`
           : ""}
       </div>

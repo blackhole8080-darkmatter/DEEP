@@ -22,37 +22,9 @@ sys.path.insert(0, str(DEEP_ROOT))
 sys.modules["whisper"] = MagicMock()
 
 from core.event_bus import EventBus
-from core.local_stt import LocalSTT
 from core.security.network_monitor import NetworkMonitor, SecuritySeverity
 
-
-# ═══════════════════════════════════════════════════════════════════════════════
-# Test 1: local_stt publishes "user_command" after transcription
-# ═══════════════════════════════════════════════════════════════════════════════
-
-async def test_local_stt_publishes_user_command():
-    """local_stt must publish 'user_command' after a successful transcription."""
-    bus = EventBus()
-    await bus.start()
-
-    captured: list[dict] = []
-
-    async def _capture(event_name: str, payload: dict):
-        captured.append(payload)
-
-    bus.subscribe("user_command", _capture)
-
-    stt = LocalSTT("base", event_bus=bus)
-    with patch.object(stt, "_transcribe", return_value="hello deep"):
-        result = await stt.transcribe_audio("dummy.webm")
-
-    assert result == "hello deep", f"Expected transcript 'hello deep', got {result!r}"
-    assert len(captured) == 1, f"Expected 1 user_command event, got {len(captured)}"
-    assert captured[0]["text"] == "hello deep"
-    assert captured[0]["source"] == "microphone"
-    assert "timestamp" in captured[0]
-
-    await bus.stop()
+# (Test 1 — local_stt user_command — removed with the voice subsystem.)
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
@@ -156,9 +128,6 @@ def test_server_startup_has_no_on_event_calls():
 async def main():
     """Run all validation tests."""
     print("Running EventBus wiring validation...\n")
-
-    await test_local_stt_publishes_user_command()
-    print("✓ local_stt publishes 'user_command' after transcription")
 
     await test_network_monitor_publishes_security_alert()
     print("✓ network_monitor publishes 'security_alert' on the bus")

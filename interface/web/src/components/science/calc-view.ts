@@ -3,7 +3,9 @@
 // natural-language math/science to the live engine (/api/science/compute).
 import { LitElement, html, css, svg } from "lit";
 import { customElement, state } from "lit/decorators.js";
+import { unsafeHTML } from "lit/directives/unsafe-html.js";
 import { mathSolve, scienceCompute } from "../../core/api";
+import { katexStyles, renderTeX } from "../../core/math";
 import "../primitives/ds-panel";
 import "../primitives/ds-button";
 
@@ -32,9 +34,11 @@ export class CalcView extends LitElement {
   @state() private error = "";
   @state() private computeQ = "derivative of x^3 + 2x";
   @state() private computeOut = "";
+  @state() private computeTeX = "";       // rendered LaTeX (display mode)
+  @state() private computeTeXExpr = "";    // rendered LaTeX of the input expression
   @state() private computing = false;
 
-  static styles = css`
+  static styles = [katexStyles, css`
     :host { display: grid; gap: var(--ds-space-4); padding: var(--ds-space-5); max-width: 1000px; margin: 0 auto; align-content: start; }
     .controls { display: flex; gap: var(--ds-space-2); align-items: center; flex-wrap: wrap; }
     input { padding: var(--ds-space-2) var(--ds-space-3); background: var(--ds-surface-2); color: var(--ds-text); border: 1px solid var(--ds-border); border-radius: var(--ds-radius-sm); font-family: var(--ds-font-mono); font-size: var(--ds-text-sm); }
@@ -52,7 +56,12 @@ export class CalcView extends LitElement {
     .chips { display: flex; gap: var(--ds-space-2); flex-wrap: wrap; margin-top: var(--ds-space-2); }
     .chip { padding: 2px 10px; border: 1px solid var(--ds-border); border-radius: var(--ds-radius-pill); font-size: var(--ds-text-xs); color: var(--ds-text-soft); cursor: pointer; font-family: var(--ds-font-mono); }
     .chip:hover { border-color: var(--ds-border-accent); color: var(--ds-accent); }
-  `;
+    .tex-block { margin-top: var(--ds-space-3); padding: var(--ds-space-3) var(--ds-space-4); background: var(--ds-surface-1); border: 1px solid var(--ds-border-accent); border-radius: var(--ds-radius-md); overflow-x: auto; }
+    .tex-block .katex { color: var(--ds-text); font-size: 1.25em; }
+    .tex-expr { color: var(--ds-text-muted); margin-bottom: var(--ds-space-2); padding-bottom: var(--ds-space-2); border-bottom: 1px dashed var(--ds-border); }
+    .tex-expr .katex { font-size: 1em; }
+    .tex-error { color: var(--ds-danger); font-family: var(--ds-font-mono); }
+  `];
 
   private plot() {
     const W = 720, H = 380;
@@ -99,14 +108,19 @@ export class CalcView extends LitElement {
   private async runCompute(): Promise<void> {
     this.computing = true;
     this.computeOut = "";
+    this.computeTeX = "";
+    this.computeTeXExpr = "";
     try {
       // Prefer the exact symbolic router; fall back to the broader NL engine.
       const m = await mathSolve(this.computeQ);
       if (m.ok && m.result) {
         this.computeOut = `${m.expression} = ${m.result}\n(${m.kind}, verified by ${m.engine})`;
+        if (m.latex) this.computeTeX = renderTeX(m.latex, true);
+        if (m.latex_expr) this.computeTeXExpr = renderTeX(m.latex_expr, true);
       } else {
         const r = await scienceCompute(this.computeQ);
         this.computeOut = r.verbal || JSON.stringify(r.result ?? r, null, 1);
+        if (r.latex) this.computeTeX = renderTeX(r.latex, true);
       }
     } catch (e) { this.computeOut = "compute failed: " + String(e); }
     this.computing = false;
@@ -137,6 +151,12 @@ export class CalcView extends LitElement {
           <textarea .value=${this.computeQ} @input=${(e: Event) => { this.computeQ = (e.target as HTMLTextAreaElement).value; }}></textarea>
           <div class="chips">${computeEx.map((ex) => html`<span class="chip" @click=${() => { this.computeQ = ex; }}>${ex}</span>`)}</div>
           <div style="margin-top:var(--ds-space-2)"><ds-button variant="primary" @click=${() => void this.runCompute()}>${this.computing ? "computing…" : "compute"}</ds-button></div>
+          ${this.computeTeX
+            ? html`<div class="tex-block">
+                ${this.computeTeXExpr ? html`<div class="tex-expr">${unsafeHTML(this.computeTeXExpr)}</div>` : ""}
+                ${unsafeHTML(this.computeTeX)}
+              </div>`
+            : ""}
           ${this.computeOut ? html`<div class="out">${this.computeOut}</div>` : ""}
         </div>
       </ds-panel>

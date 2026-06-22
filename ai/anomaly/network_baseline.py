@@ -10,6 +10,7 @@ from __future__ import annotations
 import asyncio
 import logging
 import sqlite3
+from contextlib import closing
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
@@ -83,7 +84,7 @@ class NetworkBaseline:
         logger.info("[NetworkBaseline] Stopped")
 
     async def _init_db(self) -> None:
-        with sqlite3.connect(str(self._db_path)) as conn:
+        with closing(sqlite3.connect(str(self._db_path))) as conn, conn:
             conn.execute(
                 """
                 CREATE TABLE IF NOT EXISTS network_baseline (
@@ -160,7 +161,7 @@ class NetworkBaseline:
         )
 
     async def _store_snapshot(self, snapshot: NetworkFlowSnapshot) -> None:
-        with sqlite3.connect(str(self._db_path)) as conn:
+        with closing(sqlite3.connect(str(self._db_path))) as conn, conn:
             conn.execute(
                 """
                 INSERT INTO network_baseline
@@ -185,7 +186,7 @@ class NetworkBaseline:
     ) -> Optional[dict[str, dict[str, float]]]:
         cutoff = (datetime.now(timezone.utc) - timedelta(days=self._history_days)).isoformat()
 
-        with sqlite3.connect(str(self._db_path)) as conn:
+        with closing(sqlite3.connect(str(self._db_path))) as conn, conn:
             conn.row_factory = sqlite3.Row
             rows = conn.execute(
                 """
@@ -223,7 +224,7 @@ class NetworkBaseline:
 
     async def get_flow_history(self, hours_back: int = 24) -> List[NetworkFlowSnapshot]:
         cutoff = (datetime.now(timezone.utc) - timedelta(hours=hours_back)).isoformat()
-        with sqlite3.connect(str(self._db_path)) as conn:
+        with closing(sqlite3.connect(str(self._db_path))) as conn, conn:
             conn.row_factory = sqlite3.Row
             rows = conn.execute(
                 "SELECT * FROM network_baseline WHERE timestamp >= ? ORDER BY timestamp DESC",
@@ -236,7 +237,7 @@ class NetworkBaseline:
         oldest = None
         baseline_ready = False
         try:
-            with sqlite3.connect(str(self._db_path)) as conn:
+            with closing(sqlite3.connect(str(self._db_path))) as conn, conn:
                 cur = conn.execute("SELECT COUNT(*) FROM network_baseline")
                 total = cur.fetchone()[0]
                 cur = conn.execute("SELECT MIN(timestamp) FROM network_baseline")

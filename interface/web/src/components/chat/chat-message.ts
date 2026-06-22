@@ -6,20 +6,38 @@ import { unsafeHTML } from "lit/directives/unsafe-html.js";
 import { marked } from "marked";
 import DOMPurify from "dompurify";
 import type { ChatMessage } from "../../core/store";
+import { katexStyles, renderTeX } from "../../core/math";
 import "./reasoning-trail";
 
 marked.setOptions({ breaks: true, gfm: true });
 
+// Render markdown, typesetting any LaTeX ($$…$$, \[…\] display; $…$, \(…\) inline)
+// with KaTeX. Math is pulled out first so marked/DOMPurify can't mangle it, then
+// the trusted KaTeX HTML is spliced back in after sanitization.
 function renderMarkdown(text: string): string {
-  return DOMPurify.sanitize(marked.parse(text, { async: false }) as string);
+  const math: string[] = [];
+  const stash = (tex: string, display: boolean) => {
+    const i = math.push(renderTeX(tex.trim(), display)) - 1;
+    return ` @@MATH${i}@@ `;
+  };
+  const protectedText = text
+    .replace(/\$\$([\s\S]+?)\$\$/g, (_m, t) => stash(t, true))
+    .replace(/\\\[([\s\S]+?)\\\]/g, (_m, t) => stash(t, true))
+    .replace(/\\\(([\s\S]+?)\\\)/g, (_m, t) => stash(t, false))
+    .replace(/(?<![\\$])\$(?!\s)([^$\n]+?)(?<!\s)\$(?!\d)/g, (_m, t) => stash(t, false));
+  let htmlOut = DOMPurify.sanitize(marked.parse(protectedText, { async: false }) as string);
+  htmlOut = htmlOut.replace(/@@MATH(\d+)@@/g, (_m, i) => math[+i] ?? "");
+  return htmlOut;
 }
 
 @customElement("chat-message")
 export class ChatMessageEl extends LitElement {
   @property({ attribute: false }) msg!: ChatMessage;
 
-  static styles = css`
+  static styles = [katexStyles, css`
     :host { display: grid; }
+    .md .katex { color: var(--ds-text); }
+    .md .katex-display { margin: var(--ds-space-3) 0; overflow-x: auto; overflow-y: hidden; }
     .bubble {
       padding: var(--ds-space-3) var(--ds-space-4);
       border-radius: var(--ds-radius-md);
@@ -77,7 +95,7 @@ export class ChatMessageEl extends LitElement {
     @keyframes rise { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: none; } }
     @keyframes blink { 50% { opacity: 0; } }
     @media (prefers-reduced-motion: reduce) { .bubble { animation: none; } }
-  `;
+  `];
 
   render() {
     const m = this.msg;

@@ -82,14 +82,18 @@ def solve(text: str) -> Optional[Dict[str, Any]]:
         if m:
             expr = P(_clean_expr(m.group(1)))
             res = sp.diff(expr, x)
-            return _result("derivative", f"d/dx[{expr}]", res)
+            return _result("derivative", f"d/dx[{expr}]", res,
+                           latex=sp.latex(res),
+                           latex_expr=r"\frac{d}{dx}\left(" + sp.latex(expr) + r"\right)")
 
         # ── Calculus: integral ────────────────────────────────────────────
         m = re.search(r"(?:integrate|integral)\s+(?:of\s+)?(.+)", low)
         if m:
             expr = P(_clean_expr(m.group(1)))
             res = sp.integrate(expr, x)
-            return _result("integral", f"∫({expr})dx", f"{res} + C")
+            return _result("integral", f"∫({expr})dx", f"{res} + C",
+                           latex=sp.latex(res) + " + C",
+                           latex_expr=r"\int " + sp.latex(expr) + r"\,dx")
 
         # ── Solve equation(s) ─────────────────────────────────────────────
         m = re.search(r"solve\s+(?:for\s+\w+\s+(?:in|:)?\s*)?(.+)", low)
@@ -104,14 +108,18 @@ def solve(text: str) -> Optional[Dict[str, Any]]:
             syms = list(eq.free_symbols) if hasattr(eq, "free_symbols") else [x]
             sym = x if x in syms else (syms[0] if syms else x)
             sol = sp.solve(eq, sym)
-            return _result("solve", f"{eq}", sol)
+            return _result("solve", f"{eq}", sol,
+                           latex=sp.latex(sym) + " = " + sp.latex(sol),
+                           latex_expr=sp.latex(eq))
 
         # ── Simplify / factor / expand ────────────────────────────────────
         for kw, fn in (("simplify", sp.simplify), ("factor", sp.factor), ("expand", sp.expand)):
             m = re.search(rf"{kw}\s+(.+)", low)
             if m:
                 expr = P(_clean_expr(m.group(1)))
-                return _result(kw, f"{kw}({expr})", fn(expr))
+                r = fn(expr)
+                return _result(kw, f"{kw}({expr})", r,
+                               latex=sp.latex(r), latex_expr=sp.latex(expr))
 
         # ── Plain evaluation of an arithmetic/symbolic expression ─────────
         expr = P(_clean_expr(text))
@@ -125,20 +133,29 @@ def solve(text: str) -> Optional[Dict[str, Any]]:
                 result = str(val)
         else:
             result = str(val)
-        return _result("evaluate", f"{expr}", result)
+        return _result("evaluate", f"{expr}", result,
+                       latex=sp.latex(val), latex_expr=sp.latex(expr))
 
     except Exception:
         return None
 
 
-def _result(kind: str, expression: str, result: Any) -> Dict[str, Any]:
-    return {
+def _result(kind: str, expression: str, result: Any,
+            latex: Optional[str] = None,
+            latex_expr: Optional[str] = None) -> Dict[str, Any]:
+    out = {
         "solved": True,
         "kind": kind,
         "expression": str(expression),
         "result": str(result),
         "engine": "sympy",
     }
+    # Render-ready TeX so the UI can typeset the verified result with KaTeX.
+    if latex is not None:
+        out["latex"] = latex
+    if latex_expr is not None:
+        out["latex_expr"] = latex_expr
+    return out
 
 
 def verified_context(res: Dict[str, Any]) -> str:

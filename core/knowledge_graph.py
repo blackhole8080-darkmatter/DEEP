@@ -39,6 +39,7 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
+import math
 import re
 import time
 from collections import defaultdict, deque, Counter
@@ -71,6 +72,15 @@ class EntityType(Enum):
     ACTION = "action"
     CONCEPT = "concept"
     UNKNOWN = "unknown"
+    VULNERABILITY   = "vulnerability"   # CVE-XXXX-XXXXX
+    EXPLOIT         = "exploit"         # PoC, technique name
+    PROTOCOL        = "protocol"        # TCP, MQTT, CAN, GATT, etc.
+    RF_FREQUENCY    = "rf_frequency"    # 2.4GHz ISM, 433MHz, etc.
+    HARDWARE_DEVICE = "hardware_device" # chip, board, sensor
+    PHYSICS_CONCEPT = "physics_concept" # Hamiltonian, dispersion relation
+    THREAT_ACTOR    = "threat_actor"    # APT group
+    IOC             = "ioc"            # IP, domain, hash
+    NETWORK_DEVICE  = "network_device"  # IP + MAC
 
 
 class RelationType(Enum):
@@ -88,6 +98,15 @@ class RelationType(Enum):
     STUDIES = "studies"
     HAS = "has"
     IS_A = "is_a"
+    EXPLOITS        = "exploits"        # Exploit → Vulnerability
+    PATCHES         = "patches"         # Fix → Vulnerability
+    AFFECTS         = "affects"         # Vulnerability → HardwareDevice/Protocol
+    TRANSMITS_ON    = "transmits_on"    # Protocol → RF_Frequency
+    IMPLEMENTS      = "implements"      # HardwareDevice → Protocol
+    DERIVED_FROM    = "derived_from"    # Physics concept chain
+    ATTRIBUTED_TO   = "attributed_to"  # Exploit → ThreatActor
+    COMMUNICATES_WITH = "communicates_with" # NetworkDevice → NetworkDevice
+    RESOLVES_TO     = "resolves_to"    # IOC domain → IOC IP
 
 
 @dataclass
@@ -175,6 +194,23 @@ _TOPIC_PATTERNS = {
     "algorithm", "database", "api", "microservices", "architecture",
 }
 
+# Expert domain keywords
+_FREQ_KEYWORDS = {
+    "2.4ghz", "5ghz", "433mhz", "868mhz", "915mhz", "ism band", "lora", "zigbee", "zwave", "bluetooth"
+}
+
+_CHIP_KEYWORDS = {
+    "esp32", "stm32", "atmega", "raspberry pi", "arduino", "nrf52", "cc2650", "bcm2835", "cortex-m4"
+}
+
+_PHYSICS_TERMS = {
+    "hamiltonian", "lagrangian", "maxwell", "schrödinger", "schrodinger", "navier-stokes", "boltzmann", "eigenvalue", "fourier", "plasma"
+}
+
+_PROTOCOL_NAMES = {
+    "mqtt", "modbus", "dnp3", "profibus", "canbus", "can fd", "gatt", "ble", "coap", "tcp", "udp", "http"
+}
+
 _RELATION_PATTERNS: List[Tuple[RelationType, List[str]]] = [
     (RelationType.LIKES, ["like", "love", "enjoy", "prefer", "favorite", "fan of", "into", "keen on"]),
     (RelationType.USES, ["use", "using", "run", "running", "built with", "developed with", "work with", "code in"]),
@@ -185,8 +221,16 @@ _RELATION_PATTERNS: List[Tuple[RelationType, List[str]]] = [
     (RelationType.HAS, ["have", "has", "own", "possess", "contain", "include"]),
     (RelationType.LOCATED_IN, ["live in", "from", "based in", "located in", "in", "at"]),
     (RelationType.RELATED_TO, ["related to", "connected to", "associated with", "part of", "involves"]),
+    (RelationType.EXPLOITS, ["exploit", "exploited by", "attacks"]),
+    (RelationType.PATCHES, ["patch", "fix", "mitigate", "remediate"]),
+    (RelationType.AFFECTS, ["affect", "vulnerable", "exposed"]),
+    (RelationType.TRANSMITS_ON, ["transmit on", "broadcast on", "send on"]),
+    (RelationType.IMPLEMENTS, ["implement", "run", "hardware supports"]),
+    (RelationType.DERIVED_FROM, ["derived from", "proven from"]),
+    (RelationType.ATTRIBUTED_TO, ["attributed to", "threat actor"]),
+    (RelationType.COMMUNICATES_WITH, ["communicate with", "connect to", "talk to"]),
+    (RelationType.RESOLVES_TO, ["resolve to", "points to"]),
 ]
-
 
 # ═══════════════════════════════════════════════════════════════════════════════
 # Knowledge Graph
@@ -239,61 +283,155 @@ class KnowledgeGraph:
             except RuntimeError:
                 pass
 
-    # ─── Persistence ─────────────────────────────────────────────────────────
+    # ─── Persistence (SQLite, with one-time JSON migration + JSON backup) ─────
+    #
+    # Storage moved from a whole-file graph.json (re-parsed/rewritten in full on
+    # every ingest) to SQLite: row-based upserts in a transaction, durable, and
+    # queryable. The legacy graph.json is migrated once (and kept as a backup);
+    # a JSON snapshot is still written alongside each save as a belt-and-braces
+    # backup. Crucially, last_seen / first_seen / source_ids are now persisted in
+    # full — the old Relationship.to_dict() dropped last_seen, which silently
+    # reset every fact's age to "now" on each restart and defeated decay.
 
     def _state_file(self) -> Path:
         return self.data_dir / "graph.json"
 
+    def _db_file(self) -> Path:
+        return self.data_dir / "graph.db"
+
+    def _connect(self):
+        import sqlite3
+        conn = sqlite3.connect(self._db_file())
+        conn.execute("""CREATE TABLE IF NOT EXISTS entities (
+            id TEXT PRIMARY KEY, name TEXT, type TEXT, aliases TEXT,
+            first_seen TEXT, last_seen TEXT, mention_count INTEGER,
+            source_ids TEXT, description TEXT)""")
+        conn.execute("""CREATE TABLE IF NOT EXISTS relationships (
+            id TEXT PRIMARY KEY, source TEXT, target TEXT, relation TEXT,
+            confidence REAL, first_seen TEXT, last_seen TEXT,
+            evidence TEXT, source_ids TEXT)""")
+        conn.execute("CREATE INDEX IF NOT EXISTS idx_rel_source ON relationships(source)")
+        return conn
+
+    def _index_entity(self, entity: "Entity"):
+        self.entities[entity.id] = entity
+        self._entity_name_map[entity.name.lower()] = entity.id
+        for alias in entity.aliases:
+            self._entity_name_map[alias.lower()] = entity.id
+
     def _load_state(self):
-        f = self._state_file()
-        if not f.exists():
-            return
+        # Prefer SQLite; if the DB is empty/absent but a legacy graph.json exists,
+        # migrate it once.
         try:
-            data = json.loads(f.read_text(encoding="utf-8"))
-            for e_data in data.get("entities", []):
-                entity = Entity(
-                    id=e_data["id"],
-                    name=e_data["name"],
-                    type=EntityType(e_data.get("type", "unknown")),
-                    aliases=e_data.get("aliases", []),
-                    first_seen=datetime.fromisoformat(e_data["first_seen"]),
-                    last_seen=datetime.fromisoformat(e_data["last_seen"]),
-                    mention_count=e_data.get("mention_count", 1),
-                    description=e_data.get("description", ""),
-                )
-                self.entities[entity.id] = entity
-                self._entity_name_map[entity.name.lower()] = entity.id
-                for alias in entity.aliases:
-                    self._entity_name_map[alias.lower()] = entity.id
-
-            for r_data in data.get("relationships", []):
-                rel = Relationship(
-                    id=r_data["id"],
-                    source=r_data["source"],
-                    target=r_data["target"],
-                    relation=RelationType(r_data.get("relation", "related_to")),
-                    confidence=r_data.get("confidence", 1.0),
-                    first_seen=datetime.fromisoformat(r_data["first_seen"]) if r_data.get("first_seen") else datetime.utcnow(),
-                    last_seen=datetime.fromisoformat(r_data["last_seen"]) if r_data.get("last_seen") else datetime.utcnow(),
-                    evidence=r_data.get("evidence", []),
-                )
-                self.relationships[rel.id] = rel
-                self._adj[rel.source].append((rel.target, rel.relation, rel.id))
-
-            logger.info(f"[KnowledgeGraph] Loaded {len(self.entities)} entities, {len(self.relationships)} relationships")
+            if self._db_file().exists():
+                self._load_from_db()
+                if self.entities:
+                    return
+            if self._state_file().exists():
+                self._load_from_json()
+                if self.entities:
+                    logger.info("[KnowledgeGraph] Migrating legacy graph.json → SQLite")
+                    self._save_state()  # writes the DB
         except Exception as e:
             logger.warning(f"[KnowledgeGraph] Failed to load state: {e}")
 
+    def _load_from_db(self):
+        conn = self._connect()
+        try:
+            for row in conn.execute("SELECT id,name,type,aliases,first_seen,last_seen,"
+                                    "mention_count,source_ids,description FROM entities"):
+                self._index_entity(Entity(
+                    id=row[0], name=row[1], type=EntityType(row[2] or "unknown"),
+                    aliases=json.loads(row[3] or "[]"),
+                    first_seen=datetime.fromisoformat(row[4]),
+                    last_seen=datetime.fromisoformat(row[5]),
+                    mention_count=row[6] or 1,
+                    source_ids=json.loads(row[7] or "[]"),
+                    description=row[8] or "",
+                ))
+            for row in conn.execute("SELECT id,source,target,relation,confidence,"
+                                    "first_seen,last_seen,evidence,source_ids FROM relationships"):
+                rel = Relationship(
+                    id=row[0], source=row[1], target=row[2],
+                    relation=RelationType(row[3] or "related_to"),
+                    confidence=row[4] if row[4] is not None else 1.0,
+                    first_seen=datetime.fromisoformat(row[5]) if row[5] else datetime.utcnow(),
+                    last_seen=datetime.fromisoformat(row[6]) if row[6] else datetime.utcnow(),
+                    evidence=json.loads(row[7] or "[]"),
+                    source_ids=json.loads(row[8] or "[]"),
+                )
+                self.relationships[rel.id] = rel
+                self._adj[rel.source].append((rel.target, rel.relation, rel.id))
+            logger.info(f"[KnowledgeGraph] Loaded {len(self.entities)} entities, "
+                        f"{len(self.relationships)} relationships from SQLite")
+        finally:
+            conn.close()
+
+    def _load_from_json(self):
+        data = json.loads(self._state_file().read_text(encoding="utf-8"))
+        for e in data.get("entities", []):
+            self._index_entity(Entity(
+                id=e["id"], name=e["name"], type=EntityType(e.get("type", "unknown")),
+                aliases=e.get("aliases", []),
+                first_seen=datetime.fromisoformat(e["first_seen"]),
+                last_seen=datetime.fromisoformat(e["last_seen"]),
+                mention_count=e.get("mention_count", 1),
+                source_ids=e.get("source_ids", []),
+                description=e.get("description", ""),
+            ))
+        for r in data.get("relationships", []):
+            rel = Relationship(
+                id=r["id"], source=r["source"], target=r["target"],
+                relation=RelationType(r.get("relation", "related_to")),
+                confidence=r.get("confidence", 1.0),
+                first_seen=datetime.fromisoformat(r["first_seen"]) if r.get("first_seen") else datetime.utcnow(),
+                last_seen=datetime.fromisoformat(r["last_seen"]) if r.get("last_seen") else datetime.utcnow(),
+                evidence=r.get("evidence", []),
+                source_ids=r.get("source_ids", []),
+            )
+            self.relationships[rel.id] = rel
+            self._adj[rel.source].append((rel.target, rel.relation, rel.id))
+
     def _save_state(self):
+        # Write SQLite (source of truth) + a JSON backup snapshot.
+        try:
+            conn = self._connect()
+            try:
+                conn.execute("DELETE FROM entities")
+                conn.execute("DELETE FROM relationships")
+                conn.executemany(
+                    "INSERT OR REPLACE INTO entities VALUES (?,?,?,?,?,?,?,?,?)",
+                    [(e.id, e.name, e.type.value, json.dumps(e.aliases),
+                      e.first_seen.isoformat(), e.last_seen.isoformat(),
+                      e.mention_count, json.dumps(e.source_ids), e.description)
+                     for e in self.entities.values()])
+                conn.executemany(
+                    "INSERT OR REPLACE INTO relationships VALUES (?,?,?,?,?,?,?,?,?)",
+                    [(r.id, r.source, r.target, r.relation.value, r.confidence,
+                      r.first_seen.isoformat(), r.last_seen.isoformat(),
+                      json.dumps(r.evidence), json.dumps(r.source_ids))
+                     for r in self.relationships.values()])
+                conn.commit()
+            finally:
+                conn.close()
+        except Exception as e:
+            logger.warning(f"[KnowledgeGraph] Failed to save SQLite state: {e}")
+
+        # JSON backup (includes the full timestamps the legacy to_dict() omitted).
         try:
             data = {
                 "saved_at": datetime.utcnow().isoformat(),
-                "entities": [e.to_dict() for e in self.entities.values()],
-                "relationships": [r.to_dict() for r in self.relationships.values()],
+                "entities": [{**e.to_dict(), "source_ids": e.source_ids}
+                             for e in self.entities.values()],
+                "relationships": [{**r.to_dict(),
+                                   "first_seen": r.first_seen.isoformat(),
+                                   "last_seen": r.last_seen.isoformat(),
+                                   "source_ids": r.source_ids}
+                                  for r in self.relationships.values()],
             }
             self._state_file().write_text(json.dumps(data, indent=2), encoding="utf-8")
         except Exception as e:
-            logger.warning(f"[KnowledgeGraph] Failed to save state: {e}")
+            logger.warning(f"[KnowledgeGraph] Failed to write JSON backup: {e}")
 
     # ─── Event System ────────────────────────────────────────────────────────
 
@@ -359,6 +497,22 @@ class KnowledgeGraph:
         rels = result.get("relationships", [])
         if not ents:
             return self.ingest(text, source_id)   # nothing found → try the heuristic path
+
+        # Contradiction handling: if the user is retracting ("I no longer use X"),
+        # weaken the matching beliefs instead of asserting new ones.
+        if self.looks_like_retraction(text) and rels:
+            retracted = []
+            async with self._ingest_lock:
+                for r in rels:
+                    res = self.retract(self._canonical_name(r.get("source_name", "")),
+                                       self._canonical_name(r.get("target_name", "")),
+                                       relation=None)
+                    if res.get("updated") or res.get("removed"):
+                        retracted.append(res)
+            if retracted:
+                return {"entities": [], "relationships": [], "method": "llm",
+                        "retracted": retracted}
+            # nothing matched to retract → fall through and ingest normally
 
         added_entities, added_rels = [], []
         async with self._ingest_lock:   # serialize graph mutation + state save
@@ -475,6 +629,58 @@ class KnowledgeGraph:
                     "name": "Aryan" if indicator in ("aryan", "i", "me", "my", "mine", "myself") else indicator.title(),
                     "type": EntityType.PERSON,
                     "aliases": [indicator],
+                })
+
+        # Check CVEs
+        cve_matches = re.findall(r'CVE-\d{4}-\d{4,7}', text, re.IGNORECASE)
+        for cve in cve_matches:
+            cve_upper = cve.upper()
+            if cve_upper.lower() not in seen:
+                seen.add(cve_upper.lower())
+                found.append({
+                    "name": cve_upper,
+                    "type": EntityType.VULNERABILITY,
+                    "aliases": [cve_upper.lower()],
+                })
+
+        # Check frequencies
+        for freq in _FREQ_KEYWORDS:
+            if freq in text_lower and freq not in seen:
+                seen.add(freq)
+                found.append({
+                    "name": freq.upper() if "hz" in freq else freq.title(),
+                    "type": EntityType.RF_FREQUENCY,
+                    "aliases": [freq],
+                })
+
+        # Check chips/hardware devices
+        for chip in _CHIP_KEYWORDS:
+            if chip in text_lower and chip not in seen:
+                seen.add(chip)
+                found.append({
+                    "name": chip.title() if "pi" in chip or "cortex" in chip else chip.upper(),
+                    "type": EntityType.HARDWARE_DEVICE,
+                    "aliases": [chip],
+                })
+
+        # Check physics concepts
+        for term in _PHYSICS_TERMS:
+            if term in text_lower and term not in seen:
+                seen.add(term)
+                found.append({
+                    "name": term.title(),
+                    "type": EntityType.PHYSICS_CONCEPT,
+                    "aliases": [term],
+                })
+
+        # Check protocol names
+        for proto in _PROTOCOL_NAMES:
+            if proto in text_lower and proto not in seen:
+                seen.add(proto)
+                found.append({
+                    "name": proto.upper(),
+                    "type": EntityType.PROTOCOL,
+                    "aliases": [proto],
                 })
         
         # Simple noun phrase extraction (capitalized sequences)
@@ -626,6 +832,139 @@ class KnowledgeGraph:
         
         return rel
 
+    # ─── Decay & contradictions ──────────────────────────────────────────────
+
+    # A fact's stored confidence is its strength at last reinforcement; its
+    # CURRENT belief decays toward 0 as it goes unmentioned. Half-life = how many
+    # days until an un-reinforced fact is worth half as much.
+    DECAY_HALF_LIFE_DAYS = 45.0
+
+    def effective_confidence(self, rel: "Relationship",
+                             now: Optional[datetime] = None) -> float:
+        """Recency-weighted belief: stored confidence × 2^(-age / half_life).
+
+        Lets old, never-repeated facts fade while frequently-reinforced ones
+        (whose last_seen keeps refreshing) stay strong — without mutating state.
+        """
+        now = now or datetime.utcnow()
+        age_days = max(0.0, (now - rel.last_seen).total_seconds() / 86400.0)
+        factor = 0.5 ** (age_days / self.DECAY_HALF_LIFE_DAYS)
+        return round(rel.confidence * factor, 4)
+
+    def decay_sweep(self, prune_below: float = 0.08) -> Dict[str, Any]:
+        """Drop relationships whose *effective* (time-decayed) belief has fallen
+        below `prune_below` — the graph forgetting what it stopped hearing about.
+        Returns what was pruned. Entities are left intact (they may still be hubs)."""
+        now = datetime.utcnow()
+        dead = [rid for rid, r in self.relationships.items()
+                if self.effective_confidence(r, now) < prune_below]
+        for rid in dead:
+            r = self.relationships.pop(rid, None)
+            if r and r.source in self._adj:
+                self._adj[r.source] = [e for e in self._adj[r.source] if e[2] != rid]
+        if dead:
+            self._save_state()
+            self._publish("knowledge_decayed", {"relationships_pruned": len(dead)})
+        return {"pruned": len(dead), "remaining": len(self.relationships)}
+
+    # Patterns that signal the user is RETRACTING a fact, not asserting one.
+    _NEGATION_CUES = (
+        "no longer", "don't use", "dont use", "do not use", "stopped using",
+        "not using", "quit", "gave up", "moved off", "switched away from",
+        "no more", "don't like", "dont like", "not into", "hate", "abandoned",
+    )
+
+    def looks_like_retraction(self, text: str) -> bool:
+        t = (text or "").lower()
+        return any(cue in t for cue in self._NEGATION_CUES)
+
+    def retract(self, source_name: str, target_name: str,
+                relation: Optional[str] = None, amount: float = 0.5) -> Dict[str, Any]:
+        """Weaken (or, if it collapses, remove) a contradicted belief.
+
+        `amount` is how much confidence to subtract. A fact knocked to/below 0 is
+        deleted outright. Optionally scope to a single `relation` value.
+        """
+        src_id = self._entity_name_map.get(source_name.lower())
+        tgt_id = self._entity_name_map.get(target_name.lower())
+        if not src_id or not tgt_id:
+            return {"updated": 0, "removed": 0, "reason": "entity not found"}
+
+        updated = removed = 0
+        for target_id, rel_type, rel_id in list(self._adj.get(src_id, [])):
+            if target_id != tgt_id:
+                continue
+            if relation and rel_type.value != relation:
+                continue
+            rel = self.relationships.get(rel_id)
+            if not rel:
+                continue
+            rel.confidence -= amount
+            rel.last_seen = datetime.utcnow()
+            if rel.confidence <= 0.0:
+                self.relationships.pop(rel_id, None)
+                self._adj[src_id] = [e for e in self._adj[src_id] if e[2] != rel_id]
+                removed += 1
+            else:
+                updated += 1
+        if updated or removed:
+            self._save_state()
+            self._publish("knowledge_retracted",
+                          {"source": source_name, "target": target_name,
+                           "updated": updated, "removed": removed})
+        return {"updated": updated, "removed": removed}
+
+    # ─── Semantic retrieval ───────────────────────────────────────────────────
+
+    def semantic_search(self, query: str, k: int = 8,
+                        min_score: float = 0.30) -> List[Dict[str, Any]]:
+        """Embedding-based entity lookup: find entities whose meaning matches the
+        query, not just a substring. Reuses graph_enrich's MiniLM embedder + vector
+        cache. Falls back to substring `search()` if embeddings are unavailable.
+
+        Each hit carries a `score` (cosine sim). This is what the brain should call
+        to pull a *relevant* slice of memory into context for a turn.
+        """
+        ents = self.get_all_entities()
+        if not ents or not query.strip():
+            return []
+        try:
+            import numpy as np
+            from core import graph_enrich as ge
+
+            ge._load_cache()
+            docs, vecs, missing, missing_idx = [], [], [], []
+            for i, e in enumerate(ents):
+                doc = ge._doc_for(e, (e.get("context") or [""])[0])
+                docs.append(doc)
+                v = ge._VEC_CACHE.get(ge._hash(doc))
+                vecs.append(v)
+                if v is None:
+                    missing.append(doc)
+                    missing_idx.append(i)
+            if missing:
+                emb = ge._get_model().encode(missing, normalize_embeddings=True)
+                for j, i in enumerate(missing_idx):
+                    vecs[i] = np.asarray(emb[j], dtype="float32")
+            qv = np.asarray(
+                ge._get_model().encode([query], normalize_embeddings=True)[0],
+                dtype="float32")
+            mat = np.vstack(vecs)
+            sims = mat @ qv
+            order = np.argsort(-sims)[:k]
+            out = []
+            for i in order:
+                score = float(sims[int(i)])
+                if score < min_score:
+                    continue
+                hit = dict(ents[int(i)])
+                hit["score"] = round(score, 3)
+                out.append(hit)
+            return out
+        except Exception as e:  # noqa: BLE001 — fall back, never break retrieval
+            logger.warning(f"[KnowledgeGraph] semantic_search fell back to substring: {e}")
+            return self.search(query)
+
     # ─── Queries ───────────────────────────────────────────────────────────────
 
     def get_entity(self, name: str) -> Optional[Dict]:
@@ -653,30 +992,33 @@ class KnowledgeGraph:
                 })
         return results
 
-    def find_paths(self, source_name: str, target_name: str, max_depth: int = 3) -> List[List[Dict]]:
-        """Find all paths between two entities (breadth-first)."""
+    def find_paths(self, source_name: str, target_name: str, max_depth: int = 3,
+                   max_paths: int = 25) -> List[List[Dict]]:
+        """Find all simple paths between two entities, up to `max_depth` hops.
+
+        Uses per-path visited bookkeeping (not a single global set) so genuinely
+        distinct routes are all discovered — the old shared-visited BFS marked
+        nodes on enqueue and so returned at most one path per node.
+        """
         source_id = self._entity_name_map.get(source_name.lower())
         target_id = self._entity_name_map.get(target_name.lower())
-        
-        if not source_id or not target_id:
+
+        if not source_id or not target_id or source_id == target_id:
             return []
-        
-        paths = []
-        queue = deque([(source_id, [source_id])])
-        visited = {source_id}
-        
-        while queue:
-            current, path = queue.popleft()
+
+        paths: List[List[Dict]] = []
+        # (current, path_so_far, set_of_nodes_on_this_path)
+        queue = deque([(source_id, [source_id], {source_id})])
+
+        while queue and len(paths) < max_paths:
+            current, path, on_path = queue.popleft()
             if len(path) > max_depth + 1:
                 continue
-            
+
             if current == target_id and len(path) > 1:
-                # Convert to readable path
                 readable = []
                 for i in range(len(path) - 1):
-                    src = path[i]
-                    tgt = path[i + 1]
-                    # Find the relation
+                    src, tgt = path[i], path[i + 1]
                     relation_str = "related_to"
                     for t, rel, _ in self._adj[src]:
                         if t == tgt:
@@ -689,12 +1031,11 @@ class KnowledgeGraph:
                     })
                 paths.append(readable)
                 continue
-            
+
             for next_id, _, _ in self._adj[current]:
-                if next_id not in visited:
-                    visited.add(next_id)
-                    queue.append((next_id, path + [next_id]))
-        
+                if next_id not in on_path:   # no cycles within a single path
+                    queue.append((next_id, path + [next_id], on_path | {next_id}))
+
         return paths
 
     def query_relationship(self, name: str, relation: Optional[str] = None) -> List[Dict]:

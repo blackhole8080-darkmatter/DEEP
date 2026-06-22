@@ -1,0 +1,168 @@
+/* ============================================================================
+ * DEEP — UTILITY CLASSES  (one-off helpers for the cinematic overhaul)
+ * ========================================================================== */
+
+/* ── Glow utilities ── */
+.glow-cyan   { --glow-color: #00e5ff; }
+.glow-magenta{ --glow-color: #ff3df0; }
+.glow-gold   { --glow-color: #f5b942; }
+.glow-ghost  { --glow-color: rgba(0,229,255,0.25); }
+
+.glow-text   { text-shadow: 0 0 10px var(--glow-color, var(--ds-accent)); }
+.glow-text-strong { text-shadow: 0 0 10px var(--glow-color, var(--ds-accent)), 0 0 30px var(--glow-color, var(--ds-accent)); }
+.glow-box    { box-shadow: 0 0 16px var(--glow-color, var(--ds-accent)); }
+.glow-box-strong  { box-shadow: 0 0 24px var(--glow-color, var(--ds-accent)), 0 0 48px rgba(var(--ds-periwinkle-rgb), 0.2); }
+
+/* ── Holographic border ── */
+.holo-border {
+  position: relative;
+  border-radius: var(--ds-radius-md);
+}
+.holo-border::before {
+  content: "";
+  position: absolute;
+  inset: -1px;
+  border-radius: inherit;
+  padding: 1px;
+  background: linear-gradient(135deg, var(--ds-accent), var(--ds-iris, #9a8cff), var(--ds-accent));
+  background-size: 200% 200%;
+  animation: border-flow 4s ease infinite;
+  -webkit-mask: linear-gradient(#fff 0 0) content-box, linear-gradient(#fff 0 0);
+  -webkit-mask-composite: xor;
+  mask: linear-gradient(#fff 0 0) content-box, linear-gradient(#fff 0 0);
+  mask-composite: exclude;
+  pointer-events: none;
+  opacity: 0.45;
+  transition: opacity 0.3s ease;
+}
+.holo-border:hover::before { opacity: 0.8; }
+
+/* ── Holographic panel ── */
+.holo-panel {
+  background: var(--ds-glass);
+  backdrop-filter: blur(var(--ds-blur-md));
+  -webkit-backdrop-filter: blur(var(--ds-blur-md));
+  border: 1px solid var(--ds-border);
+  border-radius: var(--ds-radius-lg);
+  position: relative;
+  overflow: hidden;
+}
+.holo-panel::after {
+  content: "";
+  position: absolute;
+  top: 0; left: 0; right: 0; height: 1px;
+  background: linear-gradient(90deg, transparent, var(--ds-accent), transparent);
+  opacity: 0.3;
+}
+
+/* ── Scan line effect ── */
+.scan-line {
+  position: relative;
+  overflow: hidden;
+}
+.scan-line::after {
+  content: "";
+  position: absolute;
+  left: 0; right: 0; height: 2px;
+  background: linear-gradient(90deg, transparent, var(--ds-accent), transparent);
+  opacity: 0.35;
+  animation: scan-line 3s linear infinite;
+  pointer-events: none;
+}
+
+/* ── Shimmer / skeleton ── */
+.shimmer {
+  background: linear-gradient(90deg, var(--ds-surface-1) 25%, var(--ds-surface-2) 50%, var(--ds-surface-1) 75%);
+  background-size: 200% 100%;
+  animation: shimmer 1.5s infinite linear;
+}
+
+/* ── Neon text display ── */
+.neon-display {
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  animation: text-glow 3s ease-in-out infinite;
+}
+
+/* ── Terminal flicker ── */
+.terminal-flicker {
+  font-family: var(--ds-font-mono);
+  animation: flicker 5s infinite;
+}
+
+/* ── Micro-interactions ── */
+.hover-lift {
+  transition: transform 0.2s var(--ds-ease-out), box-shadow 0.2s var(--ds-ease-out);
+}
+.hover-lift:hover {
+  transform: translateY(-2px);
+  box-shadow: var(--ds-elev-2);
+}
+
+.hover-glow {
+  transition: box-shadow 0.2s var(--ds-ease-out);
+}
+.hover-glow:hover {
+  box-shadow: 0 0 20px var(--ds-accent), 0 0 40px rgba(var(--ds-periwinkle-rgb), 0.15);
+}
+
+/* ── Ring expand (for voice / alerts) ── */
+.ring-expand {
+  animation: ring-expand 1.5s ease-out infinite;
+}
+
+/* ── Focus mode overlay ── */
+.focus-dim {
+  animation: focus-dim 0.4s var(--ds-ease-out) forwards;
+}
+.focus-restore {
+  animation: focus-restore 0.4s var(--ds-ease-out) forwards;
+}
+
+/* ── Entrance animations ── */
+.entrance-fade-up {
+  animation: fade-up 0.4s var(--ds-ease-out) both;
+}
+.entrance-scale-in {
+  animation: scale-in 0.35s var(--ds-ease-out) both;
+}
+.entrance-glitch {
+  animation: glitch-in 0.4s var(--ds-ease-out) both;
+}
+
+/* ── Stagger delays ── */
+.stagger-1 { animation-delay: 0.05s; }
+.stagger-2 { animation-delay: 0.10s; }
+.stagger-3 { animation-delay: 0.15s; }
+.stagger-4 { animation-delay: 0.20s; }
+.stagger-5 { animation-delay: 0.25s; }
+.stagger-6 { animation-delay: 0.30s; }
+
+/* ── Voice waveform bars ── */
+.voice-bar {
+  display: inline-block;
+  width: 3px;
+  border-radius: 2px;
+  background: var(--ds-accent);
+  animation: bar-bounce 0.6s ease-in-out infinite;
+  transform-origin: bottom;
+}
+.voice-bar:nth-child(2) { animation-delay: 0.1s; }
+.voice-bar:nth-child(3) { animation-delay: 0.2s; }
+.voice-bar:nth-child(4) { animation-delay: 0.15s; }
+.voice-bar:nth-child(5) { animation-delay: 0.05s; }
+
+/* ── Status dot pulse ── */
+.status-pulse {
+  position: relative;
+}
+.status-pulse::after {
+  content: "";
+  position: absolute;
+  inset: -4px;
+  border-radius: 50%;
+  background: inherit;
+  opacity: 0;
+  animation: ring-expand 2s ease-out infinite;
+}
