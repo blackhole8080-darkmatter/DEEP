@@ -526,6 +526,7 @@ class AgentFactory:
         self._llm = llm_client
         self._tools = tool_registry
         self._agents: Dict[str, SubAgent] = {}
+        self._background_tasks: Set[asyncio.Task] = set()
         self.event_bus = event_bus
         logger.info("[AgentFactory] Initialized — ready to spawn sub-agents")
 
@@ -616,7 +617,7 @@ class AgentFactory:
     # ── Task dispatch ───────────────────────────────────────────────────────
 
     async def assign_task(self, agent_name: str, task_description: str, timeout_seconds: Optional[int] = None) -> Dict:
-        """Assign a task to a named agent and wait for the result."""
+        """Assign a task to a named agent to run in the background."""
         agent = self._agents.get(agent_name)
         if not agent:
             return {"error": f"No agent named '{agent_name}'. Create one first."}
@@ -629,14 +630,42 @@ class AgentFactory:
             return {"error": "Task description cannot be empty"}
 
         self._publish("agent_task_start", {"agent_name": agent_name, "task": task_description[:200]})
+        
+        task_id = str(uuid.uuid4())
+        bg_task = asyncio.create_task(
+            self._run_task_wrapper(agent_name, agent, task_id, task_description, timeout_seconds or MAX_TASK_DURATION_SECONDS)
+        )
+        self._background_tasks.add(bg_task)
+        bg_task.add_done_callback(self._background_tasks.discard)
+        
+        return {
+            "status": "queued",
+            "task_id": task_id,
+            "agent": agent_name,
+            "message": f"Agent '{agent_name}' has started working on the task in the background. You will be notified upon completion."
+        }
+        
+    async def _run_task_wrapper(self, agent_name: str, agent: SubAgent, task_id: str, task_description: str, timeout_seconds: int):
         try:
-            task = await agent.execute(task_description, timeout_seconds or MAX_TASK_DURATION_SECONDS)
-            self._publish("agent_task_complete", {"agent_name": agent_name, "task_id": task.id, "status": task.status.value})
-            return task.to_dict()
+            task = await agent.execute(task_description, timeout_seconds)
+            self._publish("agent_task_complete", {
+                "agent_name": agent_name, 
+                "task_id": task.id, 
+                "status": task.status.value,
+                "result": task.result
+            })
+            # Inject the result directly into LongTermMemory so DEEP natively "knows" what the subagent did
+            from interface.deps import services
+            ltm_service = getattr(services, 'ltm', None)
+            if ltm_service and task.result:
+                ltm_service.store(
+                    memory_type="subagent_result",
+                    content=f"Sub-agent '{agent_name}' finished task: {task_description[:100]}...\nResult: {task.result}",
+                    importance=3.0
+                )
         except Exception as e:
-            logger.error(f"[AgentFactory] Task assignment failed: {e}")
-            self._publish("agent_task_failed", {"agent_name": agent_name, "error": str(e)})
-            return {"error": f"Task execution failed: {str(e)}"}
+            logger.error(f"[AgentFactory] Background task assignment failed: {e}")
+            self._publish("agent_task_failed", {"agent_name": agent_name, "error": str(e), "task_id": task_id})
 
     async def assign_task_parallel(
         self, tasks: List[Dict[str, str]]

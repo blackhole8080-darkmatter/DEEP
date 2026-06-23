@@ -93,6 +93,41 @@ async def etis_mitre_search(ctx, args) -> ToolResult:
         return ToolResult(ok=False, content=f"[MITRE] {e}", tool_name="etis_mitre_search")
 
 @tool(
+    "etis_connection_geo",
+    "Show where this machine's live network connections are going right now: "
+    "geolocated remote peers (city/country/ISP), which local process opened each, "
+    "and risk flags (hosting/cloud or proxy/VPN). Use for 'where are my "
+    "connections going', 'what is my computer talking to', network situational awareness.",
+    {}
+)
+async def etis_connection_geo(ctx, args) -> ToolResult:
+    try:
+        import asyncio
+        from network.connection_geo import scan_connections
+        data = await asyncio.to_thread(scan_connections)
+        if data.get("error"):
+            return ToolResult(ok=False, content=f"[CONN] {data['error']}", tool_name="etis_connection_geo")
+        peers = data.get("peers", [])
+        if not peers:
+            return ToolResult(ok=True, content="[CONN] No public outbound connections right now.", tool_name="etis_connection_geo")
+        o = data.get("origin")
+        lines = [
+            f"[CONNECTION GEOGRAPHY] {data['count']} peers across "
+            f"{len(data.get('countries', []))} countries; {data.get('elevated', 0)} elevated (hosting/proxy)."
+            + (f" Egress: {o['city']}, {o['country']} ({o['isp']})." if o else ""),
+        ]
+        for p in peers[:15]:
+            flag = " ⚠PROXY" if p["proxy"] else (" ⚠HOSTING" if p["hosting"] else "")
+            procs = ", ".join(p["processes"]) or "?"
+            lines.append(f"  {p['city']}, {p['country']} · {p['isp']} · {procs} · {p['connections']}×{flag}")
+        if len(peers) > 15:
+            lines.append(f"  …and {len(peers) - 15} more.")
+        return ToolResult(ok=True, content="\n".join(lines), tool_name="etis_connection_geo")
+    except Exception as e:
+        return ToolResult(ok=False, content=f"[CONN] {e}", tool_name="etis_connection_geo")
+
+
+@tool(
     "etis_sandbox_execute",
     "Execute code in the secure Docker sandbox. Useful for quick scripting or exploiting testing.",
     {

@@ -11,11 +11,9 @@ import json
 import re as _re_tools
 
 from interface.deps import services
-from core.config import settings
-from core.llm.ollama import stream_ollama_vision_tokens
-from core.llm.groq import stream_groq_tokens
-from core.llm.gemini import stream_gemini_tokens
-from core.llm.claude import stream_claude_tokens
+from core.config import Settings
+settings = Settings()
+from core.llm.providers import stream_ollama_vision_tokens, stream_groq_tokens, stream_gemini_tokens, stream_claude_tokens
 from core.infrastructure.async_brain import AsyncBrain
 
 class ChatOrchestrator:

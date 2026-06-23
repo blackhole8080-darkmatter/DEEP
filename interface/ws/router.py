@@ -13,7 +13,8 @@ import tempfile
 from interface.deps import services
 from interface.ws.manager import manager
 from core.brain.orchestrator import orchestrator
-from core.config import settings
+from core.config import Settings
+settings = Settings()
 
 router = APIRouter()
 
@@ -44,6 +45,30 @@ async def websocket(ws: WebSocket):
             return
     
     await manager.connect(ws)
+    
+    async def _agent_forward(event_name: str, payload: dict):
+        if event_name == "agent_task_complete":
+            # Send as a chat message injected from the agent
+            agent_name = payload.get("agent_name", "Sub-Agent")
+            result_text = payload.get("result", "")
+            await manager.send(ws, {
+                "type": "chat", 
+                "payload": f"**[{agent_name} Task Complete]**\n\n{result_text}"
+            })
+            await manager.send(ws, {"type": "chat_end"})
+        elif event_name == "agent_task_failed":
+            agent_name = payload.get("agent_name", "Sub-Agent")
+            error_text = payload.get("error", "Unknown error")
+            await manager.send(ws, {
+                "type": "chat", 
+                "payload": f"**[{agent_name} Task Failed]**\n\nError: {error_text}"
+            })
+            await manager.send(ws, {"type": "chat_end"})
+
+    if services.event_bus:
+        services.event_bus.subscribe("agent_task_complete", _agent_forward)
+        services.event_bus.subscribe("agent_task_failed", _agent_forward)
+
     try:
         while True:
             data = await ws.receive_text()
@@ -104,6 +129,10 @@ async def websocket(ws: WebSocket):
     except WebSocketDisconnect:
         manager.disconnect(ws)
         orchestrator.clear_history(id(ws))
+    finally:
+        if services.event_bus:
+            services.event_bus.unsubscribe("agent_task_complete", _agent_forward)
+            services.event_bus.unsubscribe("agent_task_failed", _agent_forward)
 
 
 @router.websocket("/ws/voice")

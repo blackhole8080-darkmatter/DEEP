@@ -73,6 +73,8 @@ export const fetchSystemInfo = () => get<SystemInfo>("/api/system/info");
 export interface GeoPeer { ip: string; lat: number; lon: number; city: string; region: string; country: string; isp: string; asn: string; proxy: boolean; hosting: boolean; risk: "elevated" | "normal"; connections: number; processes: string[]; }
 export interface GeoOrigin { ip: string; lat: number; lon: number; city: string; country: string; isp: string; }
 export const fetchNetworkGeo = () => get<{ count: number; elevated?: number; countries?: string[]; processes?: string[]; origin?: GeoOrigin | null; peers: GeoPeer[]; note?: string; error?: string }>("/api/network/geo");
+export interface Dossier { summary?: string; risk?: string; ip?: string; findings?: { label: string; value: unknown }[]; error?: string; }
+export const fetchInvestigate = (target: string) => get<Dossier>(`/api/investigate?target=${encodeURIComponent(target)}`);
 
 
 export interface MathSolveResult { ok: boolean; kind?: string; expression?: string; result?: string; engine?: string; latex?: string | null; latex_expr?: string | null; }

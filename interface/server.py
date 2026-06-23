@@ -1726,6 +1726,13 @@ async def retraining_history():
 # ═══════════════════════════════════════════════════════════════════════════════
 from interface.deps import register as _register_services
 from interface.routers import ROUTERS as _DEEP_ROUTERS
+from datetime import datetime
+
+def _time_of_day():
+    h = datetime.now().hour
+    if h < 12: return "morning"
+    elif h < 18: return "afternoon"
+    else: return "evening"
 
 _register_services(
     research_engine=research_engine,

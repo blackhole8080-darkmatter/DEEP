@@ -6,9 +6,11 @@
 // + ip-api, server-side.
 import { LitElement, html, css, svg } from "lit";
 import { customElement, state } from "lit/decorators.js";
-import { fetchNetworkGeo, type GeoPeer, type GeoOrigin } from "../../core/api";
+import { fetchNetworkGeo, fetchInvestigate, type GeoPeer, type GeoOrigin, type Dossier } from "../../core/api";
 import "../primitives/ds-panel";
 import "../primitives/ds-button";
+
+const REFRESH_MS = 15000;
 
 @customElement("connection-map")
 export class ConnectionMap extends LitElement {
@@ -19,10 +21,32 @@ export class ConnectionMap extends LitElement {
   @state() private loading = true;
   @state() private err = "";
   @state() private selected: string | null = null;
+  @state() private dossier: Dossier | null = null;
+  @state() private dossierLoading = false;
+  @state() private auto = true;
+  private timer: number | null = null;
 
   connectedCallback(): void {
     super.connectedCallback();
     void this.load();
+    this.startAuto();
+  }
+
+  disconnectedCallback(): void {
+    super.disconnectedCallback();
+    this.stopAuto();
+  }
+
+  private startAuto(): void {
+    this.stopAuto();
+    if (this.auto) this.timer = window.setInterval(() => { if (!this.loading) void this.load(); }, REFRESH_MS);
+  }
+  private stopAuto(): void {
+    if (this.timer !== null) { clearInterval(this.timer); this.timer = null; }
+  }
+  private toggleAuto(): void {
+    this.auto = !this.auto;
+    this.startAuto();
   }
 
   private async load(): Promise<void> {
@@ -34,8 +58,22 @@ export class ConnectionMap extends LitElement {
       this.origin = r.origin ?? null;
       this.elevated = r.elevated ?? 0;
       this.countries = r.countries ?? [];
+      // Drop a stale selection if the peer is gone after a refresh.
+      if (this.selected && !this.peers.some((p) => p.ip === this.selected)) {
+        this.selected = null; this.dossier = null;
+      }
     } catch (e) { this.err = String(e); }
     this.loading = false;
+  }
+
+  private async select(ip: string): Promise<void> {
+    this.selected = ip;
+    this.dossier = null;
+    this.dossierLoading = true;
+    try {
+      this.dossier = await fetchInvestigate(ip);
+    } catch (e) { this.dossier = { error: String(e) }; }
+    this.dossierLoading = false;
   }
 
   static styles = css`
@@ -69,6 +107,13 @@ export class ConnectionMap extends LitElement {
     .flag.host { color: var(--ds-warning); border: 1px solid var(--ds-warning); }
     .flag.prox { color: var(--ds-danger); border: 1px solid var(--ds-danger); }
     .muted { color: var(--ds-text-muted); }
+    .toggle { font-family: var(--ds-font-mono); font-size: var(--ds-text-xs); padding: 4px 10px; border-radius: var(--ds-radius-pill); border: 1px solid var(--ds-border); background: var(--ds-surface-2); color: var(--ds-text-muted); cursor: pointer; }
+    .toggle.on { color: var(--ds-success); border-color: var(--ds-success); }
+    .dossier .drow { display: flex; justify-content: space-between; gap: var(--ds-space-4); padding: var(--ds-space-2) 0; border-bottom: 1px solid var(--ds-border); font-size: var(--ds-text-sm); }
+    .dossier .dk { color: var(--ds-text-soft); text-transform: uppercase; font-size: var(--ds-text-xs); letter-spacing: var(--ds-tracking-wide); }
+    .dossier .dv { font-family: var(--ds-font-mono); text-align: right; overflow-wrap: anywhere; }
+    .dossier .sum { color: var(--ds-text); margin-bottom: var(--ds-space-2); }
+    .dossier .sum.elevated { color: var(--ds-warning); }
   `;
 
   private pinClass(p: GeoPeer): string {
@@ -89,7 +134,10 @@ export class ConnectionMap extends LitElement {
           <span class="count">${this.loading
             ? "scanning connections…"
             : html`${this.peers.length} peer${this.peers.length === 1 ? "" : "s"} · ${this.countries.length} countr${this.countries.length === 1 ? "y" : "ies"}${this.elevated ? html` · <b style="color:var(--ds-warning)">${this.elevated} elevated</b>` : ""}`}</span>
-          <ds-button @click=${() => void this.load()}>${this.loading ? "…" : "rescan"}</ds-button>
+          <div style="display:flex;gap:var(--ds-space-2);align-items:center">
+            <button class="toggle ${this.auto ? "on" : ""}" @click=${() => this.toggleAuto()} title="Auto-refresh every 15s">${this.auto ? "● live" : "○ paused"}</button>
+            <ds-button @click=${() => void this.load()}>${this.loading ? "…" : "rescan"}</ds-button>
+          </div>
         </div>
         ${this.err ? html`<div class="muted">${this.err}</div>` : ""}
         <div class="map" style="margin-top:var(--ds-space-3)">
@@ -109,7 +157,7 @@ export class ConnectionMap extends LitElement {
               const cls = this.pinClass(p);
               const isSel = this.selected === p.ip;
               return svg`<circle class="pin ${cls} ${isSel ? "sel" : ""}" cx=${sx(p.lon)} cy=${sy(p.lat)} r=${isSel ? 6 : 4}
-                @click=${() => { this.selected = p.ip; }}><title>${p.ip} — ${p.city}, ${p.country} (${p.isp})${p.processes.length ? " ← " + p.processes.join(", ") : ""}</title></circle>`;
+                @click=${() => void this.select(p.ip)}><title>${p.ip} — ${p.city}, ${p.country} (${p.isp})${p.processes.length ? " ← " + p.processes.join(", ") : ""}</title></circle>`;
             })}
             ${this.origin ? svg`
               <circle class="origin-ring" cx=${sx(this.origin.lon)} cy=${sy(this.origin.lat)} r="8"></circle>
@@ -129,7 +177,7 @@ export class ConnectionMap extends LitElement {
         ${this.peers.length ? html`
           <div class="rows">
             ${this.peers.map((p) => html`
-              <div class="row ${this.selected === p.ip ? "sel" : ""}" @click=${() => { this.selected = p.ip; }}>
+              <div class="row ${this.selected === p.ip ? "sel" : ""}" @click=${() => void this.select(p.ip)}>
                 <div>
                   <div class="loc">${p.city || "?"}, ${p.country || "?"} ${p.proxy ? html`<span class="flag prox">PROXY</span>` : p.hosting ? html`<span class="flag host">HOSTING</span>` : ""}</div>
                   <div class="isp">${p.isp} · ${p.asn}</div>
@@ -141,6 +189,22 @@ export class ConnectionMap extends LitElement {
           </div>
         ` : html`<span class="muted">${this.loading ? "locating…" : "No public outbound connections found."}</span>`}
       </ds-panel>
+
+      ${this.selected ? html`
+        <ds-panel heading="Dossier · ${this.selected}">
+          ${this.dossierLoading
+            ? html`<span class="muted">investigating…</span>`
+            : this.dossier?.error
+              ? html`<span class="muted">${this.dossier.error}</span>`
+              : this.dossier
+                ? html`
+                    <div class="dossier">
+                      ${this.dossier.summary ? html`<div class="sum ${this.dossier.risk === "elevated" ? "elevated" : ""}">${this.dossier.summary}</div>` : ""}
+                      ${(this.dossier.findings ?? []).map((f) => html`<div class="drow"><span class="dk">${f.label}</span><span class="dv">${String(f.value)}</span></div>`)}
+                    </div>`
+                : html`<span class="muted">Select a peer for a full intelligence dossier.</span>`}
+        </ds-panel>
+      ` : ""}
     `;
   }
 }
