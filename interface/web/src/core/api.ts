@@ -70,8 +70,8 @@ export interface SystemInfo {
 }
 export const fetchSystemInfo = () => get<SystemInfo>("/api/system/info");
 
-export interface GeoPeer { ip: string; lat: number; lon: number; city: string; region: string; country: string; isp: string; asn: string; proxy: boolean; hosting: boolean; connections: number; }
-export const fetchNetworkGeo = () => get<{ count: number; peers: GeoPeer[]; note?: string; error?: string }>("/api/network/geo");
+export interface GeoPeer { ip: string; lat: number; lon: number; city: string; region: string; country: string; isp: string; asn: string; proxy: boolean; hosting: boolean; risk: "elevated" | "normal"; connections: number; }
+export const fetchNetworkGeo = () => get<{ count: number; elevated?: number; countries?: string[]; peers: GeoPeer[]; note?: string; error?: string }>("/api/network/geo");
 
 
 export interface MathSolveResult { ok: boolean; kind?: string; expression?: string; result?: string; engine?: string; latex?: string | null; latex_expr?: string | null; }

@@ -12,6 +12,8 @@ import "../primitives/ds-button";
 @customElement("connection-map")
 export class ConnectionMap extends LitElement {
   @state() private peers: GeoPeer[] = [];
+  @state() private elevated = 0;
+  @state() private countries: string[] = [];
   @state() private loading = true;
   @state() private err = "";
   @state() private selected: string | null = null;
@@ -27,6 +29,8 @@ export class ConnectionMap extends LitElement {
       const r = await fetchNetworkGeo();
       if (r.error) this.err = r.error;
       this.peers = r.peers ?? [];
+      this.elevated = r.elevated ?? 0;
+      this.countries = r.countries ?? [];
     } catch (e) { this.err = String(e); }
     this.loading = false;
   }
@@ -72,7 +76,9 @@ export class ConnectionMap extends LitElement {
     return html`
       <ds-panel heading="Connection geography · live outbound peers">
         <div class="head">
-          <span class="count">${this.loading ? "scanning connections…" : `${this.peers.length} geolocated peer${this.peers.length === 1 ? "" : "s"}`}</span>
+          <span class="count">${this.loading
+            ? "scanning connections…"
+            : html`${this.peers.length} peer${this.peers.length === 1 ? "" : "s"} · ${this.countries.length} countr${this.countries.length === 1 ? "y" : "ies"}${this.elevated ? html` · <b style="color:var(--ds-warning)">${this.elevated} elevated</b>` : ""}`}</span>
           <ds-button @click=${() => void this.load()}>${this.loading ? "…" : "rescan"}</ds-button>
         </div>
         ${this.err ? html`<div class="muted">${this.err}</div>` : ""}

@@ -7,7 +7,7 @@ server.py mounts via `app.include_router(...)`.
 
 from interface.routers import (
     research, predictive, evolution, knowledge_graph, threat, workspace, reference, system, security,
-    etis, finance, email, missions,
+    etis, finance, email, missions, knowledge, state,
 )
 
 ROUTERS = [
@@ -24,6 +24,8 @@ ROUTERS = [
     finance.router,
     email.router,
     missions.router,
+    knowledge.router,
+    state.router,
 ]
 
 __all__ = ["ROUTERS"]

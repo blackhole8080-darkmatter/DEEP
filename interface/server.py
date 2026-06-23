@@ -2195,126 +2195,6 @@ async def respond_to_interactive(data: dict):
 
 
 
-# ═══════════════════════════════════════════════════════════════════════════════
-# KNOWLEDGE ENDPOINTS
-# ═══════════════════════════════════════════════════════════════════════════════
-
-@app.get("/knowledge/status")
-async def knowledge_status():
-    """Return KnowledgeStore operational status."""
-    return knowledge_store.status()
-
-@app.get("/knowledge/search")
-async def knowledge_search(q: str, domain: str = None, n: int = 5):
-    """Semantic search over the knowledge store."""
-    papers = await knowledge_store.search(q, domain=domain, n_results=n)
-    return {
-        "query": q,
-        "results": [p.to_dict() for p in papers],
-        "count": len(papers),
-    }
-
-@app.get("/knowledge/recent")
-async def knowledge_recent(domain: str = None, days: int = 7):
-    """Get recently ingested papers."""
-    papers = await knowledge_store.get_recent(domain=domain, days=days, n=20)
-    return {
-        "papers": [p.to_dict() for p in papers],
-        "count": len(papers),
-    }
-
-@app.post("/knowledge/briefing")
-async def knowledge_briefing(domains: list = None, days_back: int = 1):
-    """Generate an on-demand science briefing."""
-    briefing = await briefing_engine.generate_briefing(
-        domains=domains, days_back=days_back,
-    )
-    return {
-        "full_text": briefing.full_text,
-        "paper_count": briefing.paper_count,
-        "domain_count": len(briefing.domain_sections),
-        "duration_estimate_seconds": briefing.duration_estimate_seconds,
-    }
-
-@app.get("/knowledge/domains")
-async def knowledge_domains():
-    """List available domains in the knowledge store."""
-    status = knowledge_store.status()
-    return {
-        "domains": list(status.get("papers_by_domain", {}).keys()),
-        "papers_by_domain": status.get("papers_by_domain", {}),
-    }
-
-@app.post("/knowledge/explain")
-async def knowledge_explain(body: dict):
-    """Explain a concept at requested depth."""
-    concept = body.get("concept", "")
-    depth = body.get("depth", "graduate")
-    explanation = await concept_linker.explain_concept(concept, depth=depth)
-    return {"concept": concept, "depth": depth, "explanation": explanation}
-
-@app.post("/knowledge/connect")
-async def knowledge_connect(body: dict):
-    """Find connections between two concepts."""
-    concept_a = body.get("concept_a", "")
-    concept_b = body.get("concept_b", "")
-    result = await concept_linker.find_connections(concept_a, concept_b)
-    return {
-        "concept_a": result.concept_a,
-        "concept_b": result.concept_b,
-        "connections": result.connections,
-        "evidence": result.evidence,
-        "confidence": result.confidence,
-    }
-
-# ═══════════════════════════════════════════════════════════════════════════════
-# STATE / REDIS ENDPOINTS (v2)
-# ═══════════════════════════════════════════════════════════════════════════════
-
-@app.get("/state/devices")
-async def state_devices():
-    """List currently active DEEP client devices."""
-    try:
-        devices = await device_registry.get_active_devices()
-        return {"devices": [
-            {
-                "device_id": d.device_id,
-                "name": d.name,
-                "platform": d.platform,
-                "tailscale_ip": d.tailscale_ip,
-                "last_seen": d.last_seen,
-                "active": d.active,
-            }
-            for d in devices
-        ]}
-    except Exception as e:
-        return {"error": str(e)}
-
-@app.get("/state/conversation")
-async def state_conversation():
-    """Shared conversation history across all devices."""
-    try:
-        history = await redis_state.get_conversation_history()
-        return {"history": history}
-    except Exception as e:
-        return {"error": str(e)}
-
-@app.get("/state/status")
-async def state_redis_status():
-    """Redis shared-state layer status."""
-    return redis_state.status()
-
-@app.post("/state/handoff")
-async def state_handoff(data: dict):
-    """Transfer primary control to another device."""
-    device_id = data.get("device_id")
-    if not device_id:
-        return {"error": "Missing device_id"}
-    try:
-        await device_registry.handoff_to(device_id)
-        return {"success": True, "handoff_to": device_id}
-    except Exception as e:
-        return {"error": str(e)}
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
@@ -2427,15 +2307,24 @@ async def api_network_geo():
         peers = []
         for d in data if isinstance(data, list) else []:
             if d.get("status") == "success":
+                proxy, hosting = bool(d.get("proxy")), bool(d.get("hosting"))
+                # Risk uses the same signals as network/investigator.py: a peer
+                # behind a proxy/VPN or in hosting/cloud space is 'elevated'.
+                # NB: routing-context signal, NOT IP-reputation — DEEP has no IP
+                # threat feed (intel_feeds is CVE/advisory-based).
                 peers.append({
                     "ip": d["query"], "lat": d["lat"], "lon": d["lon"],
                     "city": d.get("city"), "region": d.get("regionName"),
                     "country": d.get("country"), "isp": d.get("isp"),
-                    "asn": d.get("as"), "proxy": bool(d.get("proxy")),
-                    "hosting": bool(d.get("hosting")),
+                    "asn": d.get("as"), "proxy": proxy, "hosting": hosting,
+                    "risk": "elevated" if (proxy or hosting) else "normal",
                     "connections": remotes[d["query"]],
                 })
-        return {"count": len(peers), "peers": peers}
+        peers.sort(key=lambda p: (p["risk"] != "elevated", -p["connections"]))
+        elevated = sum(1 for p in peers if p["risk"] == "elevated")
+        countries = sorted({p["country"] for p in peers if p["country"]})
+        return {"count": len(peers), "elevated": elevated,
+                "countries": countries, "peers": peers}
 
     try:
         return await _asyncio.to_thread(_scan)
@@ -3080,6 +2969,16 @@ _register_services(
     metrics=metrics,
     time_of_day=_time_of_day,
     netmon=netmon,
+    knowledge_store=knowledge_store,
+    briefing_engine=briefing_engine,
+    concept_linker=concept_linker,
+    redis_state=redis_state,
+    scanner=scanner,
+    evil_twin=evil_twin,
+    pihole=pihole,
+    proximity=proximity,
+    device_registry=device_registry,
+    threat_monitor=getattr(sys.modules[__name__], 'threat_monitor', None),
 )
 for _r in _DEEP_ROUTERS:
     app.include_router(_r)
