@@ -32,5 +32,8 @@ ROUTERS = [
     anomaly.router,
 ]
 
+from interface.ws import router as ws_router
+ROUTERS.append(ws_router.router)
+
 __all__ = ["ROUTERS"]
 

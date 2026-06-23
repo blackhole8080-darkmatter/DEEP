@@ -1,17 +1,19 @@
-// <connection-map> — connection geography. Geolocates the machine's live
-// established outbound connections (public remote IPs) and plots one pin per
-// peer on an offline equirectangular map, color-coded by risk flag
-// (hosting/proxy), with a sortable peer list. No map tiles, no GPS — derived
-// from psutil connections + ip-api, server-side.
+// <connection-map> — connection geography graph. Geolocates the machine's live
+// established outbound connections (public remote IPs), plots the egress origin
+// and draws an arc to each peer (color-coded by risk: direct/hosting/proxy),
+// and attributes each peer to the local process(es) that opened it. Sortable
+// peer list. Offline (no map tiles, no GPS) — derived from psutil connections
+// + ip-api, server-side.
 import { LitElement, html, css, svg } from "lit";
 import { customElement, state } from "lit/decorators.js";
-import { fetchNetworkGeo, type GeoPeer } from "../../core/api";
+import { fetchNetworkGeo, type GeoPeer, type GeoOrigin } from "../../core/api";
 import "../primitives/ds-panel";
 import "../primitives/ds-button";
 
 @customElement("connection-map")
 export class ConnectionMap extends LitElement {
   @state() private peers: GeoPeer[] = [];
+  @state() private origin: GeoOrigin | null = null;
   @state() private elevated = 0;
   @state() private countries: string[] = [];
   @state() private loading = true;
@@ -29,6 +31,7 @@ export class ConnectionMap extends LitElement {
       const r = await fetchNetworkGeo();
       if (r.error) this.err = r.error;
       this.peers = r.peers ?? [];
+      this.origin = r.origin ?? null;
       this.elevated = r.elevated ?? 0;
       this.countries = r.countries ?? [];
     } catch (e) { this.err = String(e); }
@@ -46,7 +49,14 @@ export class ConnectionMap extends LitElement {
     .pin.hosting { fill: var(--ds-warning); }
     .pin.proxy { fill: var(--ds-danger); }
     .pin.sel { stroke: var(--ds-text); stroke-width: 1.5; }
+    .origin { fill: var(--ds-accent); stroke: var(--ds-bg); stroke-width: 1; }
+    .origin-ring { fill: none; stroke: var(--ds-accent); opacity: 0.4; }
+    .arc { fill: none; stroke: var(--ds-info); stroke-width: 0.6; opacity: 0.28; }
+    .arc.hosting { stroke: var(--ds-warning); }
+    .arc.proxy { stroke: var(--ds-danger); }
+    .arc.sel { opacity: 0.9; stroke-width: 1.4; }
     .label { fill: var(--ds-text); font-size: 10px; font-family: var(--ds-font-mono); }
+    .proc { color: var(--ds-accent); font-family: var(--ds-font-mono); font-size: var(--ds-text-xs); }
     .legend { display: flex; gap: var(--ds-space-4); font-size: var(--ds-text-xs); color: var(--ds-text-soft); margin-top: var(--ds-space-2); }
     .legend i { display: inline-block; width: 8px; height: 8px; border-radius: 50%; margin-right: 4px; vertical-align: middle; }
     .rows { display: grid; gap: 0; max-height: 320px; overflow-y: auto; }
@@ -87,15 +97,28 @@ export class ConnectionMap extends LitElement {
             <rect width=${W} height=${H} fill="var(--ds-surface-1)"></rect>
             ${grat}
             <line class="grat" x1="0" y1=${H / 2} x2=${W} y2=${H / 2} stroke="var(--ds-border-strong)"></line>
+            ${this.origin ? this.peers.map((p) => {
+              const ox = sx(this.origin!.lon), oy = sy(this.origin!.lat);
+              const px = sx(p.lon), py = sy(p.lat);
+              // quadratic arc bowed upward, proportional to distance
+              const mx = (ox + px) / 2, my = (oy + py) / 2 - Math.abs(px - ox) * 0.25 - 12;
+              const isSel = this.selected === p.ip;
+              return svg`<path class="arc ${this.pinClass(p)} ${isSel ? "sel" : ""}" d=${`M${ox},${oy} Q${mx},${my} ${px},${py}`}></path>`;
+            }) : ""}
             ${this.peers.map((p) => {
               const cls = this.pinClass(p);
               const isSel = this.selected === p.ip;
               return svg`<circle class="pin ${cls} ${isSel ? "sel" : ""}" cx=${sx(p.lon)} cy=${sy(p.lat)} r=${isSel ? 6 : 4}
-                @click=${() => { this.selected = p.ip; }}><title>${p.ip} — ${p.city}, ${p.country} (${p.isp})</title></circle>`;
+                @click=${() => { this.selected = p.ip; }}><title>${p.ip} — ${p.city}, ${p.country} (${p.isp})${p.processes.length ? " ← " + p.processes.join(", ") : ""}</title></circle>`;
             })}
+            ${this.origin ? svg`
+              <circle class="origin-ring" cx=${sx(this.origin.lon)} cy=${sy(this.origin.lat)} r="8"></circle>
+              <circle class="origin" cx=${sx(this.origin.lon)} cy=${sy(this.origin.lat)} r="4"><title>egress · ${this.origin.city}, ${this.origin.country} (${this.origin.isp})</title></circle>
+            ` : ""}
           </svg>
         </div>
         <div class="legend">
+          ${this.origin ? html`<span><i style="background:var(--ds-accent)"></i>egress · ${this.origin.city}, ${this.origin.country}</span>` : ""}
           <span><i style="background:var(--ds-info)"></i>direct</span>
           <span><i style="background:var(--ds-warning)"></i>hosting / cloud</span>
           <span><i style="background:var(--ds-danger)"></i>proxy / VPN</span>
@@ -110,7 +133,7 @@ export class ConnectionMap extends LitElement {
                 <div>
                   <div class="loc">${p.city || "?"}, ${p.country || "?"} ${p.proxy ? html`<span class="flag prox">PROXY</span>` : p.hosting ? html`<span class="flag host">HOSTING</span>` : ""}</div>
                   <div class="isp">${p.isp} · ${p.asn}</div>
-                  <div class="ip">${p.ip}</div>
+                  <div class="ip">${p.ip}${p.processes.length ? html` · <span class="proc">${p.processes.join(", ")}</span>` : ""}</div>
                 </div>
                 <div class="ip">${p.connections}×</div>
               </div>
