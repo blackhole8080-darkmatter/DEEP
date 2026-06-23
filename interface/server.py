@@ -27,7 +27,7 @@ for _stream in (sys.stdout, sys.stderr):
     except Exception:
         pass
 
-from fastapi import FastAPI, WebSocket, WebSocketDisconnect, Request
+from fastapi import FastAPI, WebSocket, WebSocketDisconnect, Request, HTTPException
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import FileResponse, JSONResponse, HTMLResponse
 from fastapi.middleware.cors import CORSMiddleware
@@ -1066,6 +1066,26 @@ agent_jobs: Dict[str, dict] = {}
 # Static files
 static_path = Path(__file__).parent / "static"
 app.mount("/static", StaticFiles(directory=static_path), name="static")
+
+
+# ── SPA shell ────────────────────────────────────────────────────────────────
+# Serve the built Lit app at / and /app. (Restored after a router refactor
+# dropped these routes, which left / returning 404 and the UI blank.)
+# no-cache on the HTML shell so upgrading clients always fetch the newest
+# hashed assets; the /static/* assets stay immutable.
+def _spa_index() -> FileResponse:
+    built = static_path / "app-dist" / "index.html"
+    if built.exists():
+        return FileResponse(str(built), headers={"Cache-Control": "no-cache"})
+    raise HTTPException(status_code=404, detail="UI not built — run `npm run build` in interface/web")
+
+@app.get("/")
+async def spa_root():
+    return _spa_index()
+
+@app.get("/app")
+async def spa_app():
+    return _spa_index()
 
 # ── Science Studio — 16-domain compute engine + generated media ─────────────
 try:
