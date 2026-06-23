@@ -99,10 +99,28 @@ class RoutingLLM:
         return await self._local.generate(*a, **k)
 
     async def health_check(self):
+        # The brain is healthy if ANY provider can serve a request. Previously
+        # this only probed local Ollama, so a working cloud chain (Groq/Gemini/
+        # Claude) was reported "unreachable" whenever Ollama wasn't running.
+        # A configured cloud key counts as available (same convention as the
+        # per-provider clients) without spending a live call on every poll.
+        if self._cloud_chain():
+            return True
         try:
             return await self._local.health_check()
         except Exception:
-            return True
+            return False
+
+    @property
+    def model_name(self) -> str:
+        """Report the provider actually at the head of the chain, so health and
+        the reasoning panel don't mislabel (e.g. show a Groq model when only
+        Ollama is live)."""
+        chain = self._cloud_chain()
+        if chain:
+            p, model, _, _ = chain[0]
+            return f"{p}:{model}"
+        return f"ollama:{self._settings.ollama_model}"
 
     async def close(self):
         try:

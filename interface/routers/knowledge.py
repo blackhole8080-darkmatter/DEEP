@@ -71,3 +71,103 @@ async def knowledge_connect(body: dict):
         "evidence": result.evidence,
         "confidence": result.confidence,
     }
+
+
+import hashlib
+from fastapi import UploadFile, File
+from typing import Dict
+def _chunk_text(text: str, size: int = 900, overlap: int = 150):
+    """Split text into overlapping chunks for embedding."""
+    text = " ".join(text.split())  # normalise whitespace
+    chunks, i = [], 0
+    while i < len(text):
+        chunks.append(text[i:i + size])
+        i += size - overlap
+    return [c for c in chunks if c.strip()]
+
+
+def _extract_text(filename: str, raw: bytes) -> str:
+    """Best-effort text extraction from txt/md/pdf bytes."""
+    name = (filename or "").lower()
+    if name.endswith(".pdf"):
+        try:
+            import fitz  # PyMuPDF
+            doc = fitz.open(stream=raw, filetype="pdf")
+            return "\n".join(page.get_text() for page in doc)
+        except Exception as e:
+            raise RuntimeError(f"PDF parse failed ({type(e).__name__})")
+    if name.endswith(".docx"):
+        try:
+            import io, zipfile, re as _re
+            with zipfile.ZipFile(io.BytesIO(raw)) as z:
+                xml = z.read("word/document.xml").decode("utf-8", "ignore")
+            return _re.sub(r"<[^>]+>", "", xml.replace("</w:p>", "\n"))
+        except Exception as e:
+            raise RuntimeError(f"DOCX parse failed ({type(e).__name__})")
+    # txt / md / code / fallback
+    for enc in ("utf-8", "latin-1"):
+        try:
+            return raw.decode(enc)
+        except Exception:
+            continue
+    return raw.decode("utf-8", errors="ignore")
+
+
+@router.post("/api/knowledge/ingest")
+async def knowledge_ingest(file: UploadFile = File(...)):
+    """
+    Personal knowledge ingestion: extract text from an uploaded document
+    (pdf/txt/md/code), chunk it, and embed each chunk into long-term memory.
+    Ingested chunks are then recalled automatically into chat context — DEEP
+    becomes a second brain over Aryan's own files. Fully local.
+    """
+    try:
+        raw = await file.read()
+        if not raw:
+            return {"ok": False, "error": "empty file"}
+        text = _extract_text(file.filename, raw)
+        if not text.strip():
+            return {"ok": False, "error": "no extractable text"}
+        chunks = _chunk_text(text)
+        src = file.filename or "document"
+        digest = hashlib.sha1(src.encode("utf-8")).hexdigest()[:10]
+        stored = 0
+        for idx, ch in enumerate(chunks):
+            try:
+                services.ltm.store(
+                    memory_type="document",
+                    content=ch,
+                    metadata={"source": src, "chunk": idx, "doc_id": digest},
+                    importance=1.3,
+                    memory_id=f"doc_{digest}_{idx}",
+                )
+                stored += 1
+            except Exception as _e:
+                print(f"[knowledge] chunk {idx} store failed: {_e}")
+        try:
+            await services.event_bus.publish("knowledge_ingested", {"source": src, "chunks": stored})
+        except Exception:
+            pass
+        return {"ok": True, "source": src, "chunks": stored,
+                "chars": len(text), "doc_id": digest}
+    except Exception as e:
+        return {"ok": False, "error": f"{type(e).__name__}: {e}"}
+
+
+@router.get("/api/knowledge/list")
+async def knowledge_list():
+    """List ingested documents (grouped by source) from long-term memory."""
+    docs: Dict[str, dict] = {}
+    try:
+        coll = getattr(ltm, "_collection", None)
+        if coll is not None:
+            res = coll.get(where={"memory_type": "document"})
+            for meta in (res.get("metadatas") or []):
+                src = meta.get("source", "unknown")
+                d = docs.setdefault(src, {"source": src, "chunks": 0, "doc_id": meta.get("doc_id")})
+                d["chunks"] += 1
+    except Exception as e:
+        return {"ok": False, "error": str(e), "documents": []}
+    return {"ok": True, "documents": list(docs.values()), "count": len(docs)}
+
+

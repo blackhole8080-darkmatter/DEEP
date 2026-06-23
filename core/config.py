@@ -219,8 +219,10 @@ class Settings:
     # Minimum quality score before LLM reasoning is retried
     min_quality_score: float = float(_get_env("MIN_QUALITY_SCORE", "0.50"))
 
-    # Tool invocation timeout (seconds)
-    tool_timeout_seconds: int = int(_get_env("TOOL_TIMEOUT_SECONDS", "10"))
+    # Tool invocation timeout (seconds). Network-bound tools (CVE/NVD lookups,
+    # OSINT, web search) routinely exceed 10s; local tools return instantly and
+    # are unaffected, so the headroom only matters for slow/hung external calls.
+    tool_timeout_seconds: int = int(_get_env("TOOL_TIMEOUT_SECONDS", "30"))
 
     # Swarm agent timeout and concurrency limits
     swarm_agent_timeout_seconds: int = int(_get_env("SWARM_AGENT_TIMEOUT_SECONDS", "30"))

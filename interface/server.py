@@ -1921,101 +1921,6 @@ async def vision_screen(payload: dict | None = None):
     except Exception as e:
         return {"ok": False, "error": f"vision failed: {type(e).__name__}: {e}"}
 
-def _chunk_text(text: str, size: int = 900, overlap: int = 150):
-    """Split text into overlapping chunks for embedding."""
-    text = " ".join(text.split())  # normalise whitespace
-    chunks, i = [], 0
-    while i < len(text):
-        chunks.append(text[i:i + size])
-        i += size - overlap
-    return [c for c in chunks if c.strip()]
-
-
-def _extract_text(filename: str, raw: bytes) -> str:
-    """Best-effort text extraction from txt/md/pdf bytes."""
-    name = (filename or "").lower()
-    if name.endswith(".pdf"):
-        try:
-            import fitz  # PyMuPDF
-            doc = fitz.open(stream=raw, filetype="pdf")
-            return "\n".join(page.get_text() for page in doc)
-        except Exception as e:
-            raise RuntimeError(f"PDF parse failed ({type(e).__name__})")
-    if name.endswith(".docx"):
-        try:
-            import io, zipfile, re as _re
-            with zipfile.ZipFile(io.BytesIO(raw)) as z:
-                xml = z.read("word/document.xml").decode("utf-8", "ignore")
-            return _re.sub(r"<[^>]+>", "", xml.replace("</w:p>", "\n"))
-        except Exception as e:
-            raise RuntimeError(f"DOCX parse failed ({type(e).__name__})")
-    # txt / md / code / fallback
-    for enc in ("utf-8", "latin-1"):
-        try:
-            return raw.decode(enc)
-        except Exception:
-            continue
-    return raw.decode("utf-8", errors="ignore")
-
-
-@app.post("/api/knowledge/ingest")
-async def knowledge_ingest(file: UploadFile = File(...)):
-    """
-    Personal knowledge ingestion: extract text from an uploaded document
-    (pdf/txt/md/code), chunk it, and embed each chunk into long-term memory.
-    Ingested chunks are then recalled automatically into chat context — DEEP
-    becomes a second brain over Aryan's own files. Fully local.
-    """
-    try:
-        raw = await file.read()
-        if not raw:
-            return {"ok": False, "error": "empty file"}
-        text = _extract_text(file.filename, raw)
-        if not text.strip():
-            return {"ok": False, "error": "no extractable text"}
-        chunks = _chunk_text(text)
-        src = file.filename or "document"
-        digest = hashlib.sha1(src.encode("utf-8")).hexdigest()[:10]
-        stored = 0
-        for idx, ch in enumerate(chunks):
-            try:
-                ltm.store(
-                    memory_type="document",
-                    content=ch,
-                    metadata={"source": src, "chunk": idx, "doc_id": digest},
-                    importance=1.3,
-                    memory_id=f"doc_{digest}_{idx}",
-                )
-                stored += 1
-            except Exception as _e:
-                print(f"[knowledge] chunk {idx} store failed: {_e}")
-        try:
-            await event_bus.publish("knowledge_ingested", {"source": src, "chunks": stored})
-        except Exception:
-            pass
-        return {"ok": True, "source": src, "chunks": stored,
-                "chars": len(text), "doc_id": digest}
-    except Exception as e:
-        return {"ok": False, "error": f"{type(e).__name__}: {e}"}
-
-
-@app.get("/api/knowledge/list")
-async def knowledge_list():
-    """List ingested documents (grouped by source) from long-term memory."""
-    docs: Dict[str, dict] = {}
-    try:
-        coll = getattr(ltm, "_collection", None)
-        if coll is not None:
-            res = coll.get(where={"memory_type": "document"})
-            for meta in (res.get("metadatas") or []):
-                src = meta.get("source", "unknown")
-                d = docs.setdefault(src, {"source": src, "chunks": 0, "doc_id": meta.get("doc_id")})
-                d["chunks"] += 1
-    except Exception as e:
-        return {"ok": False, "error": str(e), "documents": []}
-    return {"ok": True, "documents": list(docs.values()), "count": len(docs)}
-
-
 # /api/physics/* and /api/chem/* moved to interface/routers/reference.py
 
 # /debug/events and /api/metrics moved to interface/routers/system.py
@@ -2062,426 +1967,9 @@ async def list_plugins():
         return {"error": str(e)}
 
 
-@app.get("/api/agents")
-async def list_agents():
-    """List all active agents."""
-    try:
-        agents = agent_factory.list_agents()
-        return {"agents": agents}
-    except Exception as e:
-        return {"error": str(e)}
-
-@app.post("/api/agents")
-async def create_agent_endpoint(data: dict):
-    """Create a new agent."""
-    name = data.get("name")
-    role = data.get("role", "custom")
-    if not name:
-        return {"error": "Missing name"}
-    try:
-        agent = agent_factory.create_agent(name, role)
-        return {"success": True, "agent": agent.to_dict()}
-    except ValueError as e:
-        return {"error": str(e)}
-
-@app.get("/api/agents/stats")
-async def agent_stats():
-    """Get agent factory statistics."""
-    try:
-        return agent_factory.stats()
-    except Exception as e:
-        return {"error": str(e)}
-
-@app.post("/api/agents/task")
-async def assign_agent_task(data: dict):
-    """Spawn an agent for `role` and run `task` in the background. Returns a task id to poll."""
-    import uuid
-    task_text = (data.get("task") or "").strip()
-    role = (data.get("role") or "researcher").strip()
-    if not task_text:
-        return {"error": "Missing task"}
-
-    jid = uuid.uuid4().hex[:8]
-    name = f"{role}-{jid}"
-    try:
-        agent = agent_factory.create_agent(name, role)
-    except Exception:
-        agent = agent_factory.get_agent(name) or agent_factory.create_agent(f"agent-{jid}", "custom")
-
-    job = {
-        "id": jid, "agent": agent.name, "role": role, "task": task_text,
-        "status": "running", "result": None, "error": None,
-        "created": datetime.now().isoformat(), "latency_ms": None,
-    }
-    agent_jobs[jid] = job
-    await event_bus.publish("agent_task_started", {"id": jid, "agent": agent.name, "role": role, "task": task_text[:120]})
-
-    async def _run():
-        try:
-            t = await agent.execute(task_text)
-            job["status"] = t.status.value if hasattr(t.status, "value") else str(t.status)
-            job["result"] = t.result
-            job["error"] = t.error
-            job["latency_ms"] = round(t.latency_ms) if t.latency_ms else None
-        except Exception as e:
-            job["status"] = "failed"
-            job["error"] = str(e)
-        await event_bus.publish("agent_task_done", {"id": jid, "agent": agent.name, "status": job["status"]})
-
-    asyncio.create_task(_run())
-    return {"success": True, "task_id": jid, "agent": agent.name}
-
-@app.get("/api/agents/tasks")
-async def list_agent_tasks():
-    """List recent agent task jobs (newest first)."""
-    jobs = sorted(agent_jobs.values(), key=lambda j: j["created"], reverse=True)[:30]
-    return {"tasks": jobs}
-
-@app.get("/api/agents/task/{jid}")
-async def get_agent_task(jid: str):
-    return agent_jobs.get(jid) or {"error": "not found"}
-
-@app.get("/api/security/snapshot")
-async def security_snapshot():
-    """Full network snapshot with devices and events."""
-    try:
-        snap = await netmon.get_snapshot()
-        return snap.to_dict()
-    except Exception as e:
-        return {"error": str(e)}
-
-
-@app.get("/api/actions/pending")
-async def actions_pending():
-    """Destructive actions DEEP wants to take, awaiting your approval (HITL)."""
-    from core.pending_actions import list_pending
-    return {"pending": list_pending()}
-
-@app.post("/api/actions/respond")
-async def actions_respond(data: dict):
-    """Approve or deny a parked action. On approval the tool runs for real."""
-    from core.pending_actions import pop
-    aid = data.get("id")
-    approve = bool(data.get("approve"))
-    act = pop(aid) if aid else None
-    if not act:
-        return {"error": "Action not found (already handled?)"}
-    if not approve:
-        return {"executed": False, "result": f"Denied: {act.get('label')}"}
-    try:
-        res = await deep_tools.execute_tool(act["tool"], {**act["args"], "_approved": True})
-        return {"executed": True, "result": getattr(res, "content", str(res))}
-    except Exception as e:
-        return {"executed": False, "result": f"Execution failed: {e}"}
-
-@app.get("/api/interactive/pending")
-async def get_pending_interactive():
-    """Get all pending interactive responses."""
-    from core.interactive_response import interactive_manager
-    return {"pending": interactive_manager.list_pending()}
-
-@app.post("/api/interactive/respond")
-async def respond_to_interactive(data: dict):
-    """Process user response to an interactive prompt."""
-    from core.interactive_response import interactive_manager
-    response_id = data.get("response_id")
-    selection = data.get("selection")
-    
-    if not response_id or not selection:
-        return {"error": "Missing response_id or selection"}
-    
-    result = interactive_manager.process_selection(response_id, selection)
-    return result
 
 
 
-
-
-# ═══════════════════════════════════════════════════════════════════════════════
-# NETWORK / SCANNING ENDPOINTS (v2)
-# ═══════════════════════════════════════════════════════════════════════════════
-
-@app.get("/network/devices")
-async def network_devices():
-    """List all discovered network devices."""
-    try:
-        devices = await scanner.get_devices()
-        return {"devices": [d.__dict__ for d in devices]}
-    except Exception as e:
-        return {"error": str(e)}
-
-@app.get("/network/devices/{ip}")
-async def network_device(ip: str):
-    """Get details for a specific device by IP."""
-    try:
-        device = await scanner.get_device(ip)
-        if device:
-            return device.__dict__
-        return {"error": "Device not found"}
-    except Exception as e:
-        return {"error": str(e)}
-
-@app.post("/network/scan/{ip}")
-async def network_scan_target(ip: str):
-    """On-demand deep scan of a specific IP."""
-    try:
-        result = await scanner.scan_target(ip)
-        if result:
-            return result.__dict__
-        return {"error": "Scan failed"}
-    except Exception as e:
-        return {"error": str(e)}
-
-@app.get("/network/threats")
-async def network_threats(hours: int = 24):
-    """Get recent threat detections."""
-    try:
-        threats = await threat_monitor.get_threats(hours=hours)
-        return {"threats": [t.__dict__ for t in threats]}
-    except Exception as e:
-        return {"error": str(e)}
-
-@app.get("/network/pihole")
-async def network_pihole_summary():
-    """Pi-hole DNS summary."""
-    try:
-        summary = await pihole.get_summary()
-        return summary or {"reachable": False}
-    except Exception as e:
-        return {"error": str(e)}
-
-@app.get("/network/pihole/queries")
-async def network_pihole_queries(count: int = 50):
-    """Recent Pi-hole DNS queries."""
-    try:
-        queries = await pihole.get_recent_queries(count=count)
-        return {"queries": queries}
-    except Exception as e:
-        return {"error": str(e)}
-
-@app.get("/network/wifi")
-async def network_wifi_status():
-    """Evil twin detector status."""
-    return evil_twin.status()
-
-
-@app.get("/api/network/geo")
-async def api_network_geo():
-    """Connection geography: geolocate the machine's live established outbound
-    connections (public remote IPs only) for the connection map. Uses ip-api's
-    batch endpoint (one request) so it stays within free-tier rate limits."""
-    import asyncio as _asyncio
-
-    def _scan() -> dict:
-        import ipaddress
-        from collections import Counter
-        try:
-            import psutil
-        except Exception as e:
-            return {"error": f"psutil unavailable: {e}", "peers": []}
-        remotes: Counter = Counter()
-        try:
-            for c in psutil.net_connections(kind="inet"):
-                if c.status == "ESTABLISHED" and c.raddr:
-                    ip = c.raddr.ip
-                    try:
-                        if ipaddress.ip_address(ip).is_global:
-                            remotes[ip] += 1
-                    except ValueError:
-                        continue
-        except Exception as e:
-            return {"error": f"connection enumeration failed: {e}", "peers": []}
-        ips = [ip for ip, _ in remotes.most_common(50)]  # cap for rate limits
-        if not ips:
-            return {"count": 0, "peers": [], "note": "no public connections"}
-        try:
-            import requests
-            r = requests.post(
-                "http://ip-api.com/batch",
-                params={"fields": "status,query,country,regionName,city,isp,as,lat,lon,proxy,hosting"},
-                json=ips, timeout=8,
-            )
-            data = r.json()
-        except Exception as e:
-            return {"error": f"geo lookup failed: {e}", "peers": []}
-        peers = []
-        for d in data if isinstance(data, list) else []:
-            if d.get("status") == "success":
-                proxy, hosting = bool(d.get("proxy")), bool(d.get("hosting"))
-                # Risk uses the same signals as network/investigator.py: a peer
-                # behind a proxy/VPN or in hosting/cloud space is 'elevated'.
-                # NB: routing-context signal, NOT IP-reputation — DEEP has no IP
-                # threat feed (intel_feeds is CVE/advisory-based).
-                peers.append({
-                    "ip": d["query"], "lat": d["lat"], "lon": d["lon"],
-                    "city": d.get("city"), "region": d.get("regionName"),
-                    "country": d.get("country"), "isp": d.get("isp"),
-                    "asn": d.get("as"), "proxy": proxy, "hosting": hosting,
-                    "risk": "elevated" if (proxy or hosting) else "normal",
-                    "connections": remotes[d["query"]],
-                })
-        peers.sort(key=lambda p: (p["risk"] != "elevated", -p["connections"]))
-        elevated = sum(1 for p in peers if p["risk"] == "elevated")
-        countries = sorted({p["country"] for p in peers if p["country"]})
-        return {"count": len(peers), "elevated": elevated,
-                "countries": countries, "peers": peers}
-
-    try:
-        return await _asyncio.to_thread(_scan)
-    except Exception as e:
-        return {"error": str(e), "peers": []}
-
-
-# ═══════════════════════════════════════════════════════════════════════════════
-# NETWORK TOPOGRAPH / COMMAND CENTER ENDPOINTS (v3)
-# ═══════════════════════════════════════════════════════════════════════════════
-
-@app.get("/api/network/graph")
-async def network_graph_full(layer: Optional[str] = None):
-    """Export full network graph (optionally filtered by layer)."""
-    try:
-        return net_graph.export_graph(layer=layer)
-    except Exception as e:
-        return {"error": str(e)}
-
-@app.get("/api/network/graph/{node_id}")
-async def network_graph_subgraph(node_id: str, depth: int = 1):
-    """Export subgraph centred on a node within N hops."""
-    try:
-        return net_graph.export_subgraph(centre_id=node_id, depth=depth)
-    except Exception as e:
-        return {"error": str(e)}
-
-@app.get("/api/network/stats")
-async def network_graph_stats():
-    """Graph statistics: node counts by layer, edge count, observations, inferences."""
-    try:
-        return net_graph.stats()
-    except Exception as e:
-        return {"error": str(e)}
-
-@app.get("/api/network/observations/{node_id}")
-async def network_observations(node_id: str, metric: Optional[str] = None, hours: int = 24):
-    """Time-series observations for a node."""
-    try:
-        return {"observations": net_graph.get_observations(node_id, metric=metric, hours=hours)}
-    except Exception as e:
-        return {"error": str(e)}
-
-@app.get("/api/network/inferences/{node_id}")
-async def network_inferences(node_id: str, inference_type: Optional[str] = None, limit: int = 20):
-    """AI-generated inferences for a node."""
-    try:
-        return {"inferences": net_graph.get_inferences(node_id, inference_type=inference_type, limit=limit)}
-    except Exception as e:
-        return {"error": str(e)}
-
-@app.post("/api/network/analyse")
-async def network_analyse(payload: dict):
-    """On-demand AI analysis of a device or the whole network."""
-    try:
-        scope = payload.get("scope", "device")
-        node_id = payload.get("node_id", "")
-        if scope == "device" and node_id:
-            result = await net_ai_analyst.analyse_device(node_id)
-        elif scope == "health":
-            result = await net_ai_analyst.generate_health_report()
-        elif scope == "threats":
-            result = await net_ai_analyst.summarise_threats()
-        else:
-            return {"error": "Invalid scope. Use 'device', 'health', or 'threats'."}
-        return {"analysis": result}
-    except Exception as e:
-        return {"error": str(e)}
-
-@app.post("/api/network/explain")
-async def network_explain(payload: dict):
-    """Explain an anomalous metric for a device."""
-    try:
-        node_id = payload.get("node_id", "")
-        metric = payload.get("metric", "")
-        value = float(payload.get("value", 0))
-        expected = float(payload.get("expected", 0))
-        result = await net_ai_analyst.explain_anomaly(node_id, metric, value, expected)
-        return {"explanation": result}
-    except Exception as e:
-        return {"error": str(e)}
-
-
-# ═══════════════════════════════════════════════════════════════════════════════
-# PROXIMITY ENDPOINTS (v2)
-# ═══════════════════════════════════════════════════════════════════════════════
-
-@app.get("/network/proximity")
-async def network_proximity_summary():
-    """Passive proximity sensor summary (WiFi + Bluetooth)."""
-    try:
-        summary = await proximity.get_proximity_summary()
-        return summary
-    except Exception as e:
-        return {"error": str(e)}
-
-@app.get("/network/proximity/wifi")
-async def network_proximity_wifi():
-    """Nearby WiFi access points from passive scan."""
-    try:
-        aps = await proximity.get_nearby_aps()
-        return {"aps": [ap.__dict__ for ap in aps]}
-    except Exception as e:
-        return {"error": str(e)}
-
-@app.get("/network/proximity/bt")
-async def network_proximity_bt():
-    """Nearby Bluetooth devices from passive advertisement scan."""
-    try:
-        devices = await proximity.get_nearby_bt()
-        return {"devices": [d.__dict__ for d in devices]}
-    except Exception as e:
-        return {"error": str(e)}
-
-@app.get("/network/proximity/timeline")
-async def network_proximity_timeline(limit: int = 24):
-    """Per-device hour-of-day presence histograms (for the Presence Timeline)."""
-    from datetime import datetime, timezone
-    try:
-        from network.proximity_store import get_store
-        recs = list(get_store().load_all().values())
-        recs.sort(key=lambda r: r.get("seen_count", 0), reverse=True)
-        devices = []
-        for r in recs[:max(1, limit)]:
-            hours = r.get("hours") or [0] * 24
-            if len(hours) != 24:
-                hours = (hours + [0] * 24)[:24]
-            devices.append({
-                "id": r.get("id"), "name": r.get("name") or r.get("vendor") or r.get("id"),
-                "vendor": r.get("vendor"), "kind": r.get("kind"),
-                "hours": hours, "seen_count": r.get("seen_count", 0),
-                "first_seen": r.get("first_seen"), "last_seen": r.get("last_seen"),
-            })
-        return {"devices": devices, "current_hour": datetime.now(timezone.utc).hour}
-    except Exception as e:
-        return {"error": str(e), "devices": []}
-
-@app.get("/network/proximity/known")
-async def network_proximity_known():
-    """Durable sensing memory — how many devices DEEP has ever observed (survives restarts)."""
-    try:
-        from network.proximity_store import get_store
-        return get_store().stats()
-    except Exception as e:
-        return {"error": str(e)}
-
-@app.get("/api/investigate")
-async def api_investigate(target: str = ""):
-    """Build an intelligence dossier on an IP / MAC / hostname / domain."""
-    if not target:
-        return {"error": "missing target"}
-    import asyncio as _asyncio
-    from network.investigator import investigate as _investigate
-    try:
-        return await _asyncio.to_thread(_investigate, target)
-    except Exception as e:
-        return {"error": str(e)}
 
 @app.post("/api/vision/analyze")
 async def api_vision_analyze(data: dict):
@@ -2764,100 +2252,100 @@ async def audio_spatial_status():
 # AUDIT & SESSION ENDPOINTS (v2)
 # ═══════════════════════════════════════════════════════════════════════════════
 
-@app.get("/audit/log")
-async def audit_log_query(
-    entry_type: str | None = None,
-    actor: str | None = None,
-    limit: int = 100,
-    offset: int = 0,
-    start: str | None = None,
-    end: str | None = None,
-):
-    """Query the immutable audit log with filters and pagination."""
-    try:
-        entries = await audit.query(
-            entry_type=entry_type,
-            actor=actor,
-            start_time=start,
-            end_time=end,
-            limit=limit,
-            offset=offset,
-        )
-        return {"entries": [e.__dict__ for e in entries], "count": len(entries)}
-    except Exception as e:
-        return {"error": str(e)}
-
-@app.get("/audit/threats")
-async def audit_threats(hours: int = 24):
-    """Get security threat entries from the audit log."""
-    try:
-        entries = await audit.get_threat_log(hours=hours)
-        return {"entries": [e.__dict__ for e in entries]}
-    except Exception as e:
-        return {"error": str(e)}
-
-@app.get("/audit/session")
-async def audit_current_session():
-    """Get current session info."""
-    try:
-        session = session_mgr.get_current()
-        return session.__dict__ if session else {"active": False}
-    except Exception as e:
-        return {"error": str(e)}
-
-@app.get("/audit/session/{session_id}")
-async def audit_session_by_id(session_id: str):
-    """Get all audit entries for a specific session."""
-    try:
-        entries = await audit.get_session_log(session_id)
-        return {"entries": [e.__dict__ for e in entries]}
-    except Exception as e:
-        return {"error": str(e)}
-
-@app.get("/audit/stats")
-async def audit_stats():
-    """Audit trail statistics and integrity status."""
-    try:
-        return await audit.get_stats()
-    except Exception as e:
-        return {"error": str(e)}
-
-@app.post("/audit/verify")
-async def audit_verify():
-    """Run hash chain integrity verification."""
-    try:
-        report = await audit.verify_integrity()
-        return {
-            "intact": report.intact,
-            "total_entries": report.total_entries,
-            "verified": report.verified,
-            "failures": report.failures,
-            "first_failure_id": report.first_failure_id,
-        }
-    except Exception as e:
-        return {"error": str(e)}
-
-@app.get("/audit/export/{session_id}")
-async def audit_export_session(session_id: str, format: str = "text"):
-    """Export a session log to file (json or text)."""
-    try:
-        path = await audit.export_session(session_id, format=format)
-        return {"path": path, "format": format}
-    except Exception as e:
-        return {"error": str(e)}
 
 
-# ═══════════════════════════════════════════════════════════════════════════════
-# RETRAINING ENDPOINTS (v3)
-# ═══════════════════════════════════════════════════════════════════════════════
 
-@app.get("/ai/retraining/status")
-async def retraining_status():
-    """Return retraining scheduler status."""
-    try:
-        return retraining_scheduler.status()
-    except Exception as e:
-        return {"error": str(e)}
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 
 @app.get("/ai/retraining/stats")
@@ -2903,44 +2391,44 @@ async def retraining_history():
 # ANOMALY DETECTION ENDPOINTS (v3)
 # ═══════════════════════════════════════════════════════════════════════════════
 
-@app.get("/anomaly/status")
-async def anomaly_status():
-    """Return anomaly detector operational status."""
-    try:
-        return anomaly_detector.status()
-    except Exception as e:
-        return {"error": str(e)}
 
 
-@app.get("/anomaly/recent")
-async def anomaly_recent(hours: int = 24):
-    """Return recent anomalies detected."""
-    try:
-        anomalies = await anomaly_detector.get_recent_anomalies(hours=hours)
-        return {"anomalies": [a.__dict__ for a in anomalies]}
-    except Exception as e:
-        return {"error": str(e)}
 
 
-@app.get("/anomaly/stats")
-async def anomaly_stats():
-    """Return anomaly statistics for today."""
-    try:
-        return await anomaly_detector.get_anomaly_stats()
-    except Exception as e:
-        return {"error": str(e)}
 
 
-@app.get("/anomaly/baseline")
-async def anomaly_baseline():
-    """Return baseline collection status for system and network."""
-    try:
-        return {
-            "system": system_baseline.status(),
-            "network": network_baseline.status(),
-        }
-    except Exception as e:
-        return {"error": str(e)}
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 
 # ── Threat classifier endpoints have moved to interface/routers/threat.py and
@@ -2979,6 +2467,15 @@ _register_services(
     proximity=proximity,
     device_registry=device_registry,
     threat_monitor=getattr(sys.modules[__name__], 'threat_monitor', None),
+    deep_tools=deep_tools,
+    agent_jobs=agent_jobs,
+    plugin_manager=plugin_manager,
+    agent_factory=agent_factory,
+    system_baseline=system_baseline,
+    network_baseline=network_baseline,
+    anomaly_detector=anomaly_detector,
+    audit_trail=audit,
+    retraining_scheduler=retraining_scheduler,
 )
 for _r in _DEEP_ROUTERS:
     app.include_router(_r)
