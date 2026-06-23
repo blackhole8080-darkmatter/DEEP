@@ -2193,144 +2193,7 @@ async def respond_to_interactive(data: dict):
     result = interactive_manager.process_selection(response_id, selection)
     return result
 
-# ═══════════════════════════════════════════════════════════════════════════════
-# FINANCE ENDPOINTS
-# ═══════════════════════════════════════════════════════════════════════════════
 
-from core.integrations.personal_finance import PersonalFinanceEngine
-_finance_api = PersonalFinanceEngine()
-
-@app.get("/api/finance/summary")
-async def finance_summary(months: int = 1):
-    return _finance_api.spending_summary(months=months)
-
-@app.get("/api/finance/transactions")
-async def finance_transactions(start: str = None, end: str = None, category: str = None, limit: int = 100):
-    return {"transactions": _finance_api.list_transactions(start_date=start, end_date=end, category=category, limit=limit)}
-
-@app.post("/api/finance/transaction")
-async def finance_add_transaction(data: dict):
-    return _finance_api.add_transaction(
-        data.get("date", datetime.now().strftime("%Y-%m-%d")),
-        float(data.get("amount", 0)),
-        data.get("description", ""),
-        category=data.get("category"),
-        currency=data.get("currency", "SEK"),
-        account=data.get("account", "default"),
-    )
-
-@app.get("/api/finance/budgets")
-async def finance_budgets():
-    return {"budgets": _finance_api.get_budget_status()}
-
-@app.post("/api/finance/budget")
-async def finance_set_budget(data: dict):
-    return _finance_api.set_budget(data.get("category", ""), float(data.get("limit", 0)), data.get("currency", "SEK"))
-
-@app.get("/api/finance/bills")
-async def finance_bills():
-    return {"bills": _finance_api.list_bills()}
-
-@app.get("/api/finance/bills/upcoming")
-async def finance_upcoming_bills(days: int = 14):
-    return {"bills": _finance_api.upcoming_bills(days=days)}
-
-@app.post("/api/finance/bill")
-async def finance_add_bill(data: dict):
-    return _finance_api.add_bill(
-        data.get("name", ""), float(data.get("amount", 0)),
-        frequency=data.get("frequency", "monthly"),
-        next_due=data.get("next_due"),
-        currency=data.get("currency", "SEK"),
-    )
-
-@app.get("/api/finance/anomalies")
-async def finance_anomalies(category: str = None):
-    return {"anomalies": _finance_api.detect_anomalies(category=category)}
-
-@app.get("/api/finance/accounts")
-async def finance_accounts():
-    return {"accounts": _finance_api.get_accounts()}
-
-@app.post("/api/finance/import")
-async def finance_import_csv(data: dict):
-    return _finance_api.import_csv(
-        data.get("csv", ""),
-        date_col=data.get("date_col", "date"),
-        amount_col=data.get("amount_col", "amount"),
-        desc_col=data.get("desc_col", "description"),
-        delimiter=data.get("delimiter", ","),
-    )
-
-# ═══════════════════════════════════════════════════════════════════════════════
-# EMAIL ENDPOINTS
-# ═══════════════════════════════════════════════════════════════════════════════
-
-from core.integrations.email import EmailIntegration
-_email_api = EmailIntegration()
-
-@app.get("/api/email/inbox")
-async def email_inbox(limit: int = 20):
-    return _email_api.inbox_summary(limit=limit)
-
-@app.get("/api/email/search")
-async def email_search(q: str, limit: int = 10):
-    return _email_api.search(q, limit=limit)
-
-@app.post("/api/email/send")
-async def email_send(data: dict):
-    return _email_api.send(data.get("to", ""), data.get("subject", ""), data.get("body", ""))
-
-@app.post("/api/email/track")
-async def email_track(data: dict):
-    return _email_api.track_thread(
-        data.get("msg_id", ""), data.get("sender", ""), data.get("subject", ""),
-        notes=data.get("notes", ""),
-    )
-
-@app.get("/api/email/awaiting")
-async def email_awaiting():
-    return {"threads": _email_api.awaiting_reply()}
-
-@app.post("/api/email/replied")
-async def email_replied(data: dict):
-    return _email_api.mark_replied(data.get("msg_id", ""))
-
-# ═══════════════════════════════════════════════════════════════════════════════
-# MISSION / LONG-RUNNING ORCHESTRATOR ENDPOINTS
-# ═══════════════════════════════════════════════════════════════════════════════
-
-from core.long_running_orchestrator import LongRunningOrchestrator
-_mission_api = LongRunningOrchestrator(event_bus=event_bus)
-
-@app.post("/api/missions")
-async def create_mission(data: dict):
-    goal = (data or {}).get("goal", "")
-    if not goal:
-        return {"error": "goal required"}
-    m = _mission_api.create_mission(goal)
-    return {"mission_id": m.id, "goal": m.goal, "status": m.status}
-
-@app.get("/api/missions")
-async def list_missions(status: str = None, limit: int = 20):
-    missions = _mission_api.list_missions(status=status, limit=limit)
-    return {"missions": [{
-        "id": m.id, "goal": m.goal, "status": m.status,
-        "progress_pct": m.progress_pct, "created_at": m.created_at,
-        "updated_at": m.updated_at, "error": m.error,
-    } for m in missions]}
-
-@app.get("/api/missions/{mission_id}")
-async def get_mission(mission_id: str):
-    try:
-        return _mission_api.get_mission_detail(mission_id)
-    except ValueError as e:
-        return {"error": str(e)}
-
-@app.post("/api/missions/{mission_id}/cancel")
-async def cancel_mission(mission_id: str):
-    _mission_api.cancel_mission(mission_id)
-    return {"mission_id": mission_id, "status": "cancelled"}
 
 # ═══════════════════════════════════════════════════════════════════════════════
 # KNOWLEDGE ENDPOINTS
@@ -2520,6 +2383,64 @@ async def network_pihole_queries(count: int = 50):
 async def network_wifi_status():
     """Evil twin detector status."""
     return evil_twin.status()
+
+
+@app.get("/api/network/geo")
+async def api_network_geo():
+    """Connection geography: geolocate the machine's live established outbound
+    connections (public remote IPs only) for the connection map. Uses ip-api's
+    batch endpoint (one request) so it stays within free-tier rate limits."""
+    import asyncio as _asyncio
+
+    def _scan() -> dict:
+        import ipaddress
+        from collections import Counter
+        try:
+            import psutil
+        except Exception as e:
+            return {"error": f"psutil unavailable: {e}", "peers": []}
+        remotes: Counter = Counter()
+        try:
+            for c in psutil.net_connections(kind="inet"):
+                if c.status == "ESTABLISHED" and c.raddr:
+                    ip = c.raddr.ip
+                    try:
+                        if ipaddress.ip_address(ip).is_global:
+                            remotes[ip] += 1
+                    except ValueError:
+                        continue
+        except Exception as e:
+            return {"error": f"connection enumeration failed: {e}", "peers": []}
+        ips = [ip for ip, _ in remotes.most_common(50)]  # cap for rate limits
+        if not ips:
+            return {"count": 0, "peers": [], "note": "no public connections"}
+        try:
+            import requests
+            r = requests.post(
+                "http://ip-api.com/batch",
+                params={"fields": "status,query,country,regionName,city,isp,as,lat,lon,proxy,hosting"},
+                json=ips, timeout=8,
+            )
+            data = r.json()
+        except Exception as e:
+            return {"error": f"geo lookup failed: {e}", "peers": []}
+        peers = []
+        for d in data if isinstance(data, list) else []:
+            if d.get("status") == "success":
+                peers.append({
+                    "ip": d["query"], "lat": d["lat"], "lon": d["lon"],
+                    "city": d.get("city"), "region": d.get("regionName"),
+                    "country": d.get("country"), "isp": d.get("isp"),
+                    "asn": d.get("as"), "proxy": bool(d.get("proxy")),
+                    "hosting": bool(d.get("hosting")),
+                    "connections": remotes[d["query"]],
+                })
+        return {"count": len(peers), "peers": peers}
+
+    try:
+        return await _asyncio.to_thread(_scan)
+    except Exception as e:
+        return {"error": str(e), "peers": []}
 
 
 # ═══════════════════════════════════════════════════════════════════════════════

@@ -19,6 +19,7 @@ export const GROUPS: Group[] = [
     label: "Network",
     tabs: [
       { route: "network", label: "devices" },
+      { route: "connections", label: "connections" },
       { route: "system", label: "system" },
       { route: "audit", label: "audit" },
       { route: "memory", label: "memory" },

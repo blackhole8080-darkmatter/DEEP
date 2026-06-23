@@ -38,6 +38,8 @@ export const TOOL_REGISTRY: ToolDef[] = [
     load: () => import("../components/ops/etis-hud"),       render: () => html`<etis-hud></etis-hud>` },
   { id: "system",   label: "System",    icon: "▦", group: "system",
     load: () => import("../components/system/system-monitor"), render: () => html`<system-monitor></system-monitor>` },
+  { id: "connections", label: "Connections", icon: "✣", group: "system",
+    load: () => import("../components/network/connection-map"), render: () => html`<connection-map></connection-map>` },
   { id: "audit",    label: "Audit",     icon: "❖", group: "system",
     load: () => import("../components/ops/audit-view"),     render: () => html`<audit-view></audit-view>` },
 
