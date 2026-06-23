@@ -70,8 +70,6 @@ export interface SystemInfo {
 }
 export const fetchSystemInfo = () => get<SystemInfo>("/api/system/info");
 
-export interface GeoSelf { status: string; country: string; regionName: string; city: string; lat: number; lon: number; query: string; isp?: string; }
-export const fetchGeo = () => get<GeoSelf>("/api/geo/self");
 
 export interface MathSolveResult { ok: boolean; kind?: string; expression?: string; result?: string; engine?: string; latex?: string | null; latex_expr?: string | null; }
 export async function mathSolve(query: string): Promise<MathSolveResult> {

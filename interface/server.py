@@ -2827,23 +2827,6 @@ async def api_system_info():
 
     return info
 
-@app.get("/api/geo/self")
-async def api_geo_self():
-    """Approximate geolocation of this machine (for the geo-intel map 'home')."""
-    import asyncio as _asyncio
-    def _self():
-        try:
-            import requests
-            r = requests.get("http://ip-api.com/json/", params={"fields": "status,country,regionName,city,lat,lon,query"}, timeout=5)
-            d = r.json()
-            return d if d.get("status") == "success" else {"error": "lookup failed"}
-        except Exception as e:
-            return {"error": str(e)}
-    try:
-        return await _asyncio.to_thread(_self)
-    except Exception as e:
-        return {"error": str(e)}
-
 @app.get("/api/reasoning/last")
 async def api_reasoning_last():
     """Reasoning transparency: which model handled the last brain turn + steps."""

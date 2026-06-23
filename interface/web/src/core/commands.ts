@@ -56,7 +56,6 @@ registerCommand({ id: "nav.memory", label: "Open Memory Graph", hint: "nav", run
 registerCommand({ id: "nav.network", label: "Open Network (Devices · Vitals · Proximity)", hint: "nav", run: go("network") });
 registerCommand({ id: "nav.audit", label: "Open Audit Ledger", hint: "nav", run: go("audit") });
 registerCommand({ id: "nav.system", label: "Open System Monitor (Usage · Displays · Cores)", hint: "nav", run: go("system") });
-registerCommand({ id: "nav.geo", label: "Open Geo Location", hint: "nav", run: go("geo") });
 registerCommand({ id: "nav.calc", label: "Open Graphing Calculator", hint: "nav", run: go("calc") });
 registerCommand({ id: "nav.legacy", label: "Open Legacy UI (/ai)", hint: "nav", run: () => { location.href = "/ai"; } });
 
