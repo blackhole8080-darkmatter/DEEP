@@ -63,11 +63,21 @@ class RoutingLLM:
         cap = min(max_tokens, ceiling)
         attempts = max(1, int(getattr(self._settings, "llm_retry_attempts", 1)) + 1)
         backoff = float(getattr(self._settings, "llm_retry_backoff_s", 0.8))
+        try:
+            from core import telemetry as _tel
+        except Exception:
+            _tel = None
+        _start = asyncio.get_event_loop().time()
+        _fallthroughs = 0
         for provider, model, key, streamer in self._cloud_chain():
             emitted = False
             for attempt in range(attempts):
                 try:
                     async for tok in streamer(system_prompt, msgs, model, key, cap):
+                        if not emitted and _tel:  # record time-to-first-token once
+                            _tel.record_llm(provider, model,
+                                            latency_ms=(asyncio.get_event_loop().time() - _start) * 1000,
+                                            ok=True, fallthroughs=_fallthroughs)
                         emitted = True
                         self.last_provider = f"{provider}:{model}"
                         yield tok
@@ -86,9 +96,16 @@ class RoutingLLM:
                         continue
                     print(f"[DEEP] {provider} brain stream failed, trying next provider: "
                           f"{type(e).__name__}: {str(e)[:160]}")
+                    if _tel:
+                        _tel.record_llm(provider, model, ok=False, fallthroughs=_fallthroughs,
+                                        note=f"{type(e).__name__}: {str(e)[:120]}")
                     break  # move to next provider
+            _fallthroughs += 1
         # Final fallback: local Ollama (always available, also tool-capable).
         self.last_provider = f"ollama:{self._settings.ollama_model}"
+        if _tel:
+            _tel.record_llm("ollama", self._settings.ollama_model, ok=True,
+                            fallthroughs=_fallthroughs, note="final-fallback")
         async for tok in self._local.generate_stream(
             system_prompt=system_prompt, user_prompt=user_prompt,
             temperature=temperature, max_tokens=max_tokens, **kw

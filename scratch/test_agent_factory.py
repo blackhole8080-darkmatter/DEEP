@@ -4,7 +4,7 @@ from pathlib import Path
 sys.path.append(str(Path(__file__).parent.parent))
 
 from core.agent_factory import AgentFactory
-from core.application.tool_registry import DeepToolRegistry
+from core.tools.deep_registry import DeepToolRegistry
 from core.event_bus import EventBus
 
 # Mock LLM and Agent

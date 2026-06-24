@@ -30,6 +30,7 @@ const lazyView: Record<string, () => Promise<unknown>> = {
   memory: () => import("./memory/memory-graph"),
   system: () => import("./system/system-monitor"),
   connections: () => import("./network/connection-map"),
+  stack: () => import("./system/stack-view"),
   calc: () => import("./science/calc-view"),
   projects: () => import("./knowledge/projects-view"),
   research: () => import("./knowledge/research-view"),

@@ -15,6 +15,17 @@ router = APIRouter(tags=["system"])
 _provider_health_cache: dict = {"ts": 0.0, "data": None}
 
 
+@router.get("/api/telemetry/summary")
+async def telemetry_summary(hours: int = 24):
+    """Observability for DEEP's model + tool layers: provider mix, latency
+    percentiles, fallthroughs, and per-tool call/error stats over `hours`."""
+    try:
+        from core import telemetry
+        return telemetry.summary(hours=hours)
+    except Exception as e:
+        return {"error": str(e), "llm": {}, "tools": {}}
+
+
 @router.get("/api/briefing")
 async def briefing():
     """JARVIS startup briefing — date, time, greeting, status."""

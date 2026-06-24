@@ -64,11 +64,13 @@ class Nudge:
     title: str
     body: str
     confidence: float
+    payload: Dict[str, Any] = field(default_factory=dict)
     created_iso: str = field(default_factory=lambda: datetime.now().isoformat())
 
     def to_dict(self) -> Dict[str, Any]:
         return {"id": self.id, "kind": self.kind, "title": self.title,
                 "body": self.body, "confidence": round(self.confidence, 3),
+                "payload": self.payload,
                 "created": self.created_iso}
 
 
@@ -144,6 +146,8 @@ class ProactiveCore:
         candidates.extend(self._from_graph_inference())
         candidates.extend(self._from_goals())
         candidates.extend(self._from_idle())
+        candidates.extend(await self._from_system())
+        candidates.extend(self._from_geo_anomalies())
 
         # Admissibility filter: confidence floor + not a recent repeat.
         now = time.time()
@@ -295,6 +299,89 @@ class ProactiveCore:
             body=f"I'm here when you want to get back to: {goals[0]}.",
             confidence=0.5,
         )]
+
+    async def _from_system(self) -> List[Nudge]:
+        """Deterministic 3 AM Network Scan."""
+        now = datetime.now()
+        if now.hour != 3:
+            return []
+        
+        # Only run once per day
+        scan_key = f"scan_{now.strftime('%Y-%m-%d')}"
+        if self._recent_texts.get(scan_key):
+            return []
+            
+        self._recent_texts[scan_key] = time.time()
+        
+        try:
+            from core.tools.registry import TOOL_SPECS
+            import core.tools.deep_registry
+            from core.integrations.cyber_sec import CyberSecurityIntegration
+            
+            # Temporary instantiation of cyber to run the scan
+            cyber = CyberSecurityIntegration()
+            res = await cyber.scan_network_arp()
+            
+            nudges = []
+            nudges.append(Nudge(
+                id=f"nudge_scan_{int(time.time()*1000)}",
+                kind="security",
+                title="3 AM Security Scan Complete",
+                body=f"Network scan finished automatically: {res[:200]}...",
+                confidence=1.0,
+                payload={"type": "network_scan", "results": res}
+            ))
+            
+            # Local Vuln Matcher
+            vulns = await cyber.scan_local_vulns()
+            if vulns:
+                for v in vulns:
+                    nudges.append(Nudge(
+                        id=f"nudge_vuln_{v['cve_id']}_{int(time.time()*100)}",
+                        kind="security",
+                        title=f"⚠ Possibly Affected: {v['software']}",
+                        body=f"Local software '{v['software']}' (v{v['version']}) fuzzy-matched a recent KEV: {v['cve_id']}. Please verify your version against the CVE.",
+                        confidence=0.5,  # Low confidence due to loose string matching
+                        payload={"type": "local_vuln", "data": v}
+                    ))
+            
+            return nudges
+        except Exception as e:
+            return []
+
+    def _from_geo_anomalies(self) -> List[Nudge]:
+        """Check for WAN connection anomalies (10-minute throttle)."""
+        now = time.time()
+        geo_key = "geo_anomaly_check"
+        last_check = self._recent_texts.get(geo_key, 0)
+        
+        # 10 minute throttle
+        if now - last_check < 600:
+            return []
+            
+        self._recent_texts[geo_key] = now
+        
+        try:
+            from network.connection_geo import check_geo_anomalies
+            anomalies = check_geo_anomalies()
+            nudges = []
+            for a in anomalies:
+                # Deduplicate exact anomalies using title
+                if self._recent_texts.get(f"geo_anom_{a['title']}"):
+                    continue
+                self._recent_texts[f"geo_anom_{a['title']}"] = now
+                
+                nudges.append(Nudge(
+                    id=f"nudge_geo_{int(time.time()*1000)}",
+                    kind="security",
+                    title=f"Anomaly: {a['title']}",
+                    body=a['description'],
+                    confidence=0.85 if a['severity'] == "medium" else 0.7,
+                    payload={"type": "geo_anomaly", "data": a}
+                ))
+            return nudges
+        except Exception as e:
+            return []
 
     # ─── emission + dedup ─────────────────────────────────────────────────────
 

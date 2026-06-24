@@ -6,7 +6,13 @@ failed geo lookup yields an error dict rather than raising.
 """
 from __future__ import annotations
 
-from typing import Any, Dict
+from typing import Any, Dict, List
+import json
+import logging
+from pathlib import Path
+from datetime import datetime, timezone
+
+logger = logging.getLogger(__name__)
 
 
 def scan_connections(max_peers: int = 50) -> Dict[str, Any]:
@@ -89,3 +95,90 @@ def scan_connections(max_peers: int = 50) -> Dict[str, Any]:
     all_procs = sorted({n for p in peers for n in p["processes"]})
     return {"count": len(peers), "elevated": elevated, "countries": countries,
             "processes": all_procs, "origin": origin, "peers": peers}
+
+
+def check_geo_anomalies(data_dir: str = None) -> List[Dict[str, Any]]:
+    """Stateful anomaly detector. Returns a list of 'anomaly' dicts for coarse novelties
+    (new country or ASN) discovered via scan_connections(). Includes a learning phase
+    to prevent day-one alert storms.
+    """
+    import os
+    
+    anomalies = []
+    scan_res = scan_connections()
+    if "error" in scan_res or not scan_res.get("peers"):
+        return anomalies
+        
+    base_dir = Path(data_dir) if data_dir else Path(__file__).parent.parent.parent / "data" / "security"
+    base_dir.mkdir(parents=True, exist_ok=True)
+    state_file = base_dir / "geo_baseline.json"
+    
+    # Load state
+    state = {
+        "first_run": datetime.now(timezone.utc).isoformat(),
+        "baseline_established": False,
+        "known_countries": [],
+        "known_asns": []
+    }
+    
+    if state_file.exists():
+        try:
+            with open(state_file, "r", encoding="utf-8") as f:
+                state.update(json.load(f))
+        except Exception as e:
+            logger.warning(f"Failed to load geo baseline: {e}")
+            
+    # Check warmup period (24 hours)
+    first_run = datetime.fromisoformat(state["first_run"])
+    hours_since_first = (datetime.now(timezone.utc) - first_run).total_seconds() / 3600.0
+    
+    if hours_since_first > 24 and not state["baseline_established"]:
+        state["baseline_established"] = True
+        logger.info("[Geo] Baseline warmup complete.")
+        
+    known_countries = set(state["known_countries"])
+    known_asns = set(state["known_asns"])
+    
+    new_countries = set()
+    new_asns = set()
+    
+    for p in scan_res.get("peers", []):
+        c = p.get("country")
+        asn = p.get("asn")
+        procs = p.get("processes", [])
+        
+        if c and c not in known_countries:
+            new_countries.add(c)
+            known_countries.add(c)
+            if state["baseline_established"]:
+                anomalies.append({
+                    "type": "new_country",
+                    "title": f"First connection to {c}",
+                    "description": f"Process(es) {', '.join(procs) or 'Unknown'} opened a connection to {c} ({p['ip']}).",
+                    "severity": "medium",
+                    "details": p
+                })
+                
+        if asn and asn not in known_asns:
+            new_asns.add(asn)
+            known_asns.add(asn)
+            if state["baseline_established"]:
+                anomalies.append({
+                    "type": "new_asn",
+                    "title": f"Connection to new ASN",
+                    "description": f"Process(es) {', '.join(procs) or 'Unknown'} talking to {asn} ({p['ip']}).",
+                    "severity": "low",
+                    "details": p
+                })
+                
+    # Save state
+    state["known_countries"] = sorted(list(known_countries))
+    state["known_asns"] = sorted(list(known_asns))
+    
+    try:
+        with open(state_file, "w", encoding="utf-8") as f:
+            json.dump(state, f, indent=2)
+    except Exception as e:
+        logger.warning(f"Failed to save geo baseline: {e}")
+        
+    return anomalies

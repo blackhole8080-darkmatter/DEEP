@@ -55,7 +55,7 @@ from core.metrics import metrics
 from core.event_bus import EventBus
 from core.infrastructure.async_brain import AsyncBrain
 from core.multi_llm_router import OllamaClient, ProviderConfig, LLMProvider
-from core.application.tool_registry import DeepToolRegistry
+from core.tools.deep_registry import DeepToolRegistry
 from core.ltm_memory import LongTermMemory
 # core.voice_web / core.local_stt imports removed (VoiceWeb/LocalSTT stubbed above)
 from core.agent_factory import AgentFactory

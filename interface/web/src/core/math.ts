@@ -4,6 +4,7 @@
 // fully offline (no network), matching DEEP's offline-first design.
 import katex from "katex";
 import katexCssText from "katex/dist/katex.min.css?inline";
+import "katex/dist/contrib/mhchem.mjs";
 import { css, unsafeCSS } from "lit";
 
 // KaTeX stylesheet as a Lit `css` literal so components that render math can

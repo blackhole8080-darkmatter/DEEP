@@ -40,6 +40,8 @@ export const TOOL_REGISTRY: ToolDef[] = [
     load: () => import("../components/system/system-monitor"), render: () => html`<system-monitor></system-monitor>` },
   { id: "connections", label: "Connections", icon: "✣", group: "system",
     load: () => import("../components/network/connection-map"), render: () => html`<connection-map></connection-map>` },
+  { id: "stack",    label: "Stack",     icon: "▤", group: "system",
+    load: () => import("../components/system/stack-view"), render: () => html`<stack-view></stack-view>` },
   { id: "audit",    label: "Audit",     icon: "❖", group: "system",
     load: () => import("../components/ops/audit-view"),     render: () => html`<audit-view></audit-view>` },
 

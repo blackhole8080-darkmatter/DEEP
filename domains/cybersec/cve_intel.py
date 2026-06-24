@@ -79,6 +79,7 @@ class CVEIntel:
         self._api_key = nvd_api_key
         self._cache: Dict[str, Any] = {}
         self._kev_cache: Optional[List[str]] = None
+        self._kev_entries_cache: Optional[List[Dict[str, Any]]] = None
         self._kev_fetched: float = 0.0
         self._cache_ttl = cache_ttl
         self._last_request: float = 0.0
@@ -265,12 +266,21 @@ class CVEIntel:
                     async with session.get(_KEV_URL, timeout=aiohttp.ClientTimeout(total=15)) as resp:
                         data = await resp.json(content_type=None)
 
-            ids = [entry["cveID"] for entry in data.get("vulnerabilities", [])]
+            entries = data.get("vulnerabilities", [])
+            ids = [entry["cveID"] for entry in entries]
             self._kev_cache = ids
+            self._kev_entries_cache = entries
             self._kev_fetched = now
             return ids
         except Exception:
             return []
+
+    async def get_kev_entries(self) -> List[Dict[str, Any]]:
+        """Return the full KEV catalog entries (vendorProject, product, cveID,
+        dateAdded, dueDate, shortDescription, etc.) — one download, full coverage,
+        zero per-CVE NVD calls."""
+        await self._fetch_kev_catalog()
+        return self._kev_entries_cache or []
 
     async def _check_kev(self, cve_id: str) -> bool:
         """Check if a CVE ID is in the CISA KEV catalog."""
