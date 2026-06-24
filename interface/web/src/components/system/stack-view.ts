@@ -72,16 +72,20 @@ export class StackView extends LitElement {
             ${this.stat("ok", llm.ok)}
             ${this.stat("fallthroughs", llm.fallthroughs, llm.fallthroughs > 0)}
             ${this.stat("p50", llm.p50_ms != null ? `${llm.p50_ms}ms` : "—")}
-            ${this.stat("p95", llm.p95_ms != null ? `${llm.p95_ms}ms` : "—")}
+            ${this.stat("~tokens", (llm.est_tokens ?? 0).toLocaleString())}
+            ${this.stat("~cost", `$${(llm.est_cost_usd ?? 0).toFixed(4)}`)}
           </div>
           <table>
-            <tr><th>provider:model</th><th class="num">calls</th><th class="num">ok</th><th class="num">p50</th><th class="num">p95</th></tr>
+            <tr><th>provider:model</th><th class="num">calls</th><th class="num">ok</th><th class="num">p50</th><th class="num">~tok</th><th class="num">~cost</th></tr>
             ${llm.providers.map((p) => html`<tr>
               <td>${p.provider}</td><td class="num">${p.calls}</td>
               <td class="num ${p.ok < p.calls ? "err" : ""}">${p.ok}</td>
-              <td class="num">${p.p50_ms ?? "—"}</td><td class="num">${p.p95_ms ?? "—"}</td>
+              <td class="num">${p.p50_ms ?? "—"}</td>
+              <td class="num">${(p.tokens ?? 0).toLocaleString()}</td>
+              <td class="num">$${(p.cost ?? 0).toFixed(4)}</td>
             </tr>`)}
           </table>
+          <div class="muted" style="margin-top:var(--ds-space-2);font-size:var(--ds-text-xs)">Tokens & cost are estimates (~4 chars/token × published rates), not billed figures.</div>
         ` : html`<span class="muted">No LLM calls recorded yet — send a chat message.</span>`}
       </ds-panel>
 

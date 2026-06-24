@@ -79,7 +79,7 @@ export const fetchInvestigate = (target: string) => get<Dossier>(`/api/investiga
 export interface TelemetrySummary {
   window_hours?: number;
   error?: string;
-  llm?: { total_calls: number; ok: number; fallthroughs: number; p50_ms: number | null; p95_ms: number | null; providers: { provider: string; calls: number; ok: number; p50_ms: number | null; p95_ms: number | null }[] };
+  llm?: { total_calls: number; ok: number; fallthroughs: number; p50_ms: number | null; p95_ms: number | null; est_tokens?: number; est_cost_usd?: number; providers: { provider: string; calls: number; ok: number; p50_ms: number | null; p95_ms: number | null; tokens?: number; cost?: number }[] };
   tools?: { total_calls: number; errors: number; by_tool: { name: string; calls: number; errors: number; p50_ms: number | null; p95_ms: number | null }[] };
 }
 export const fetchTelemetry = (hours = 24) => get<TelemetrySummary>(`/api/telemetry/summary?hours=${hours}`);

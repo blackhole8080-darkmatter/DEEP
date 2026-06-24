@@ -69,19 +69,25 @@ class RoutingLLM:
             _tel = None
         _start = asyncio.get_event_loop().time()
         _fallthroughs = 0
+        _tokens_in = _tel.estimate_tokens(system_prompt + user_prompt) if _tel else 0
         for provider, model, key, streamer in self._cloud_chain():
             emitted = False
+            _ttft = None
+            _completion_chars = 0
             for attempt in range(attempts):
                 try:
                     async for tok in streamer(system_prompt, msgs, model, key, cap):
-                        if not emitted and _tel:  # record time-to-first-token once
-                            _tel.record_llm(provider, model,
-                                            latency_ms=(asyncio.get_event_loop().time() - _start) * 1000,
-                                            ok=True, fallthroughs=_fallthroughs)
+                        if not emitted:
+                            _ttft = (asyncio.get_event_loop().time() - _start) * 1000
                         emitted = True
+                        _completion_chars += len(tok or "")
                         self.last_provider = f"{provider}:{model}"
                         yield tok
                     if emitted:
+                        if _tel:  # record once the successful stream completes
+                            _tel.record_llm(provider, model, latency_ms=_ttft, ok=True,
+                                            fallthroughs=_fallthroughs, tokens_in=_tokens_in,
+                                            tokens_out=_completion_chars // 4)
                         return
                     break  # provider returned nothing — try next provider
                 except Exception as e:
@@ -105,7 +111,8 @@ class RoutingLLM:
         self.last_provider = f"ollama:{self._settings.ollama_model}"
         if _tel:
             _tel.record_llm("ollama", self._settings.ollama_model, ok=True,
-                            fallthroughs=_fallthroughs, note="final-fallback")
+                            fallthroughs=_fallthroughs, note="final-fallback",
+                            tokens_in=_tokens_in)
         async for tok in self._local.generate_stream(
             system_prompt=system_prompt, user_prompt=user_prompt,
             temperature=temperature, max_tokens=max_tokens, **kw
