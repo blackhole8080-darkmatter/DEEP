@@ -5,7 +5,6 @@ registers the ones routers need here via :func:`register`. Router modules import
 this registry instead of `server.py`, which keeps the dependency arrow
 one-directional (server -> routers -> deps) and avoids a circular import.
 
-Each router reads its service lazily at request time (``services.research_engine``)
 so registration order between server.py and router import does not matter.
 """
 

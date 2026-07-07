@@ -18,39 +18,23 @@ export interface ToolDef {
 
 export const TOOL_REGISTRY: ToolDef[] = [
   // ── Intelligence ──
-  { id: "agents",   label: "Agents",    icon: "✦", group: "intelligence",
-    load: () => import("../components/ops/agents-view"),    render: () => html`<agents-view></agents-view>` },
   { id: "memory",   label: "Knowledge", icon: "◐", group: "intelligence",
     load: () => import("../components/memory/memory-graph"), render: () => html`<memory-graph></memory-graph>` },
-  { id: "research", label: "Research",  icon: "◑", group: "intelligence",
-    load: () => import("../components/knowledge/research-view"), render: () => html`<research-view></research-view>` },
   { id: "science",  label: "Science",   icon: "∿", group: "intelligence",
     load: () => import("../components/science/science-view"), render: () => html`<science-view></science-view>` },
-  { id: "calc",     label: "Compute",   icon: "∑", group: "intelligence",
-    load: () => import("../components/science/calc-view"),  render: () => html`<calc-view></calc-view>` },
-  { id: "missions", label: "Missions",  icon: "➤", group: "intelligence",
-    load: () => import("../components/ops/missions-view"),  render: () => html`<missions-view></missions-view>` },
 
   // ── System ──
+  { id: "telemetry",label: "Telemetry", icon: "⎈", group: "system",
+    load: () => import("../components/dashboard-view"),     render: () => html`<dashboard-view></dashboard-view>` },
   { id: "network",  label: "Network",   icon: "◎", group: "system",
     load: () => import("../components/ops/network-view"),   render: () => html`<network-view></network-view>` },
   { id: "etis",     label: "ETIS",      icon: "🛡", group: "system",
     load: () => import("../components/ops/etis-hud"),       render: () => html`<etis-hud></etis-hud>` },
-  { id: "system",   label: "System",    icon: "▦", group: "system",
-    load: () => import("../components/system/system-monitor"), render: () => html`<system-monitor></system-monitor>` },
-  { id: "connections", label: "Connections", icon: "✣", group: "system",
-    load: () => import("../components/network/connection-map"), render: () => html`<connection-map></connection-map>` },
-  { id: "stack",    label: "Stack",     icon: "▤", group: "system",
-    load: () => import("../components/system/stack-view"), render: () => html`<stack-view></stack-view>` },
   { id: "audit",    label: "Audit",     icon: "❖", group: "system",
     load: () => import("../components/ops/audit-view"),     render: () => html`<audit-view></audit-view>` },
 
 
   // ── Personal ──
-  { id: "finance",  label: "Finance",   icon: "₿", group: "personal",
-    load: () => import("../components/finance/finance-view"), render: () => html`<finance-view></finance-view>` },
-  { id: "email",    label: "Email",     icon: "✉", group: "personal",
-    load: () => import("../components/email/email-view"),   render: () => html`<email-view></email-view>` },
   { id: "projects", label: "Projects",  icon: "◇", group: "personal",
     load: () => import("../components/knowledge/projects-view"), render: () => html`<projects-view></projects-view>` },
 ];

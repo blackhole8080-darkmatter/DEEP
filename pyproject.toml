@@ -1,0 +1,102 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "deep"
+version = "0.1.0"
+description = "DEEP - Expert Technical Intelligence System"
+readme = "README.md"
+requires-python = ">=3.11"
+dependencies = [
+    "python-dotenv",
+    "requests",
+    "psutil",
+    "numpy",
+    "scipy",
+    "watchdog",
+    "gitpython",
+    "onnxruntime",
+    "transformers",
+    "tokenizers",
+    "scapy",
+    "chromadb",
+    "sentence-transformers",
+    "anthropic",
+    "ollama",
+    "openai",
+    "aiohttp",
+    "aiosqlite",
+    "scikit-learn",
+    "joblib",
+    "skl2onnx",
+    "librosa",
+    "httpx",
+    "openai-whisper",
+    "pyttsx3",
+    "sounddevice",
+    "soundfile",
+    "SpeechRecognition",
+    "pyaudio",
+    "openwakeword",
+    "piper-tts",
+    "elevenlabs",
+    "flask",
+    "fastapi",
+    "uvicorn",
+    "websockets",
+    "feedparser",
+    "schedule",
+    "playwright",
+    "beautifulsoup4",
+    "lxml",
+    "pyautogui",
+    "pycaw",
+    "pynput",
+    "duckduckgo-search",
+    "plyer",
+    "cryptography",
+    "python-nmap",
+    "qrcode[pil]",
+    "redis[asyncio]",
+    "mac-vendor-lookup",
+    "pillow",
+    "pytesseract",
+    "google-api-python-client",
+    "google-auth-httplib2",
+    "google-auth-oauthlib",
+    "icalendar",
+    "tqdm",
+    "sympy",
+    "matplotlib",
+    "pypdf",
+    "dnspython",
+    "bleak",
+    "dpkt",
+    "torch"
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest",
+    "pytest-asyncio",
+    "black",
+    "ruff",
+    "mypy"
+]
+
+[tool.ruff]
+line-length = 88
+target-version = "py311"
+
+[tool.ruff.lint]
+select = ["E", "F", "I"]
+ignore = []
+
+[tool.mypy]
+python_version = "3.11"
+ignore_missing_imports = true
+strict = false
+
+[tool.hatch.build.targets.wheel]
+packages = ["core", "engine", "interface", "ai", "mcp_server"]

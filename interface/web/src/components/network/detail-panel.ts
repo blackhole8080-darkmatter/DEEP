@@ -18,30 +18,63 @@ export class NetworkDetailPanel extends LitElement {
   @property({ type: Boolean }) loading = false;
 
   static styles = css`
-    :host { display: block; }
-    .panel { background: var(--ds-surface-1); border-left: 1px solid var(--ds-border); padding: var(--ds-space-4); height: 100%; overflow-y: auto; }
-    .header { display: flex; align-items: center; gap: var(--ds-space-2); margin-bottom: var(--ds-space-3); }
-    .layer-badge { padding: 1px 8px; border-radius: var(--ds-radius-pill); font-size: var(--ds-text-xs); font-weight: 600; text-transform: uppercase; }
-    .layer-lan { background: color-mix(in srgb, var(--ds-success) 12%, transparent); color: var(--ds-success); }
-    .layer-wifi { background: color-mix(in srgb, var(--ds-warning) 12%, transparent); color: var(--ds-warning); }
-    .layer-bluetooth { background: color-mix(in srgb, var(--ds-iris, var(--ds-iris, #8b5cf6)) 12%, transparent); color: var(--ds-iris, #8b5cf6); }
-    .layer-vpn { background: color-mix(in srgb, var(--ds-info) 12%, transparent); color: var(--ds-info); }
-    .layer-internet { background: color-mix(in srgb, var(--ds-danger) 12%, transparent); color: var(--ds-danger); }
-    .layer-dns { background: color-mix(in srgb, var(--ds-coral, var(--ds-coral, #d946ef)) 12%, transparent); color: var(--ds-coral, #d946ef); }
-    .layer-ai { background: color-mix(in srgb, var(--ds-sky, var(--ds-sky, #3b82f6)) 12%, transparent); color: var(--ds-sky, #3b82f6); }
-    .section { margin-bottom: var(--ds-space-4); }
-    .section-title { font-size: var(--ds-text-xs); color: var(--ds-text-faint); text-transform: uppercase; letter-spacing: var(--ds-tracking-wide); margin-bottom: var(--ds-space-2); }
-    .meta-grid { display: grid; grid-template-columns: 1fr 1fr; gap: var(--ds-space-2); }
-    .meta-item { background: var(--ds-surface-2); padding: var(--ds-space-2); border-radius: var(--ds-radius-sm); font-size: var(--ds-text-sm); }
-    .meta-item .k { font-size: var(--ds-text-xs); color: var(--ds-text-muted); text-transform: uppercase; }
-    .meta-item .v { color: var(--ds-text); font-family: var(--ds-font-mono); word-break: break-all; }
-    .inference { background: var(--ds-surface-2); padding: var(--ds-space-3); border-radius: var(--ds-radius-sm); margin-bottom: var(--ds-space-2); border-left: 3px solid var(--ds-accent); }
-    .inference .conf { font-size: var(--ds-text-xs); color: var(--ds-text-muted); }
-    .inference .text { font-size: var(--ds-text-sm); color: var(--ds-text); margin-top: var(--ds-space-1); }
-    .analysis-result { background: var(--ds-surface-2); padding: var(--ds-space-3); border-radius: var(--ds-radius-sm); font-size: var(--ds-text-sm); color: var(--ds-text); white-space: pre-wrap; }
-    .muted { color: var(--ds-text-muted); font-size: var(--ds-text-sm); }
-    button { background: var(--ds-accent); color: var(--ds-on-accent); border: none; padding: var(--ds-space-2) var(--ds-space-3); border-radius: var(--ds-radius-sm); font-size: var(--ds-text-sm); cursor: pointer; }
-    button:disabled { opacity: 0.5; cursor: not-allowed; }
+    :host { display: block; font-family: var(--ds-font-mono, monospace); }
+    .panel { 
+      background: rgba(2, 4, 8, 0.6); 
+      padding: 20px; 
+      height: 100%; 
+      overflow-y: auto; 
+      color: rgba(0, 229, 255, 0.8);
+    }
+    .header { 
+      display: flex; align-items: center; gap: 12px; margin-bottom: 24px; 
+      padding-bottom: 12px; border-bottom: 1px solid rgba(0, 229, 255, 0.2);
+    }
+    .layer-badge { 
+      padding: 4px 10px; border-radius: 2px; font-size: 0.7rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.1em;
+      border: 1px solid currentColor;
+    }
+    .layer-lan { color: #10b981; background: rgba(16, 185, 129, 0.1); }
+    .layer-wifi { color: #f59e0b; background: rgba(245, 158, 11, 0.1); }
+    .layer-bluetooth { color: #8b5cf6; background: rgba(139, 92, 246, 0.1); }
+    .layer-vpn { color: var(--ds-accent); background: rgba(0, 229, 255, 0.1); }
+    .layer-internet { color: #ef4444; background: rgba(239, 68, 68, 0.1); }
+    .layer-dns { color: #d946ef; background: rgba(217, 70, 239, 0.1); }
+    .layer-ai { color: #3b82f6; background: rgba(59, 130, 246, 0.1); }
+    
+    .section { margin-bottom: 24px; }
+    .section-title { font-size: 0.7rem; color: rgba(255,255,255,0.5); text-transform: uppercase; letter-spacing: 0.2em; margin-bottom: 12px; }
+    .meta-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+    .meta-item { 
+      background: rgba(0, 0, 0, 0.5); 
+      border: 1px solid rgba(0, 229, 255, 0.15);
+      padding: 10px; border-radius: 2px; font-size: 0.8rem; 
+    }
+    .meta-item .k { font-size: 0.65rem; color: rgba(255,255,255,0.4); text-transform: uppercase; letter-spacing: 0.1em; margin-bottom: 4px; }
+    .meta-item .v { color: var(--ds-accent); word-break: break-all; }
+    
+    .inference { 
+      background: rgba(0, 0, 0, 0.5); padding: 12px; border-radius: 2px; margin-bottom: 8px; 
+      border: 1px solid rgba(0, 229, 255, 0.15); border-left: 3px solid var(--ds-accent); 
+    }
+    .inference .conf { font-size: 0.65rem; color: rgba(255,255,255,0.4); text-transform: uppercase; letter-spacing: 0.1em; }
+    .inference .text { font-size: 0.8rem; color: var(--ds-accent); margin-top: 6px; }
+    
+    .analysis-result { background: #000; border: 1px solid var(--ds-accent); padding: 16px; border-radius: 2px; font-size: 0.8rem; color: var(--ds-accent); white-space: pre-wrap; box-shadow: inset 0 0 15px rgba(0, 229, 255, 0.1); }
+    .muted { color: rgba(255,255,255,0.3); font-size: 0.8rem; font-style: italic; }
+    
+    button { 
+      background: transparent; color: var(--ds-accent); border: 1px solid var(--ds-accent); 
+      padding: 6px 12px; border-radius: 2px; font-size: 0.7rem; font-family: var(--ds-font-mono, monospace);
+      text-transform: uppercase; letter-spacing: 0.15em; cursor: pointer; transition: all 0.2s;
+    }
+    button:hover:not(:disabled) { background: var(--ds-accent); color: #000; box-shadow: 0 0 15px var(--ds-accent); }
+    button:disabled { opacity: 0.5; cursor: not-allowed; border-color: rgba(0, 229, 255, 0.3); color: rgba(0, 229, 255, 0.5); }
+    
+    ::-webkit-scrollbar { width: 6px; }
+    ::-webkit-scrollbar-track { background: rgba(0,0,0,0.2); }
+    ::-webkit-scrollbar-thumb { background: rgba(0, 229, 255, 0.3); border-radius: 3px; }
+    ::-webkit-scrollbar-thumb:hover { background: rgba(0, 229, 255, 0.6); }
   `;
 
   updated(changedProperties: Map<string, any>) {

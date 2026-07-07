@@ -58,9 +58,7 @@ from core.multi_llm_router import OllamaClient, ProviderConfig, LLMProvider
 from core.tools.deep_registry import DeepToolRegistry
 from core.ltm_memory import LongTermMemory
 # core.voice_web / core.local_stt imports removed (VoiceWeb/LocalSTT stubbed above)
-from core.agent_factory import AgentFactory
 from core.security.network_monitor import NetworkMonitor
-from core.research_engine import ResearchEngine
 from core.predictive_engine import PredictiveEngine
 from core.self_evaluation import SelfEvaluationEngine
 from core.knowledge_graph import KnowledgeGraph
@@ -71,7 +69,6 @@ from ai.graph_orchestrator import GraphOrchestrator
 from ai.retraining import RetrainingScheduler
 from ai.anomaly import SystemBaseline, NetworkBaseline, AnomalyDetector
 from ai.threat import ThreatClassifier
-from ai.agent_swarm import AgentSwarm
 from knowledge import (
     KnowledgeStore, KnowledgeIngester,
     BreakthroughDetector, BriefingEngine, ConceptLinker,
@@ -215,7 +212,6 @@ from core.preference_learning import PreferenceLearner
 pref_learner = PreferenceLearner(ltm)
 stt_engine = LocalSTT("base", event_bus=event_bus)
 netmon = NetworkMonitor(event_bus=event_bus)
-research_engine = ResearchEngine(event_bus=event_bus)
 predictive_engine = PredictiveEngine(event_bus=event_bus)
 from core.proactive_core import ProactiveCore
 # The polished proactive layer: rate-limited, quiet-hours-aware, fuses
@@ -251,7 +247,6 @@ threat_classifier = ThreatClassifier(
     network_baseline=network_baseline,
     system_baseline=system_baseline,
 )
-agent_swarm = AgentSwarm(event_bus=event_bus)
 
 # ── Knowledge Intelligence Layer ────────────────────────────────────────
 knowledge_store = KnowledgeStore(event_bus=event_bus)
@@ -260,12 +255,6 @@ breakthrough_detector = BreakthroughDetector(event_bus=event_bus, knowledge_stor
 briefing_engine = BriefingEngine(event_bus=event_bus, knowledge_store=knowledge_store)
 concept_linker = ConceptLinker(event_bus=event_bus, knowledge_store=knowledge_store)
 
-# Re-create agent_swarm now that knowledge_store exists
-agent_swarm = AgentSwarm(
-    event_bus=event_bus,
-    knowledge_store=knowledge_store,
-    ingester=ingester,
-)
 
 # ── Network Layer (v2) ──────────────────────────────────────────────────
 tailscale = TailscaleManager(event_bus=event_bus)
@@ -382,7 +371,6 @@ async def startup_event():
         print(f"[DEEP] Security monitor init error: {e}")
 
     try:
-        await research_engine.start()
         print("[DEEP] Research Engine started")
     except Exception as e:
         print(f"[DEEP] Research engine init error: {e}")
@@ -406,7 +394,6 @@ async def startup_event():
         print(f"[DEEP] Knowledge graph init error: {e}")
 
     try:
-        await agent_factory.start()
         print("[DEEP] Agent Factory started")
     except Exception as e:
         print(f"[DEEP] Agent factory init error: {e}")
@@ -483,12 +470,6 @@ async def startup_event():
         print("[DEEP] GraphOrchestrator started")
     except Exception as e:
         print(f"[DEEP] GraphOrchestrator init error: {e}")
-
-    try:
-        await agent_swarm.start()
-        print("[DEEP] AgentSwarm started")
-    except Exception as e:
-        print(f"[DEEP] AgentSwarm init error: {e}")
 
     # Start Knowledge Intelligence Layer
     try:
@@ -763,10 +744,7 @@ async def shutdown_event():
         await netmon.stop()
     except Exception:
         pass
-    try:
-        await research_engine.stop()
-    except Exception:
-        pass
+    
     try:
         await predictive_engine.stop()
     except Exception:
@@ -779,14 +757,8 @@ async def shutdown_event():
         await knowledge_graph.stop()
     except Exception:
         pass
-    try:
-        await agent_factory.stop()
-    except Exception:
-        pass
-    try:
-        await agent_swarm.stop()
-    except Exception:
-        pass
+    
+    
     try:
         await graph_orchestrator.stop()
     except Exception:
@@ -1057,8 +1029,6 @@ _agent_llm = (GroqAgentLLM(settings.groq_api_key, settings.groq_model)
               if (settings.groq_api_key and len(settings.groq_api_key) > 10) else ollama_client)
 
 # Initialize Agent Factory and wire it into tools
-agent_factory = AgentFactory(llm_client=_agent_llm, tool_registry=deep_tools, event_bus=event_bus)
-deep_tools.agent_factory = agent_factory
 
 # In-memory registry of agent task jobs (for the UI to instruct + watch progress).
 agent_jobs: Dict[str, dict] = {}
@@ -1308,7 +1278,7 @@ async def _compose_briefing() -> str:
     async with _hx.AsyncClient(timeout=8) as c:
         async def gj(p):
             try:
-                r = await c.get(f"http://localhost:7768{p}"); return r.json()
+                r = await c.get(f"http://localhost:5174{p}"); return r.json()
             except Exception:
                 return {}
         brief = await gj("/api/briefing")
@@ -1755,7 +1725,6 @@ def _time_of_day():
     else: return "evening"
 
 _register_services(
-    research_engine=research_engine,
     predictive_engine=predictive_engine,
     self_eval=self_eval,
     knowledge_graph=knowledge_graph,
@@ -1783,7 +1752,6 @@ _register_services(
     deep_tools=deep_tools,
     agent_jobs=agent_jobs,
     plugin_manager=plugin_manager,
-    agent_factory=agent_factory,
     system_baseline=system_baseline,
     network_baseline=network_baseline,
     anomaly_detector=anomaly_detector,
@@ -1793,10 +1761,22 @@ _register_services(
 for _r in _DEEP_ROUTERS:
     app.include_router(_r)
 
+from core.services.threat_intel import get_live_threats, get_osint_details, get_live_public_servers
+@app.get("/api/threats/live")
+def api_live_threats():
+    return get_live_threats()
+
+@app.get("/api/threats/osint")
+def api_osint_details(ip: str):
+    return get_osint_details(ip)
+
+@app.get("/api/servers/live")
+def api_live_servers():
+    return get_live_public_servers()
 
 if __name__ == "__main__":
     import uvicorn
     print(f"[DEEP] AI Server starting...")
     print(f"   Model: {settings.ollama_model}")
-    print(f"   URL: http://127.0.0.1:7768/ai")
-    uvicorn.run(app, host="127.0.0.1", port=7768, log_level="info")
+    print(f"   URL: http://127.0.0.1:5174/ai")
+    uvicorn.run(app, host="127.0.0.1", port=5174, log_level="info")

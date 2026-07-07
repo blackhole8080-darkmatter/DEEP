@@ -6,28 +6,22 @@ server.py mounts via `app.include_router(...)`.
 """
 
 from interface.routers import (
-    research, predictive, evolution, knowledge_graph, threat, workspace, reference, system, security,
-    etis, finance, email, missions, knowledge, state, network, agents, audit, anomaly,
+    predictive, evolution, knowledge_graph, threat, workspace, reference, security,
+    etis, knowledge, state, network, audit, anomaly,
 )
 
 ROUTERS = [
-    research.router,
     predictive.router,
     evolution.router,
     knowledge_graph.router,
     threat.router,
     workspace.router,
     reference.router,
-    system.router,
     security.router,
     etis.router,
-    finance.router,
-    email.router,
-    missions.router,
     knowledge.router,
     state.router,
     network.router,
-    agents.router,
     audit.router,
     anomaly.router,
 ]

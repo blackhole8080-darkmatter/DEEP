@@ -69,7 +69,7 @@ subsystems are served from the browser.
 ```bat
 start_deep.bat
 ```
-This launches the main server (`interface\server.py`) on **port 7768** and the
+This launches the main server (`interface\server.py`) on **port 5174** and the
 science-engine HUD on port 8000.
 
 **Manual:**
@@ -78,8 +78,8 @@ python interface\server.py
 ```
 
 Then open:
-- **Main UI:** http://127.0.0.1:7768/ai
-- **Health:** http://127.0.0.1:7768/api/health
+- **Main UI:** http://127.0.0.1:5174/ai
+- **Health:** http://127.0.0.1:5174/api/health
 
 The WebSocket endpoint is `/ws/deep`. Voice input is transcribed offline with
 Whisper via `/api/transcribe` (or the `voice` WS message).
@@ -372,8 +372,8 @@ python -c "from core.config import Settings; print('Config OK')"
 ```
 
 ### Live debug feeds
-- Event bus: http://127.0.0.1:7768/debug/events
-- Health: http://127.0.0.1:7768/api/health
+- Event bus: http://127.0.0.1:5174/debug/events
+- Health: http://127.0.0.1:5174/api/health
 
 ### Logs
 Logs are printed to console. Check for:
@@ -388,7 +388,7 @@ Logs are printed to console. Check for:
 After setup, verify everything works:
 
 - [ ] `start_deep.bat` starts the server without errors
-- [ ] http://127.0.0.1:7768/ai loads the HUD
+- [ ] http://127.0.0.1:5174/ai loads the HUD
 - [ ] AI responds with JARVIS personality ("As you wish", "Right away")
 - [ ] Voice works (if enabled): "Testing" → spoken response
 - [ ] Wake word works (if configured): Say "jarvis" → activation
@@ -417,7 +417,7 @@ start_deep.bat
 python interface\server.py
 
 # Then open the UI
-#   http://127.0.0.1:7768/ai
+#   http://127.0.0.1:5174/ai
 ```
 
-**Ready to begin?** Run `start_deep.bat`, open http://127.0.0.1:7768/ai, and say hello to DEEP! 🚀
+**Ready to begin?** Run `start_deep.bat`, open http://127.0.0.1:5174/ai, and say hello to DEEP! 🚀

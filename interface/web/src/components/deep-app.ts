@@ -23,19 +23,10 @@ const lazyView: Record<string, () => Promise<unknown>> = {
   gallery: () => import("./gallery"),
   science: () => import("./science/science-view"),
   ops: () => import("./ops/ops-view"),
-  agents: () => import("./ops/agents-view"),
   network: () => import("./ops/network-view"),
   audit: () => import("./ops/audit-view"),
-  missions: () => import("./ops/missions-view"),
   memory: () => import("./memory/memory-graph"),
-  system: () => import("./system/system-monitor"),
-  connections: () => import("./network/connection-map"),
-  stack: () => import("./system/stack-view"),
-  calc: () => import("./science/calc-view"),
   projects: () => import("./knowledge/projects-view"),
-  research: () => import("./knowledge/research-view"),
-  finance: () => import("./finance/finance-view"),
-  email: () => import("./email/email-view"),
 };
 
 @customElement("deep-app")
@@ -156,8 +147,7 @@ export class DeepApp extends SignalWatcher(LitElement) {
       <!-- Boot splash -->
       <deep-boot></deep-boot>
 
-      <!-- Toast notifications -->
-      <toast-stack></toast-stack>
+      <!-- Toast notifications removed by user request -->
 
       <!-- Command palette (Cmd+K) -->
       <command-palette></command-palette>

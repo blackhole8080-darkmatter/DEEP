@@ -18,11 +18,34 @@ interface RecentEvent {
 @customElement("dashboard-view")
 export class DashboardView extends LitElement {
   @state() private vitals: SystemVital[] = [
-    { label: "CPU", value: "12%", spark: [10,14,12,18,15,12,10,14,12,11], status: "good" },
-    { label: "Memory", value: "3.2 GB", spark: [40,42,41,43,40,42,41,40,42,41], status: "good" },
-    { label: "Network", value: "↓2.4 ↑0.8", spark: [20,35,28,45,30,25,40,35,30,28], status: "good" },
-    { label: "Threat Level", value: "LOW", spark: [2,1,3,1,2,1,0,1,2,1], status: "good" },
+    { label: "CPU CORE 0", value: "12.4%", spark: Array.from({length: 40}, () => Math.random() * 30 + 10), status: "good" },
+    { label: "SYS RAM", value: "32.1 GB", spark: Array.from({length: 40}, () => Math.random() * 10 + 40), status: "good" },
+    { label: "NET I/O", value: "402 Mbps", spark: Array.from({length: 40}, () => Math.random() * 50 + 20), status: "good" },
+    { label: "THREAT", value: "SECURE", spark: Array.from({length: 40}, () => Math.random() * 5), status: "good" },
   ];
+  private _interval: any;
+
+  connectedCallback() {
+    super.connectedCallback();
+    this._interval = setInterval(() => this._tick(), 1000);
+  }
+
+  disconnectedCallback() {
+    super.disconnectedCallback();
+    clearInterval(this._interval);
+  }
+
+  private _tick() {
+    this.vitals = this.vitals.map(v => {
+      const nextVal = v.spark[v.spark.length - 1] + (Math.random() - 0.5) * 15;
+      const next = [...v.spark.slice(1), Math.max(0, Math.min(100, nextVal))];
+      let val = v.value;
+      if (v.label.includes("CPU")) val = next[next.length - 1].toFixed(1) + "%";
+      else if (v.label.includes("RAM")) val = (next[next.length - 1] / 2).toFixed(1) + " GB";
+      else if (v.label.includes("NET")) val = Math.abs(next[next.length - 1] * 10).toFixed(0) + " Mbps";
+      return { ...v, spark: next, value: val };
+    });
+  }
   @state() private events: RecentEvent[] = [
     { time: "14:32", type: "success", message: "Network scan completed — 24 devices found" },
     { time: "14:28", type: "info", message: "Agent 'Alpha-7' started analysis task" },
@@ -85,18 +108,24 @@ export class DashboardView extends LitElement {
     .hud-value.warn { color: var(--ds-warning); }
     .hud-value.critical { color: var(--ds-danger); }
 
-    /* sparkline */
-    .spark {
+    /* Telemetry Graphs */
+    .telemetry-svg {
+      width: 100%; height: 50px;
       margin-top: var(--ds-space-2);
-      height: 24px;
-      display: flex; align-items: flex-end; gap: 2px;
+      overflow: visible;
     }
-    .spark-bar {
-      flex: 1;
-      border-radius: 1px;
-      background: var(--ds-accent);
-      opacity: 0.5;
-      transition: height 0.3s ease;
+    .telemetry-line {
+      fill: none;
+      stroke-width: 1.5;
+      stroke-linecap: round;
+      stroke-linejoin: round;
+    }
+    .telemetry-area {
+      opacity: 0.15;
+    }
+    .telemetry-grid {
+      stroke: rgba(0, 229, 255, 0.15);
+      stroke-width: 1;
     }
 
     /* ── Middle row ── */
@@ -233,6 +262,37 @@ export class DashboardView extends LitElement {
     return `${c * (1 - percent)} ${c}`;
   }
 
+  private _getColor(status: string) {
+    if (status === 'critical') return '#ef4444';
+    if (status === 'warn') return '#eab308';
+    return '#00e5ff';
+  }
+
+  private _renderGraph(spark: number[], color: string) {
+    const min = Math.max(0, Math.min(...spark) - 5);
+    const max = Math.max(...spark) + 5;
+    const range = max - min || 1;
+    const w = 200; const h = 50;
+    const step = w / (spark.length - 1);
+    
+    const points = spark.map((val, i) => `${(i * step).toFixed(1)},${(h - ((val - min) / range) * h).toFixed(1)}`).join(" ");
+    
+    return html`
+      <svg class="telemetry-svg" viewBox="0 -5 ${w} ${h + 10}" preserveAspectRatio="none">
+        <defs>
+          <linearGradient id="grad-${color.replace('#','')}" x1="0" y1="0" x2="0" y2="1">
+            <stop offset="0%" stop-color="${color}" stop-opacity="0.8"/>
+            <stop offset="100%" stop-color="${color}" stop-opacity="0.0"/>
+          </linearGradient>
+        </defs>
+        <path class="telemetry-area" d="M 0,${h} L ${points.split(' ')[0]} L ${points} L ${w},${h} Z" fill="url(#grad-${color.replace('#','')})"></path>
+        <polyline class="telemetry-line" points="${points}" style="stroke: ${color}; filter: drop-shadow(0 0 4px ${color})"></polyline>
+        <line x1="0" y1="${h/2}" x2="${w}" y2="${h/2}" class="telemetry-grid" stroke-dasharray="2,4" />
+        <line x1="0" y1="${h}" x2="${w}" y2="${h}" class="telemetry-grid" stroke-dasharray="2,4" />
+      </svg>
+    `;
+  }
+
   render() {
     const hour = new Date().getHours();
     const greeting = hour < 12 ? "Good morning, Aryan" : hour < 18 ? "Good afternoon, Aryan" : "Good evening, Aryan";
@@ -244,9 +304,7 @@ export class DashboardView extends LitElement {
         ${this.vitals.map((v, i) => html`
           <holo-panel title="${v.label}" accent="cyan" .pulseOnUpdate=${i}>
             <div class="hud-value ${v.status}">${v.value}</div>
-            <div class="spark">
-              ${v.spark.map((h) => html`<div class="spark-bar" style="height:${h}%"></div>`)}
-            </div>
+            ${this._renderGraph(v.spark, this._getColor(v.status))}
           </holo-panel>
         `)}
       </div>
@@ -255,9 +313,9 @@ export class DashboardView extends LitElement {
         <holo-panel title="System Activity" accent="green">
           <div class="rings">
             ${[
-              { label: "Agents", pct: 0.65, color: "var(--ds-accent)" },
-              { label: "Security", pct: 0.92, color: "var(--ds-success)" },
-              { label: "Queue", pct: 0.3, color: "var(--ds-warning)" },
+              { label: "Agents", pct: Math.max(0.1, this.vitals[0].spark[39] / 100), color: "var(--ds-accent)" },
+              { label: "Security", pct: Math.max(0.1, 1 - (this.vitals[3].spark[39] / 10)), color: "var(--ds-success)" },
+              { label: "Queue", pct: Math.max(0.05, this.vitals[2].spark[39] / 100), color: "var(--ds-warning)" },
             ].map((r) => html`
               <div class="ring-wrap">
                 <svg class="ring-svg" viewBox="0 0 80 80">

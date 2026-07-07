@@ -28,29 +28,21 @@ class DeepToolRegistry(ToolExecutor):
     """
     
     def __init__(self):
-        from core.academic_rag import AcademicResearchEngine
         from core.integrations.cyber_sec import CyberSecurityIntegration
         from core.integrations.vision import VisionIntegration
         from core.integrations.xr_bridge import XRBridgeIntegration
         from core.interactive_response import interactive_manager
         
-        self.rag = AcademicResearchEngine()
         self.cyber = CyberSecurityIntegration()
         self.vision = VisionIntegration()
         self.xr = XRBridgeIntegration()
         self.interactive = interactive_manager
         
-        from core.integrations.local_system import LocalSystem
-        from core.integrations.personal_finance import PersonalFinanceEngine
-        from core.integrations.email import EmailIntegration
         from core.integrations.phone_control import PhoneControl
 
-        self.local_system = LocalSystem()  # sandboxed FS + code intelligence
-        self.finance = PersonalFinanceEngine()
-        self.email = EmailIntegration()
         self.phone = PhoneControl()  # ADB (Android) + Shortcuts (iPhone) bridge
-        
-        self.agent_factory = None
+        self.phone = PhoneControl()  # ADB (Android) + Shortcuts (iPhone) bridge
+        self.world_model = None
         self.plugin_manager = None  # set by server after plugins start; bridges plugin tools
 
     def describe_tools(self) -> str:

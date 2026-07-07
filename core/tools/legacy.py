@@ -220,49 +220,6 @@ async def execute_legacy_tool(ctx, tool_name: str, args: Dict[str, Any]) -> Tool
             payload = args.get('payload', {})
             res = await ctx.xr.send_to_xr(cmd, payload)
             return ToolResult(True, res, tool_name)
-        elif tool_name == 'agent_create':
-            if not ctx.agent_factory:
-                return ToolResult(False, 'Agent Factory not initialized. Contact system admin.', tool_name)
-            name = args.get('name', '')
-            role = args.get('role', 'custom')
-            custom_prompt = args.get('custom_prompt')
-            allowed_tools = args.get('allowed_tools')
-            try:
-                agent = ctx.agent_factory.create_agent(name, role, custom_prompt, allowed_tools)
-                return ToolResult(True, f"Created agent '{name}' with role '{role}'. ID: {agent.id}", tool_name)
-            except Exception as e:
-                return ToolResult(False, f'Failed to create agent: {e}', tool_name)
-        elif tool_name == 'agent_assign':
-            if not ctx.agent_factory:
-                return ToolResult(False, 'Agent Factory not initialized.', tool_name)
-            agent_name = args.get('agent_name', '')
-            task = args.get('task', '')
-            result = await ctx.agent_factory.assign_task(agent_name, task)
-            return ToolResult(True, json.dumps(result, indent=2), tool_name)
-        elif tool_name == 'agent_list':
-            if not ctx.agent_factory:
-                return ToolResult(False, 'Agent Factory not initialized.', tool_name)
-            agents = ctx.agent_factory.list_agents()
-            stats = ctx.agent_factory.stats()
-            output = f'Active Agents: {len(agents)}\n\n'
-            for a in agents:
-                output += f"- {a['name']} ({a['role']}) - Status: {a['status']} - Tasks: {a['tasks_completed']}/{a['tasks_total']}\n"
-            output += f'\nStats: {json.dumps(stats)}'
-            return ToolResult(True, output, tool_name)
-        elif tool_name == 'agent_terminate':
-            if not ctx.agent_factory:
-                return ToolResult(False, 'Agent Factory not initialized.', tool_name)
-            agent_name = args.get('agent_name', '')
-            success = ctx.agent_factory.terminate_agent(agent_name)
-            if success:
-                return ToolResult(True, f"Terminated agent '{agent_name}'.", tool_name)
-            return ToolResult(False, f"Agent '{agent_name}' not found.", tool_name)
-        elif tool_name == 'agent_swarm':
-            if not ctx.agent_factory:
-                return ToolResult(False, 'Agent Factory not initialized.', tool_name)
-            goal = args.get('goal', '')
-            result = await ctx.agent_factory.swarm_execute(goal)
-            return ToolResult(True, json.dumps(result, indent=2), tool_name)
         elif tool_name == 'ask_options':
             message = args.get('message', '')
             options = args.get('options', [])

@@ -119,3 +119,85 @@
     --ds-glow-strong: 0 0 8px rgba(0, 255, 136, 0.2);
   }
 }
+
+/* ── HACKER: Advanced Cybersecurity Expert Terminal ─────────────────────── */
+:root[data-skin="hacker"] {
+  /* canvas + surfaces: absolute void + deep grid */
+  --ds-bg:          #02040a;
+  --ds-surface-1:   rgba(6, 12, 18, 0.85);
+  --ds-surface-2:   rgba(10, 25, 30, 0.85);
+  --ds-surface-3:   rgba(16, 40, 45, 0.9);
+  --ds-glass:       rgba(2, 4, 10, 0.85);
+  --ds-glass-thin:  rgba(2, 4, 10, 0.6);
+  --ds-scrim:       rgba(0, 0, 0, 0.85);
+
+  /* Override fonts to monospace for the true terminal feel */
+  --ds-font-sans:   var(--ds-font-mono);
+
+  /* text: terminal green */
+  --ds-text:        #00ff41;
+  --ds-text-soft:   rgba(0, 255, 65, 0.7);
+  --ds-text-muted:  rgba(0, 255, 65, 0.45);
+  --ds-text-faint:  rgba(0, 255, 65, 0.2);
+  --ds-on-accent:   #02040a;
+
+  /* HACKER palette */
+  --ds-neon-green:  #00ff41;
+  --ds-neon-cyan:   #00ffff;
+  --ds-neon-red:    #ff003c;
+  --ds-neon-amber:  #ffb000;
+
+  /* map semantic variables */
+  --ds-success:     var(--ds-neon-green);
+  --ds-danger:      var(--ds-neon-red);
+  --ds-info:        var(--ds-neon-cyan);
+  --ds-warning:     var(--ds-neon-amber);
+
+  /* PRIMARY accent: electric cyan */
+  --ds-accent:      var(--ds-neon-cyan);
+  --ds-periwinkle-rgb: 0, 255, 255; 
+
+  /* sharp, high-contrast borders */
+  --ds-border:        rgba(0, 255, 65, 0.25);
+  --ds-border-strong: rgba(0, 255, 65, 0.5);
+  --ds-border-accent: var(--ds-neon-cyan);
+  --ds-focus-ring:    0 0 0 2px var(--ds-bg), 0 0 0 4px var(--ds-neon-cyan);
+
+  /* sharp, piercing glow */
+  --ds-glow:        0 0 15px rgba(0, 255, 255, 0.4);
+  --ds-glow-strong: 0 0 30px rgba(0, 255, 255, 0.7);
+  --ds-elev-2: 0 4px 14px rgba(0, 0, 0, 0.8), 0 0 0 1px var(--ds-border);
+  --ds-elev-3: 0 12px 34px rgba(0, 0, 0, 0.9), 0 0 24px rgba(0, 255, 65, 0.2);
+  --ds-elev-4: 0 24px 64px rgba(0, 0, 0, 1), 0 0 40px rgba(0, 255, 255, 0.3);
+}
+
+/* Hacker CRT & Grid Overlay */
+:root[data-skin="hacker"] body::before {
+  content: "";
+  position: fixed;
+  inset: 0;
+  pointer-events: none;
+  background-image: 
+    linear-gradient(rgba(0, 255, 65, 0.05) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(0, 255, 65, 0.05) 1px, transparent 1px);
+  background-size: 40px 40px;
+  background-position: center center;
+  z-index: 0;
+  opacity: 0.8;
+}
+
+:root[data-skin="hacker"] body::after {
+  content: "";
+  position: fixed;
+  inset: 0;
+  pointer-events: none;
+  background: repeating-linear-gradient(
+    0deg,
+    rgba(0, 0, 0, 0.15),
+    rgba(0, 0, 0, 0.15) 1px,
+    transparent 1px,
+    transparent 2px
+  );
+  z-index: 9999;
+  opacity: 0.3;
+}

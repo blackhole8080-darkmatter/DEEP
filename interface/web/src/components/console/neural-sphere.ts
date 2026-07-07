@@ -25,7 +25,7 @@ interface MorphProfile {
   rimPower: number;
 }
 
-interface Particle { x: number; y: number; z: number; vx: number; vy: number; }
+interface Particle { x: number; y: number; z: number; vx: number; vy: number; char: string; }
 
 interface Ripple {
   age: number;
@@ -42,16 +42,16 @@ const LON = 46;
 const VERTS = LAT * LON;
 
 const PROFILES: Record<Status, MorphProfile> = {
-  idle:     { noiseFreq: 1.7, noiseOctaves: 3, noiseAmp: 0.15, timeSpeed: 0.15, rotSpeed: 0.001, lineWidth: 0.7, particleSpeed: 1.0, hueShift: 212, rimPower: 2.8 },
-  thinking: { noiseFreq: 2.8, noiseOctaves: 4, noiseAmp: 0.28, timeSpeed: 0.50, rotSpeed: 0.004, lineWidth: 0.6, particleSpeed: 2.5, hueShift: 280, rimPower: 2.0 },
-  speaking: { noiseFreq: 1.4, noiseOctaves: 3, noiseAmp: 0.22, timeSpeed: 0.30, rotSpeed: 0.002, lineWidth: 1.0, particleSpeed: 1.5, hueShift: 35,  rimPower: 3.2 },
-  active:   { noiseFreq: 2.0, noiseOctaves: 3, noiseAmp: 0.20, timeSpeed: 0.35, rotSpeed: 0.003, lineWidth: 0.8, particleSpeed: 1.8, hueShift: 190, rimPower: 2.5 },
+  idle:     { noiseFreq: 1.7, noiseOctaves: 3, noiseAmp: 0.15, timeSpeed: 0.15, rotSpeed: 0.001, lineWidth: 0.7, particleSpeed: 1.0, hueShift: 130, rimPower: 2.8 },
+  thinking: { noiseFreq: 2.8, noiseOctaves: 4, noiseAmp: 0.28, timeSpeed: 0.50, rotSpeed: 0.004, lineWidth: 0.6, particleSpeed: 2.5, hueShift: 180, rimPower: 2.0 },
+  speaking: { noiseFreq: 1.4, noiseOctaves: 3, noiseAmp: 0.22, timeSpeed: 0.30, rotSpeed: 0.002, lineWidth: 1.0, particleSpeed: 1.5, hueShift: 45,  rimPower: 3.2 },
+  active:   { noiseFreq: 2.0, noiseOctaves: 3, noiseAmp: 0.20, timeSpeed: 0.35, rotSpeed: 0.003, lineWidth: 0.8, particleSpeed: 1.8, hueShift: 150, rimPower: 2.5 },
   warning:  { noiseFreq: 3.5, noiseOctaves: 2, noiseAmp: 0.35, timeSpeed: 0.70, rotSpeed: 0.006, lineWidth: 0.5, particleSpeed: 3.0, hueShift: 0,   rimPower: 1.5 },
-  indexing: { noiseFreq: 2.2, noiseOctaves: 3, noiseAmp: 0.18, timeSpeed: 0.25, rotSpeed: 0.002, lineWidth: 0.7, particleSpeed: 1.3, hueShift: 270, rimPower: 2.8 },
+  indexing: { noiseFreq: 2.2, noiseOctaves: 3, noiseAmp: 0.18, timeSpeed: 0.25, rotSpeed: 0.002, lineWidth: 0.7, particleSpeed: 1.3, hueShift: 120, rimPower: 2.8 },
 };
 
 const RIM_HUE: Record<Status, number> = {
-  idle: 190, active: 190, speaking: 35, thinking: 280, warning: 0, indexing: 270,
+  idle: 130, active: 150, speaking: 45, thinking: 180, warning: 0, indexing: 120,
 };
 
 // ── Utilities ──
@@ -275,6 +275,7 @@ export class NeuralSphere extends LitElement {
     this.particles = Array.from({ length: n }, () => ({
       x: (Math.random() - 0.5) * 2.4, y: (Math.random() - 0.5) * 2.4, z: (Math.random() - 0.5) * 2.4,
       vx: (Math.random() - 0.5) * 0.002, vy: (Math.random() - 0.5) * 0.002,
+      char: Math.random() > 0.5 ? "0" : "1"
     }));
   }
 
@@ -520,8 +521,8 @@ export class NeuralSphere extends LitElement {
       const intensity = Math.min(1, (this.DISP[idx] - HOT_THRESHOLD) / 0.25);
       const r = 4 + intensity * 5;
       const grad = g.createRadialGradient(this.SX[idx], this.SY[idx], 0, this.SX[idx], this.SY[idx], r);
-      grad.addColorStop(0, `hsla(${280 + intensity * 80},100%,75%,${0.5 * intensity})`);
-      grad.addColorStop(1, `hsla(${280 + intensity * 80},100%,60%,0)`);
+      grad.addColorStop(0, `hsla(0, 100%, 65%, ${0.6 * intensity})`);
+      grad.addColorStop(1, `hsla(0, 100%, 50%, 0)`);
       g.fillStyle = grad;
       g.fillRect(this.SX[idx] - r, this.SY[idx] - r, r * 2, r * 2);
     }
@@ -546,9 +547,11 @@ export class NeuralSphere extends LitElement {
       const persp = 1 / (2.0 - rz);
       const px = cx + rx * R * persp * 2.4, py = cy + ry * R * persp * 2.4;
       const za = (rz + 1.4) / 2.8;
-      g.beginPath(); g.arc(px, py, 0.4 + za * 0.8, 0, Math.PI * 2);
-      g.fillStyle = `hsla(${prof.hueShift + ((rx + 1) / 2) * 80},100%,80%,${0.12 + za * 0.4})`;
-      g.fill();
+      g.font = `bold ${Math.max(6, 4 + za * 8)}px monospace`;
+      g.textAlign = "center";
+      g.textBaseline = "middle";
+      g.fillStyle = `hsla(${prof.hueShift + ((rx + 1) / 2) * 80},100%,80%,${0.2 + za * 0.6})`;
+      g.fillText(p.char, px, py);
     }
     g.globalCompositeOperation = "source-over";
   }

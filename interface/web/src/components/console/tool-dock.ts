@@ -32,14 +32,11 @@ export class ToolDock extends LitElement {
       gap: 6px;
       padding: 10px 14px;
       border-radius: 22px;
-      background: linear-gradient(180deg, rgba(16,20,40,0.5), rgba(10,12,26,0.66));
+      background: var(--ds-surface-1);
       backdrop-filter: blur(24px) saturate(180%);
       -webkit-backdrop-filter: blur(24px) saturate(180%);
       border: 1px solid transparent;
-      box-shadow:
-        0 18px 50px rgba(0,0,0,0.5),
-        0 0 50px rgba(140,160,255,0.10),
-        inset 0 1px 0 rgba(255,255,255,0.08);
+      box-shadow: 0 18px 50px rgba(0,0,0,0.8), var(--ds-glow);
       max-width: 92vw;
       overflow: visible;
     }
@@ -49,8 +46,7 @@ export class ToolDock extends LitElement {
       position: absolute; inset: 0;
       border-radius: inherit;
       padding: 1.4px;
-      background: linear-gradient(120deg,
-        #a8edea, #8fd3ff, #b8a6ff, #ff9ed8, #ffd6a5, #a8edea);
+      background: linear-gradient(120deg, var(--ds-accent), transparent, var(--ds-success), transparent, var(--ds-accent));
       background-size: 320% 320%;
       animation: irid-border 9s ease infinite;
       -webkit-mask: linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0);
@@ -64,8 +60,7 @@ export class ToolDock extends LitElement {
       content: "";
       position: absolute; inset: 0;
       border-radius: inherit;
-      background: linear-gradient(115deg,
-        transparent 30%, rgba(255,255,255,0.10) 48%, rgba(184,166,255,0.12) 54%, transparent 70%);
+      background: linear-gradient(115deg, transparent 30%, rgba(255,255,255,0.10) 48%, var(--ds-border-strong) 54%, transparent 70%);
       background-size: 280% 100%;
       animation: irid-sheen 7s linear infinite;
       pointer-events: none;
@@ -87,7 +82,7 @@ export class ToolDock extends LitElement {
       align-self: center;
       height: 26px;
       margin: 0 4px;
-      background: linear-gradient(180deg, transparent, rgba(184,166,255,0.4), transparent);
+      background: linear-gradient(180deg, transparent, var(--ds-border-strong), transparent);
       flex: 0 0 auto;
     }
 
@@ -97,8 +92,8 @@ export class ToolDock extends LitElement {
       width: 44px; height: 44px;
       border: 1px solid transparent;
       border-radius: 14px;
-      background: rgba(255,255,255,0.04);
-      color: rgba(210,235,255,0.82);
+      background: var(--ds-surface-2);
+      color: var(--ds-text);
       cursor: pointer;
       display: grid; place-items: center;
       transform-origin: bottom center;
@@ -109,30 +104,30 @@ export class ToolDock extends LitElement {
         border-color 0.16s ease,
         box-shadow 0.16s ease;
     }
-    .pill:hover { background: rgba(184,166,255,0.12); border-color: rgba(184,166,255,0.35); }
+    .pill:hover { background: var(--ds-surface-3); border-color: var(--ds-border-strong); box-shadow: var(--ds-glow); }
     .pill.on {
-      background: rgba(143,211,255,0.16);
-      border-color: rgba(184,166,255,0.55);
-      box-shadow: 0 0 24px rgba(143,211,255,0.3), 0 0 36px rgba(255,158,216,0.16), inset 0 0 12px rgba(184,166,255,0.14);
+      background: var(--ds-surface-3);
+      border-color: var(--ds-border-accent);
+      box-shadow: var(--ds-glow-strong);
     }
     .pill.on::after {
       content: "";
       position: absolute; bottom: -7px; left: 50%; transform: translateX(-50%);
       width: 14px; height: 4px; border-radius: 999px;
-      background: linear-gradient(90deg, #8fd3ff, #b8a6ff, #ff9ed8);
-      box-shadow: 0 0 10px rgba(184,166,255,0.8);
+      background: var(--ds-accent);
+      box-shadow: var(--ds-glow);
     }
 
     .icon {
       font-size: 1.15rem; line-height: 1;
-      background: linear-gradient(135deg, #b6f0ff, #9fb8ff, #d9b3ff, #ffb3e6);
+      background: linear-gradient(135deg, var(--ds-accent), var(--ds-text), var(--ds-success));
       background-size: 200% 200%;
       -webkit-background-clip: text; background-clip: text;
       -webkit-text-fill-color: transparent; color: transparent;
-      filter: drop-shadow(0 0 8px rgba(143,211,255,0.45));
+      filter: drop-shadow(0 0 8px rgba(0, 255, 255, 0.45));
       animation: irid-icon 9s ease infinite;
     }
-    .pill.on .icon { filter: drop-shadow(0 0 12px rgba(184,166,255,0.9)); }
+    .pill.on .icon { filter: drop-shadow(0 0 12px var(--ds-accent)); }
     @keyframes irid-icon {
       0% { background-position: 0% 50%; }
       50% { background-position: 100% 50%; }
@@ -149,10 +144,10 @@ export class ToolDock extends LitElement {
       font-family: var(--ds-font-mono, monospace);
       font-size: 0.66rem; letter-spacing: 0.12em; text-transform: uppercase;
       white-space: nowrap;
-      color: #eaffff;
-      background: rgba(10,14,28,0.92);
-      border: 1px solid rgba(184,166,255,0.35);
-      box-shadow: 0 8px 24px rgba(0,0,0,0.5), 0 0 16px rgba(143,211,255,0.18);
+      color: var(--ds-text);
+      background: var(--ds-bg);
+      border: 1px solid var(--ds-border-accent);
+      box-shadow: 0 8px 24px rgba(0,0,0,0.8), var(--ds-glow);
       opacity: 0; pointer-events: none;
       transition: opacity 0.15s ease, transform 0.15s ease;
     }
@@ -160,7 +155,7 @@ export class ToolDock extends LitElement {
     .tip::after {
       content: "";
       position: absolute; top: 100%; left: 50%; transform: translateX(-50%);
-      border: 5px solid transparent; border-top-color: rgba(184,166,255,0.35);
+      border: 5px solid transparent; border-top-color: var(--ds-border-accent);
     }
 
     @media (prefers-reduced-motion: reduce) {

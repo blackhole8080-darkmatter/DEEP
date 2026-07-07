@@ -13,7 +13,8 @@ import { SignalWatcher } from "@lit-labs/signals";
 import { messages, thinking, sendChat } from "../../core/store";
 import { toolById } from "../../core/tool-registry";
 import { AudioAnalyser, type AudioLevels } from "../../core/audio";
-import "./neural-sphere";
+import "./matrix-waterfall";
+import "./threat-globe";
 import "./tool-dock";
 
 type Status = "idle" | "active" | "speaking" | "thinking" | "warning" | "indexing";
@@ -23,6 +24,7 @@ export class DeepConsole extends SignalWatcher(LitElement) {
   @property({ attribute: false }) activity = 0;
   @property({ attribute: false }) status: Status = "idle";
 
+  @state() private visualizerMode: "matrix" | "globe" = "globe";
   @state() private _openTool = "";
   @state() private _toolView: TemplateResult | null = null;
   @state() private _loadingTool = false;
@@ -47,10 +49,10 @@ export class DeepConsole extends SignalWatcher(LitElement) {
       position: absolute; inset: -12%;
       z-index: 0; pointer-events: none;
       background:
-        radial-gradient(38% 48% at 30% 34%, rgba(143,211,255,0.12), transparent 70%),
-        radial-gradient(44% 54% at 72% 60%, rgba(184,166,255,0.12), transparent 70%),
-        radial-gradient(40% 46% at 54% 80%, rgba(255,158,216,0.09), transparent 70%),
-        radial-gradient(36% 42% at 80% 22%, rgba(168,237,234,0.08), transparent 70%);
+        radial-gradient(38% 48% at 30% 34%, rgba(var(--ds-periwinkle-rgb), 0.12), transparent 70%),
+        radial-gradient(44% 54% at 72% 60%, rgba(var(--ds-periwinkle-rgb), 0.08), transparent 70%),
+        radial-gradient(40% 46% at 54% 80%, rgba(var(--ds-periwinkle-rgb), 0.05), transparent 70%),
+        radial-gradient(36% 42% at 80% 22%, rgba(var(--ds-periwinkle-rgb), 0.1), transparent 70%);
       filter: blur(44px) saturate(140%);
       animation: aurora-drift 26s ease-in-out infinite alternate;
     }
@@ -60,8 +62,22 @@ export class DeepConsole extends SignalWatcher(LitElement) {
       100% { transform: translate3d(-1%, 2%, 0) scale(1.02);  opacity: 0.9; }
     }
     @media (prefers-reduced-motion: reduce) { .stage::before { animation: none; } }
-    neural-sphere { position: absolute; inset: 0; z-index: 1; transition: opacity 0.5s ease, filter 0.5s ease; }
-    :host([data-focus]) neural-sphere { opacity: 0.18; filter: blur(3px); }
+    matrix-waterfall, threat-globe { position: absolute; inset: 0; z-index: 1; transition: opacity 0.5s ease, filter 0.5s ease; }
+    :host([data-focus]) matrix-waterfall, :host([data-focus]) threat-globe { opacity: 0.18; filter: blur(3px); }
+
+    .viz-switcher {
+      position: absolute; top: 24px; right: 24px; z-index: 10;
+      display: flex; gap: 8px; pointer-events: auto;
+    }
+    .viz-btn {
+      background: rgba(0,255,255,0.05); border: 1px solid rgba(0,255,255,0.2);
+      color: rgba(0,255,255,0.6); padding: 4px 10px; border-radius: 4px;
+      font-family: var(--ds-font-mono, monospace); font-size: 0.7rem; cursor: pointer;
+      text-transform: uppercase; transition: all 0.2s ease;
+    }
+    .viz-btn.active, .viz-btn:hover {
+      background: rgba(0,255,255,0.2); color: #fff; box-shadow: 0 0 10px rgba(0,255,255,0.4); border-color: rgba(0,255,255,0.5);
+    }
 
     /* Glassmorphic tool dock — floating, bottom-centered */
     tool-dock {
@@ -117,24 +133,24 @@ export class DeepConsole extends SignalWatcher(LitElement) {
       display: flex; flex-direction: column; gap: 8px;
       mask-image: linear-gradient(to top, black 80%, transparent);
     }
-    .msg { font-size: 0.9rem; line-height: 1.45; padding: 8px 14px; border-radius: 12px; max-width: 88%; white-space: pre-wrap; }
-    .msg.user { align-self: flex-end; background: rgba(143,211,255,0.12); border: 1px solid rgba(143,211,255,0.28); }
-    .msg.ai { align-self: flex-start; background: rgba(184,166,255,0.08); border: 1px solid rgba(184,166,255,0.18); }
+    .msg { font-size: 0.9rem; line-height: 1.45; padding: 8px 14px; border-radius: 12px; max-width: 88%; white-space: pre-wrap; font-family: var(--ds-font-sans); }
+    .msg.user { align-self: flex-end; background: var(--ds-surface-1); border: 1px solid var(--ds-border-strong); color: var(--ds-text); }
+    .msg.ai { align-self: flex-start; background: var(--ds-surface-2); border: 1px solid var(--ds-border-accent); box-shadow: var(--ds-glow); color: var(--ds-text); }
     .composer {
       position: relative; isolation: isolate;
       pointer-events: auto;
       display: flex; align-items: center; gap: 10px;
-      background: rgba(8,12,24,0.82);
+      background: var(--ds-surface-1);
       backdrop-filter: blur(20px) saturate(180%); -webkit-backdrop-filter: blur(20px) saturate(180%);
       border: 1px solid transparent; border-radius: 999px;
       padding: 6px 6px 6px 18px;
-      box-shadow: 0 0 44px rgba(140,160,255,0.14), 0 8px 30px rgba(0,0,0,0.5);
+      box-shadow: 0 0 44px rgba(0,0,0,0.5), var(--ds-glow);
     }
     /* Animated iridescent gradient border on the composer */
     .composer::before {
       content: ""; position: absolute; inset: 0; border-radius: inherit;
       padding: 1.4px;
-      background: linear-gradient(120deg, #a8edea, #8fd3ff, #b8a6ff, #ff9ed8, #ffd6a5, #a8edea);
+      background: linear-gradient(120deg, var(--ds-accent), transparent, var(--ds-success), transparent, var(--ds-accent));
       background-size: 320% 320%;
       animation: irid-border 9s ease infinite;
       -webkit-mask: linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0);
@@ -148,17 +164,17 @@ export class DeepConsole extends SignalWatcher(LitElement) {
     }
     .composer input {
       flex: 1; background: none; border: none; outline: none;
-      color: #eaffff; font: inherit; font-size: 0.95rem;
+      color: var(--ds-text); font: inherit; font-size: 0.95rem; font-family: var(--ds-font-sans);
     }
-    .composer input::placeholder { color: rgba(190,205,255,0.42); }
+    .composer input::placeholder { color: var(--ds-text-muted); }
     .send {
       cursor: pointer; border: none; border-radius: 999px; width: 38px; height: 38px;
-      background: linear-gradient(135deg, #8fd3ff, #b8a6ff, #ff9ed8); color: #0a0e1c;
+      background: var(--ds-surface-2); border: 1px solid var(--ds-border-accent); color: var(--ds-accent);
       background-size: 200% 200%; animation: irid-icon 8s ease infinite;
       font-size: 1.1rem; display: grid; place-items: center;
-      transition: transform 0.15s ease, box-shadow 0.15s ease;
+      transition: transform 0.15s ease, box-shadow 0.15s ease, color 0.15s ease, background 0.15s ease;
     }
-    .send:hover { transform: scale(1.08); box-shadow: 0 0 22px rgba(184,166,255,0.6); }
+    .send:hover { transform: scale(1.08); box-shadow: var(--ds-glow-strong); color: var(--ds-bg); background: var(--ds-accent); }
     @keyframes irid-icon {
       0% { background-position: 0% 50%; }
       50% { background-position: 100% 50%; }
@@ -166,7 +182,7 @@ export class DeepConsole extends SignalWatcher(LitElement) {
     }
     .thinking {
       font-size: 0.72rem; letter-spacing: 0.15em; margin: 0 0 6px 16px;
-      background: linear-gradient(90deg, #8fd3ff, #b8a6ff, #ff9ed8);
+      background: linear-gradient(90deg, var(--ds-accent), var(--ds-success));
       background-size: 200% 200%;
       -webkit-background-clip: text; background-clip: text;
       -webkit-text-fill-color: transparent; color: transparent;
@@ -250,13 +266,16 @@ export class DeepConsole extends SignalWatcher(LitElement) {
     const tool = this._openTool ? toolById(this._openTool) : null;
     return html`
       <div class="stage">
-        <neural-sphere
-          .activity=${this.activity}
-          .status=${this.status}
-          .micLevels=${this._micLevels}
-          @sphere-listen=${this._onSphereListen}
-          @sphere-command=${this._onSphereCommand}
-        ></neural-sphere>
+        ${this.visualizerMode === 'matrix' ? html`
+          <matrix-waterfall .activity=${this.activity} .status=${this.status}></matrix-waterfall>
+        ` : html`
+          <threat-globe .activity=${this.activity} .status=${this.status}></threat-globe>
+        `}
+
+        <div class="viz-switcher">
+          <button class="viz-btn ${this.visualizerMode === 'globe' ? 'active' : ''}" @click=${() => this.visualizerMode = 'globe'}>Threat Globe</button>
+          <button class="viz-btn ${this.visualizerMode === 'matrix' ? 'active' : ''}" @click=${() => this.visualizerMode = 'matrix'}>Matrix Waterfall</button>
+        </div>
 
         ${tool ? html`
           <div class="focus">
