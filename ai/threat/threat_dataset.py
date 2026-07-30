@@ -181,22 +181,42 @@ class ThreatDatasetBuilder:
         return flows
 
     async def _load_threat_flows(self) -> List[tuple[NetworkFlowSnapshot, ThreatLabel]]:
-        """Load flows that coincide with threat_detected events from audit trail."""
+        """Load flows that coincide with THREAT_DETECTED audit entries.
+
+        NOTE: this previously had two independent bugs that together meant
+        it always silently returned [] — this "real threat events" path had
+        never actually produced training data:
+
+        1. It selected a.threat_type, a column that doesn't exist on
+           audit_log (see core/audit_trail.py's CREATE TABLE — it only has
+           payload_json). Fixed by pulling the label out of payload_json
+           instead, where AuditTrail's event-bus auto-logger
+           (core/audit_trail.py _on_any_event) actually stores it (e.g.
+           threat_classified / security_alert_correlated events, both
+           auto-captured as THREAT_DETECTED because their event names
+           contain "threat"/"security").
+        2. Its BETWEEN clause compared the raw a.timestamp column (stored as
+           `datetime.now(timezone.utc).isoformat()`, e.g.
+           "2026-07-30T12:34:56.789012+00:00") against
+           datetime(nb.timestamp, ...)'s *normalized* output format
+           ("2026-07-30 12:29:56") — different string shapes, so the string
+           comparison essentially never matched even for timestamps 1 second
+           apart. Fixed by normalizing both sides through datetime(...).
+        """
         if not self._anomaly_db_path.exists():
             return []
 
-        # Try to join with audit_log if it exists in the same DB
         try:
             with closing(sqlite3.connect(str(self._anomaly_db_path))) as conn, conn:
                 conn.row_factory = sqlite3.Row
                 rows = conn.execute(
                     """
-                    SELECT nb.*, a.threat_type
+                    SELECT nb.*, a.payload_json
                     FROM network_baseline nb
                     JOIN audit_log a ON (
                         a.entry_type = 'THREAT_DETECTED'
-                        AND a.timestamp BETWEEN datetime(nb.timestamp, '-5 minutes')
-                                           AND datetime(nb.timestamp, '+5 minutes')
+                        AND datetime(a.timestamp) BETWEEN datetime(nb.timestamp, '-5 minutes')
+                                                       AND datetime(nb.timestamp, '+5 minutes')
                     )
                     WHERE nb.timestamp >= datetime('now', '-30 days')
                     ORDER BY nb.timestamp DESC
@@ -210,10 +230,38 @@ class ThreatDatasetBuilder:
         result = []
         for r in rows:
             flow = NetworkFlowSnapshot(**{k: r[k] for k in r.keys() if k in NetworkFlowSnapshot.__dataclass_fields__})
-            threat_type = r.get("threat_type", "unknown")
-            label = THREAT_TYPE_MAP.get(threat_type, ThreatLabel.UNKNOWN_THREAT)
+            label = self._extract_threat_label(r["payload_json"] if "payload_json" in r.keys() else None)
             result.append((flow, label))
         return result
+
+    @staticmethod
+    def _extract_threat_label(payload_json: Optional[str]) -> ThreatLabel:
+        """Pull a ThreatLabel out of an audit entry's stored payload.
+
+        Real ThreatClassifier output uses ThreatLabel.name-style values
+        ("PORT_SCAN"); THREAT_TYPE_MAP's keys are lowercase ("port_scan") for
+        hand-labeled/manual entries (e.g. a future labeling tool). Both are
+        tried; unparseable/unrecognized payloads fall back to UNKNOWN_THREAT,
+        matching the previous (always-hit) default behavior.
+        """
+        if not payload_json:
+            return ThreatLabel.UNKNOWN_THREAT
+        try:
+            import json as _json
+
+            payload = _json.loads(payload_json)
+        except Exception:
+            return ThreatLabel.UNKNOWN_THREAT
+
+        raw = payload.get("threat_type") or payload.get("kind") or ""
+        raw = str(raw).strip()
+        if not raw:
+            return ThreatLabel.UNKNOWN_THREAT
+
+        try:
+            return ThreatLabel[raw.upper()]
+        except KeyError:
+            return THREAT_TYPE_MAP.get(raw.lower(), ThreatLabel.UNKNOWN_THREAT)
 
     async def _flows_to_samples(
         self,

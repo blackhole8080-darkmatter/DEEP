@@ -33,9 +33,7 @@ export const GROUPS: Group[] = [
     id: "knowledge",
     label: "Knowledge",
     tabs: [
-      { route: "science", label: "science" },
       { route: "calc", label: "calc" },
-      { route: "projects", label: "projects" },
       { route: "research", label: "research" },
     ],
   },

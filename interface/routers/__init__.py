@@ -7,7 +7,7 @@ server.py mounts via `app.include_router(...)`.
 
 from interface.routers import (
     predictive, evolution, knowledge_graph, threat, workspace, reference, security,
-    etis, knowledge, state, network, audit, anomaly,
+    etis, knowledge, state, network, audit, anomaly, security_timeline,
 )
 
 ROUTERS = [
@@ -24,6 +24,7 @@ ROUTERS = [
     network.router,
     audit.router,
     anomaly.router,
+    security_timeline.router,
 ]
 
 from interface.ws import router as ws_router

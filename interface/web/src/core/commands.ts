@@ -61,7 +61,7 @@ registerCommand({ id: "nav.stack", label: "Open Stack Telemetry (model + tool ob
 registerCommand({ id: "nav.calc", label: "Open Graphing Calculator", hint: "nav", run: go("calc") });
 registerCommand({ id: "nav.legacy", label: "Open Legacy UI (/ai)", hint: "nav", run: () => { location.href = "/ai"; } });
 
-registerCommand({ id: "ui.theme", label: "Toggle Theme (Calm ⇄ Neon)", hint: "ui", run: () => cycleSkin() });
+registerCommand({ id: "ui.theme", label: "Cycle Theme (Calm ⇄ Neon ⇄ ETIS ⇄ Hacker)", hint: "ui", run: () => cycleSkin() });
 
 registerCommand({
   id: "sys.providers",

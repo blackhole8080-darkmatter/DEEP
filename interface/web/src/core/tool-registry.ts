@@ -20,23 +20,17 @@ export const TOOL_REGISTRY: ToolDef[] = [
   // ── Intelligence ──
   { id: "memory",   label: "Knowledge", icon: "◐", group: "intelligence",
     load: () => import("../components/memory/memory-graph"), render: () => html`<memory-graph></memory-graph>` },
-  { id: "science",  label: "Science",   icon: "∿", group: "intelligence",
-    load: () => import("../components/science/science-view"), render: () => html`<science-view></science-view>` },
 
   // ── System ──
   { id: "telemetry",label: "Telemetry", icon: "⎈", group: "system",
     load: () => import("../components/dashboard-view"),     render: () => html`<dashboard-view></dashboard-view>` },
   { id: "network",  label: "Network",   icon: "◎", group: "system",
     load: () => import("../components/ops/network-view"),   render: () => html`<network-view></network-view>` },
-  { id: "etis",     label: "ETIS",      icon: "🛡", group: "system",
-    load: () => import("../components/ops/etis-hud"),       render: () => html`<etis-hud></etis-hud>` },
+  { id: "security-timeline", label: "Security", icon: "🛰", group: "system",
+    load: () => import("../components/ops/security-timeline-view"),
+    render: () => html`<security-timeline-view></security-timeline-view>` },
   { id: "audit",    label: "Audit",     icon: "❖", group: "system",
     load: () => import("../components/ops/audit-view"),     render: () => html`<audit-view></audit-view>` },
-
-
-  // ── Personal ──
-  { id: "projects", label: "Projects",  icon: "◇", group: "personal",
-    load: () => import("../components/knowledge/projects-view"), render: () => html`<projects-view></projects-view>` },
 ];
 
 export function toolById(id: string): ToolDef | undefined {

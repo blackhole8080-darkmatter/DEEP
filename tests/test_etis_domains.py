@@ -1,37 +1,9 @@
 import requests
-from domains.physics.engine import PhysicsEngine
 import json
 
 BASE_URL = "http://127.0.0.1:7768/api/etis"
 
 import asyncio
-
-def test_physics_engine_direct():
-    """Verify the decoupled domain engine works directly."""
-    engine = PhysicsEngine()
-    result = engine.compute("m*a", variables={"m": 10, "a": 9.8})
-    if asyncio.iscoroutine(result):
-        result = asyncio.run(result)
-    assert result is not None
-    print(f"Direct Engine result: {result}")
-    import math
-    assert math.isclose(result.numerical, 98.0, rel_tol=1e-5)
-    print("test_physics_engine_direct OK")
-
-def test_physics_endpoint():
-    """Verify the physics computation via HTTP router."""
-    response = requests.post(f"{BASE_URL}/physics/compute", json={
-        "expression": "m*a",
-        "variables": {"m": 10, "a": 9.8},
-        "output": "symbolic"
-    })
-    assert response.status_code == 200, f"Status: {response.status_code}, Body: {response.text}"
-    data = response.json()
-    assert data["ok"] is True, f"Not ok: {data}"
-    assert "data" in data
-    import math
-    assert math.isclose(data["data"]["numerical"], 98.0, rel_tol=1e-5)
-    print("test_physics_endpoint OK")
 
 def test_sandbox_endpoint_refusal():
     """
@@ -99,8 +71,6 @@ def test_mitre_map_cve():
     print("test_mitre_map_cve OK")
 
 if __name__ == "__main__":
-    test_physics_engine_direct()
-    test_physics_endpoint()
     test_sandbox_endpoint_refusal()
     test_cve_lookup()
     test_mitre_search()

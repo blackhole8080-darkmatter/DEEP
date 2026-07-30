@@ -2,39 +2,10 @@
 DEEP ETIS tools — Modern registry integration.
 """
 
+import os
+
 from core.tools.registry import tool
 from core.domain.models import ToolResult
-import json
-
-@tool(
-    "etis_physics_compute",
-    "Symbolic or numeric physics computation. Example: expression='m*a', variables={'m': 10, 'a': 9.8}.",
-    {
-        "expression": "The physics expression (e.g. 'E = m*c**2' or 'm*a')",
-        "variables": "JSON string of variable values (e.g. '{\"m\": 10, \"a\": 9.8}')",
-        "output": "Format: 'symbolic' or 'numeric'"
-    }
-)
-async def etis_physics_compute(ctx, args) -> ToolResult:
-    try:
-        from domains.physics.engine import PhysicsEngine
-        engine = PhysicsEngine()
-        variables = json.loads(args.get("variables", "{}"))
-        output = args.get("output", "symbolic")
-        result = await engine.compute(expression=args["expression"], variables=variables, output=output)
-        if result.error:
-            return ToolResult(ok=False, content=f"[PHYSICS] {result.error}", tool_name="etis_physics_compute")
-        
-        # P3: Wrap latex in $$...$$ for KaTeX rendering
-        wrapped_latex = f"$$\n{result.latex}\n$$"
-        
-        return ToolResult(
-            ok=True, 
-            content=f"[PHYSICS Computation]\nResult: {result.numerical if result.numerical is not None else result.symbolic}\nLaTeX:\n{wrapped_latex}", 
-            tool_name="etis_physics_compute"
-        )
-    except Exception as e:
-        return ToolResult(ok=False, content=f"[PHYSICS] {e}", tool_name="etis_physics_compute")
 
 @tool(
     "etis_cve_lookup",
@@ -147,3 +118,92 @@ async def etis_sandbox_execute(ctx, args) -> ToolResult:
         return ToolResult(ok=True, content=f"[SANDBOX] Success:\n{result.stdout}", tool_name="etis_sandbox_execute")
     except Exception as e:
         return ToolResult(ok=False, content=f"[SANDBOX] Exception: {e}", tool_name="etis_sandbox_execute")
+
+
+@tool(
+    "etis_security_pulse",
+    "Get the latest cybersecurity news: recent posts from Krebs on Security, The Hacker News, "
+    "BleepingComputer, SANS ISC, Cisco Talos, Google Project Zero, and Microsoft MSRC, plus hot "
+    "discussion from r/netsec and r/cybersecurity. Use for 'what's happening in cybersecurity', "
+    "'latest hacking news', 'new attack techniques', 'recent vulnerabilities being discussed'.",
+    {}
+)
+async def etis_security_pulse(ctx, args) -> ToolResult:
+    try:
+        from core.intel_feeds import get_intel_feeds
+        feeds = get_intel_feeds()
+        import asyncio
+        blogs, netsec, cyber = await asyncio.gather(
+            feeds.fetch_security_blogs(), feeds.fetch_reddit("netsec"), feeds.fetch_reddit("cybersecurity"),
+        )
+        items = sorted(blogs, key=lambda i: i.published, reverse=True)[:8]
+        lines = ["[SECURITY PULSE] Latest from security blogs:"]
+        for i in items:
+            lines.append(f"  [{i.source}] {i.title}")
+        if netsec or cyber:
+            lines.append("\nTrending on Reddit:")
+            for i in (netsec + cyber)[:5]:
+                lines.append(f"  [{i.source}] {i.title}")
+        return ToolResult(ok=True, content="\n".join(lines), tool_name="etis_security_pulse")
+    except Exception as e:
+        return ToolResult(ok=False, content=f"[SECURITY PULSE] {e}", tool_name="etis_security_pulse")
+
+
+@tool(
+    "etis_shodan_lookup",
+    "Look up what's exposed on the internet for an IP address via Shodan (open ports, banners, "
+    "known vulnerabilities). Requires SHODAN_API_KEY to be configured.",
+    {"ip": "The IP address to look up"}
+)
+async def etis_shodan_lookup(ctx, args) -> ToolResult:
+    try:
+        from domains.cybersec.osint_engine import OSINTEngine
+        engine = OSINTEngine(shodan_key=os.environ.get("SHODAN_API_KEY") or None)
+        record = await engine.shodan_lookup(args["ip"].strip())
+        if record is None:
+            return ToolResult(ok=False, content="[SHODAN] Not configured (SHODAN_API_KEY) or no data for this IP.",
+                               tool_name="etis_shodan_lookup")
+        lines = [
+            f"[SHODAN] {record.ip} — {record.org or '?'} ({record.country or '?'})",
+            f"Open ports: {', '.join(str(p) for p in record.ports) or 'none'}",
+            f"OS: {record.os or 'unknown'}",
+        ]
+        if record.vulns:
+            lines.append(f"Known vulns: {', '.join(record.vulns[:10])}")
+        return ToolResult(ok=True, content="\n".join(lines), tool_name="etis_shodan_lookup")
+    except Exception as e:
+        return ToolResult(ok=False, content=f"[SHODAN] {e}", tool_name="etis_shodan_lookup")
+
+
+@tool(
+    "etis_reputation_check",
+    "Check an IP or domain's threat reputation via VirusTotal and AbuseIPDB (malicious/suspicious "
+    "detection counts, abuse reports). Requires VIRUSTOTAL_API_KEY / ABUSEIPDB_API_KEY.",
+    {"indicator": "The IP address or domain to check"}
+)
+async def etis_reputation_check(ctx, args) -> ToolResult:
+    try:
+        from domains.cybersec.osint_engine import OSINTEngine
+        import re as _re
+        indicator = args["indicator"].strip()
+        engine = OSINTEngine(
+            vt_key=os.environ.get("VIRUSTOTAL_API_KEY") or None,
+            abuseipdb_key=os.environ.get("ABUSEIPDB_API_KEY") or None,
+        )
+        lines = [f"[REPUTATION] {indicator}"]
+        vt = await engine.virustotal_lookup(indicator)
+        if vt.error:
+            lines.append(f"  VirusTotal: {vt.error}")
+        else:
+            lines.append(f"  VirusTotal: {vt.malicious} malicious / {vt.suspicious} suspicious "
+                          f"/ {vt.harmless} harmless (reputation score {vt.reputation})")
+        if _re.match(r"^\d{1,3}(\.\d{1,3}){3}$", indicator):
+            ab = await engine.abuseipdb_lookup(indicator)
+            if ab.error:
+                lines.append(f"  AbuseIPDB: {ab.error}")
+            else:
+                lines.append(f"  AbuseIPDB: {ab.abuse_confidence_score}% confidence, "
+                              f"{ab.total_reports} reports, Tor: {ab.is_tor}")
+        return ToolResult(ok=True, content="\n".join(lines), tool_name="etis_reputation_check")
+    except Exception as e:
+        return ToolResult(ok=False, content=f"[REPUTATION] {e}", tool_name="etis_reputation_check")
