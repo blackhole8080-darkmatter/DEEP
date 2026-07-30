@@ -2,7 +2,8 @@
 tests/test_alert_correlator.py
 
 Unit tests for AlertCorrelator: anomaly_detected / threat_classified events
-get enriched with MITRE ATT&CK context and republished as security_alert.
+get enriched with MITRE ATT&CK context and republished as
+security_alert_correlated.
 """
 
 from __future__ import annotations
@@ -38,7 +39,7 @@ async def test_threat_classified_gets_correlated_with_attack_technique() -> None
     async def _capture(event_name: str, payload: dict) -> None:
         received.append(payload)
 
-    bus.subscribe("security_alert", _capture)
+    bus.subscribe("security_alert_correlated", _capture)
 
     await bus.publish("threat_classified", {
         "threat_type": "PORT_SCAN",
@@ -62,7 +63,7 @@ async def test_threat_classified_gets_correlated_with_attack_technique() -> None
 @pytest.mark.asyncio
 async def test_anomaly_detected_gets_correlated() -> None:
     """A network anomaly on active_connections should also produce a
-    security_alert with technique context, even without a CVE hit."""
+    security_alert_correlated with technique context, even without a CVE hit."""
     bus = EventBus()
     await bus.start()
 
@@ -75,7 +76,7 @@ async def test_anomaly_detected_gets_correlated() -> None:
     async def _capture(event_name: str, payload: dict) -> None:
         received.append(payload)
 
-    bus.subscribe("security_alert", _capture)
+    bus.subscribe("security_alert_correlated", _capture)
 
     await bus.publish("anomaly_detected", {
         "anomaly_type": "network",
@@ -113,7 +114,7 @@ async def test_cve_lookup_failure_degrades_gracefully() -> None:
     async def _capture(event_name: str, payload: dict) -> None:
         received.append(payload)
 
-    bus.subscribe("security_alert", _capture)
+    bus.subscribe("security_alert_correlated", _capture)
 
     with patch("domains.cybersec.cve_intel.CVEIntel.search", side_effect=RuntimeError("no network")):
         await bus.publish("threat_classified", {

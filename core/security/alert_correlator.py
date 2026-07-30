@@ -2,15 +2,23 @@
 core/security/alert_correlator.py
 
 Enriches raw anomaly/threat events with MITRE ATT&CK technique context (and
-opportunistic related-CVE signal), and republishes a single `security_alert`
-event carrying that context instead of a bare metric name or threat label.
+opportunistic related-CVE signal), and republishes a single
+`security_alert_correlated` event carrying that context instead of a bare
+metric name or threat label.
+
+NOTE: the bus already has an established `security_alert` event, published
+by core/security/network_monitor.py and network/evil_twin_detector.py, with
+its own schema (device_mac/device_ip/event_type/title/description) and its
+own consumer (core/network_graph_builder.py). This module intentionally
+publishes under `security_alert_correlated` instead, to avoid silently
+colliding with that existing event/schema.
 
 Wiring: construct once with the app's shared EventBus and call `start()`
 during startup, after `AnomalyDetector` / `ThreatClassifier` are already
 publishing to the bus (order doesn't actually matter — subscription just
 needs to happen before the events fire). It only *adds* a new
-`security_alert` event; `anomaly_detected` and `threat_classified` keep
-firing exactly as before, so nothing else in the app has to change.
+`security_alert_correlated` event; `anomaly_detected` and `threat_classified`
+keep firing exactly as before, so nothing else in the app has to change.
 
 Scope note: `anomaly_detected` (ai/anomaly/anomaly_detector.py) and
 `threat_classified` (ai/threat/threat_classifier.py) payloads are host-
@@ -88,7 +96,7 @@ class AlertCorrelator:
     """
     Subscribes to `anomaly_detected` / `threat_classified`, enriches each
     with MITRE ATT&CK context (+ opportunistic CVE/KEV signal), and
-    republishes as `security_alert`.
+    republishes as `security_alert_correlated`.
     """
 
     def __init__(self, event_bus: Any, cve_intel: Optional[Any] = None) -> None:
@@ -195,7 +203,7 @@ class AlertCorrelator:
             raw=raw,
         )
         logger.info(f"[alert_correlator] {kind} -> {len(techniques)} technique(s), {len(related_cves)} CVE(s)")
-        await self.event_bus.publish("security_alert", alert.to_dict())
+        await self.event_bus.publish("security_alert_correlated", alert.to_dict())
 
     def _match_techniques(self, query: str, limit: int = 3) -> List[Technique]:
         try:

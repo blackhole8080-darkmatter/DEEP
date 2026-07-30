@@ -60,6 +60,7 @@ from core.ltm_memory import LongTermMemory
 # core.voice_web / core.local_stt imports removed (VoiceWeb/LocalSTT stubbed above)
 from core.security.network_monitor import NetworkMonitor
 from core.security.alert_correlator import AlertCorrelator
+from core.security.security_timeline import SecurityTimeline
 from core.predictive_engine import PredictiveEngine
 from core.self_evaluation import SelfEvaluationEngine
 from core.knowledge_graph import KnowledgeGraph
@@ -248,9 +249,14 @@ threat_classifier = ThreatClassifier(
     network_baseline=network_baseline,
     system_baseline=system_baseline,
 )
-# Enriches anomaly_detected/threat_classified with MITRE ATT&CK + CVE
-# context and republishes as `security_alert` — see core/security/alert_correlator.py
+# Enriches anomaly_detected/threat_classified with MITRE ATT&CK + CVE context
+# and republishes as `security_alert_correlated` (kept distinct from the
+# existing device-level `security_alert` event) — see
+# core/security/alert_correlator.py
 alert_correlator = AlertCorrelator(event_bus=event_bus)
+# Merges security_alert + security_alert_correlated into one severity-scored
+# feed for the dashboard — see core/security/security_timeline.py
+security_timeline = SecurityTimeline(event_bus=event_bus)
 
 # ── Knowledge Intelligence Layer ────────────────────────────────────────
 knowledge_store = KnowledgeStore(event_bus=event_bus)
@@ -476,6 +482,12 @@ async def startup_event():
         print(f"[DEEP] AlertCorrelator init error: {e}")
 
     try:
+        await security_timeline.start()
+        print("[DEEP] SecurityTimeline started")
+    except Exception as e:
+        print(f"[DEEP] SecurityTimeline init error: {e}")
+
+    try:
         await graph_orchestrator.start()
         print("[DEEP] GraphOrchestrator started")
     except Exception as e:
@@ -615,6 +627,7 @@ async def startup_event():
             return
         type_map = {
             "security_alert": "security_alert",
+            "security_alert_correlated": "security_alert_correlated",
             "topic_added": "research_event",
             "topic_removed": "research_event",
             "topic_scanned": "research_event",
@@ -783,6 +796,10 @@ async def shutdown_event():
         pass
     try:
         await alert_correlator.stop()
+    except Exception:
+        pass
+    try:
+        await security_timeline.stop()
     except Exception:
         pass
     try:
@@ -1771,6 +1788,8 @@ _register_services(
     anomaly_detector=anomaly_detector,
     audit_trail=audit,
     retraining_scheduler=retraining_scheduler,
+    alert_correlator=alert_correlator,
+    security_timeline=security_timeline,
 )
 for _r in _DEEP_ROUTERS:
     app.include_router(_r)
