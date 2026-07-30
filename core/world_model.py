@@ -57,6 +57,7 @@ def _coerce_json(raw: str) -> Dict[str, Any]:
 
 class WorldModel:
     MAX_EPISODES = 12
+    MAX_WORLD_ALERTS = 8
 
     def __init__(self, data_dir: Optional[Path] = None):
         self.data_dir = Path(data_dir) if data_dir else (Path(__file__).parent.parent / "data")
@@ -65,8 +66,10 @@ class WorldModel:
         self.state: Dict[str, Any] = {
             "summary": "", "projects": [], "people": [], "priorities": [],
             "interests": [], "current_focus": "", "episodes": [], "updated_at": None,
+            "world_alerts": [],
         }
         self._load()
+        self.state.setdefault("world_alerts", [])
 
     # ── persistence ───────────────────────────────────────────────────────────
     def _load(self) -> None:
@@ -139,11 +142,26 @@ class WorldModel:
         self._save()
         return self.state
 
+    # ── world signal (global threat intel matched to known entities) ──────────
+    def add_world_alert(self, text: str) -> None:
+        """Record a world event that's relevant to something DEEP already knows
+        about Aryan (e.g. a KEV disclosure for a project/tool he uses). Bounded,
+        deduped, newest last — see global_threat_watch.py, the only caller today."""
+        text = (text or "").strip()[:280]
+        if not text:
+            return
+        alerts = self.state.setdefault("world_alerts", [])
+        if alerts and alerts[-1].get("text") == text:
+            return  # skip immediate dupes (e.g. same watch cycle re-firing)
+        alerts.append({"text": text, "at": datetime.now().isoformat()})
+        self.state["world_alerts"] = alerts[-self.MAX_WORLD_ALERTS:]
+        self._save()
+
     # ── consumption ───────────────────────────────────────────────────────────
     def context_block(self) -> str:
         """Compact block injected into the chat system prompt. Empty until first refresh."""
         s = self.state
-        if not (s.get("summary") or s.get("projects") or s.get("priorities")):
+        if not (s.get("summary") or s.get("projects") or s.get("priorities") or s.get("world_alerts")):
             return ""
         parts = ["WHAT YOU KNOW ABOUT ARYAN (use naturally, don't recite):"]
         if s.get("summary"):
@@ -161,6 +179,13 @@ class WorldModel:
         eps = s.get("episodes", [])
         if eps:
             parts.append("Recently: " + " ".join(e["text"] for e in eps[-3:]))
+        world_alerts = s.get("world_alerts", [])
+        if world_alerts:
+            parts.append(
+                "World events relevant to Aryan's known projects/tools (mention "
+                "proactively if relevant, don't just recite): "
+                + " | ".join(a["text"] for a in world_alerts[-3:])
+            )
         return "\n".join(parts) + "\n\n"
 
     def to_dict(self) -> Dict[str, Any]:

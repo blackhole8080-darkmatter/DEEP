@@ -488,6 +488,12 @@ async def startup_event():
         print(f"[DEEP] SecurityTimeline init error: {e}")
 
     try:
+        await global_threat_watch.start()
+        print("[DEEP] GlobalThreatWatch started")
+    except Exception as e:
+        print(f"[DEEP] GlobalThreatWatch init error: {e}")
+
+    try:
         await graph_orchestrator.start()
         print("[DEEP] GraphOrchestrator started")
     except Exception as e:
@@ -803,6 +809,10 @@ async def shutdown_event():
     except Exception:
         pass
     try:
+        await global_threat_watch.stop()
+    except Exception:
+        pass
+    try:
         await network_baseline.stop()
     except Exception:
         pass
@@ -977,6 +987,19 @@ except Exception as _kg_ex:
 # and injected into every system prompt.
 from core.world_model import WorldModel
 world_model = WorldModel()
+
+# Bridges global threat intel (CISA KEV) into world_model: matches KEV
+# vendor/product against known knowledge-graph entities so DEEP can connect
+# "a CVE was disclosed today" to "you use that project" — see
+# core/global_threat_watch.py
+from core.intel_feeds import get_intel_feeds
+from core.global_threat_watch import GlobalThreatWatch
+global_threat_watch = GlobalThreatWatch(
+    event_bus=event_bus,
+    knowledge_graph=knowledge_graph,
+    world_model=world_model,
+    intel_feeds=get_intel_feeds(),
+)
 
 _wm_refreshing = False
 async def _refresh_world_model():
@@ -1790,6 +1813,7 @@ _register_services(
     retraining_scheduler=retraining_scheduler,
     alert_correlator=alert_correlator,
     security_timeline=security_timeline,
+    global_threat_watch=global_threat_watch,
 )
 for _r in _DEEP_ROUTERS:
     app.include_router(_r)
