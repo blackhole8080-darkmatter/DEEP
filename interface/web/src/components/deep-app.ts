@@ -60,6 +60,13 @@ export class DeepApp extends SignalWatcher(LitElement) {
     const ty = m.type ?? "";
     if (ty.startsWith("agent_")) this.bumpNode("agents", "active");
     else if (ty === "security_alert") this.bumpNode("security", "warning", 6000);
+    // security_alert_correlated (MITRE/CVE-enriched anomaly+threat) and
+    // world_threat_match (CISA KEV/OTX matched against known projects) —
+    // both added this session, see core/security/alert_correlator.py and
+    // core/global_threat_watch.py. Same node, held a bit longer since these
+    // carry more analysis than a raw device event.
+    else if (ty === "security_alert_correlated" || ty === "world_threat_match")
+      this.bumpNode("security", "warning", 8000);
     else if (ty.includes("proximity") || ty.includes("device") || ty.includes("unknown_ap"))
       this.bumpNode("security", "indexing");
     else if (ty.startsWith("predictive_") || ty.startsWith("proactive_")) this.bumpNode("predictive", "thinking");

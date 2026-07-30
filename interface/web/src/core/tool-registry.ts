@@ -26,6 +26,9 @@ export const TOOL_REGISTRY: ToolDef[] = [
     load: () => import("../components/dashboard-view"),     render: () => html`<dashboard-view></dashboard-view>` },
   { id: "network",  label: "Network",   icon: "◎", group: "system",
     load: () => import("../components/ops/network-view"),   render: () => html`<network-view></network-view>` },
+  { id: "security-timeline", label: "Security", icon: "🛰", group: "system",
+    load: () => import("../components/ops/security-timeline-view"),
+    render: () => html`<security-timeline-view></security-timeline-view>` },
   { id: "audit",    label: "Audit",     icon: "❖", group: "system",
     load: () => import("../components/ops/audit-view"),     render: () => html`<audit-view></audit-view>` },
 ];
