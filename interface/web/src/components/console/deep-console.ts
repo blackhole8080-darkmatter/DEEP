@@ -12,6 +12,7 @@ import { customElement, property, state } from "lit/decorators.js";
 import { SignalWatcher } from "@lit-labs/signals";
 import { messages, thinking, sendChat } from "../../core/store";
 import { toolById } from "../../core/tool-registry";
+import { skin, cycleSkin, type Skin } from "../../core/theme";
 import { AudioAnalyser, type AudioLevels } from "../../core/audio";
 import "./matrix-waterfall";
 import "./threat-globe";
@@ -78,6 +79,42 @@ export class DeepConsole extends SignalWatcher(LitElement) {
     .viz-btn.active, .viz-btn:hover {
       background: rgba(0,255,255,0.2); color: #fff; box-shadow: 0 0 10px rgba(0,255,255,0.4); border-color: rgba(0,255,255,0.5);
     }
+
+    /* Skin switcher — was hidden behind Ctrl+K only; surfaced here so the
+       skin system (calm/neon/etis/hacker, see design/themes.css) is actually
+       discoverable. Same pill language as .viz-btn, opposite corner. */
+    .skin-switcher {
+      position: absolute; top: 24px; left: 24px; z-index: 10;
+      pointer-events: auto;
+    }
+    .skin-btn {
+      display: flex; align-items: center; gap: 6px;
+      background: var(--ds-glass-thin, rgba(0,255,255,0.05));
+      border: 1px solid var(--ds-border-accent, rgba(0,255,255,0.2));
+      color: var(--ds-text-soft, rgba(0,255,255,0.6));
+      padding: 4px 10px; border-radius: 4px;
+      font-family: var(--ds-font-mono, monospace); font-size: 0.7rem; cursor: pointer;
+      text-transform: uppercase; letter-spacing: 0.06em;
+      transition: all 0.2s ease;
+    }
+    .skin-btn:hover {
+      background: var(--ds-surface-3); color: var(--ds-text);
+      box-shadow: var(--ds-glow); border-color: var(--ds-border-accent);
+    }
+    .skin-dot {
+      width: 7px; height: 7px; border-radius: 50%;
+      background: var(--ds-accent);
+      box-shadow: 0 0 6px var(--ds-accent), 0 0 12px var(--ds-accent);
+      animation: skin-dot-pulse 2.4s ease-in-out infinite;
+    }
+    /* Defined locally (not just in design/animations.css): @keyframes don't
+       resolve across the shadow-DOM boundary, so a component can only use
+       an animation name if it's declared in its own stylesheet. */
+    @keyframes skin-dot-pulse {
+      0%, 100% { box-shadow: 0 0 6px var(--ds-accent), 0 0 12px var(--ds-accent); }
+      50%      { box-shadow: 0 0 10px var(--ds-accent), 0 0 20px var(--ds-accent); }
+    }
+    @media (prefers-reduced-motion: reduce) { .skin-dot { animation: none; } }
 
     /* Glassmorphic tool dock — floating, bottom-centered */
     tool-dock {
@@ -261,9 +298,14 @@ export class DeepConsole extends SignalWatcher(LitElement) {
     this._draft = "";
   }
 
+  private static readonly SKIN_LABEL: Record<Skin, string> = {
+    calm: "Calm", neon: "Neon", etis: "ETIS", hacker: "Hacker",
+  };
+
   render() {
     const msgs = messages.get().slice(-6);
     const tool = this._openTool ? toolById(this._openTool) : null;
+    const currentSkin = skin.get();
     return html`
       <div class="stage">
         ${this.visualizerMode === 'matrix' ? html`
@@ -271,6 +313,12 @@ export class DeepConsole extends SignalWatcher(LitElement) {
         ` : html`
           <threat-globe .activity=${this.activity} .status=${this.status}></threat-globe>
         `}
+
+        <div class="skin-switcher">
+          <button class="skin-btn" @click=${() => cycleSkin()} title="Cycle theme (Calm / Neon / ETIS / Hacker)">
+            <span class="skin-dot"></span>${DeepConsole.SKIN_LABEL[currentSkin]}
+          </button>
+        </div>
 
         <div class="viz-switcher">
           <button class="viz-btn ${this.visualizerMode === 'globe' ? 'active' : ''}" @click=${() => this.visualizerMode = 'globe'}>Threat Globe</button>

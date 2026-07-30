@@ -2,7 +2,12 @@
 // document root so all --ds-* token overrides (themes.css) take effect.
 import { signal } from "@lit-labs/signals";
 
-export type Skin = "calm" | "neon" | "etis";
+// "hacker" (matrix-green CRT terminal, scanlines, grid overlay) was fully
+// built in themes.css but never reachable from the UI — missing from this
+// type and the cycle below, so data-skin="hacker" could only ever be set by
+// hand-editing localStorage. Wired in properly now.
+export type Skin = "calm" | "neon" | "etis" | "hacker";
+const SKINS: Skin[] = ["calm", "neon", "etis", "hacker"];
 const KEY = "deep_skin";
 
 export const skin = signal<Skin>((localStorage.getItem(KEY) as Skin) || "etis");
@@ -15,10 +20,8 @@ export function applySkin(next: Skin): void {
 }
 
 export function cycleSkin(): void {
-  const current = skin.get();
-  if (current === "calm") applySkin("neon");
-  else if (current === "neon") applySkin("etis");
-  else applySkin("calm");
+  const i = SKINS.indexOf(skin.get());
+  applySkin(SKINS[(i + 1) % SKINS.length]);
 }
 
 // ── Accent colors ────────────────────────────────────────────────────────────
