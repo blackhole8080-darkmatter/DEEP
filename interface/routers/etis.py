@@ -119,6 +119,76 @@ async def kev_feed(days_back: int = 30):
         return _err(str(e))
 
 
+def _intel_items_json(items) -> list:
+    return [
+        {
+            "source": i.source, "id": i.item_id, "title": i.title, "summary": i.summary,
+            "published": i.published, "severity": i.severity, "url": i.url,
+            "tags": i.tags, "is_kev": i.is_kev, "cvss_score": i.cvss_score,
+        }
+        for i in items
+    ]
+
+
+@router.get("/intel/security-blogs")
+async def security_blogs_feed():
+    """Recent posts from Krebs, The Hacker News, BleepingComputer, SANS ISC,
+    Talos, Project Zero, MSRC — no API key needed."""
+    try:
+        from core.intel_feeds import get_intel_feeds
+        items = await get_intel_feeds().fetch_security_blogs()
+        return _ok({"count": len(items), "items": _intel_items_json(items)})
+    except Exception as e:
+        return _err(str(e))
+
+
+@router.get("/intel/reddit/{subreddit}")
+async def reddit_feed(subreddit: str, limit: int = 15):
+    """Hot posts from a security subreddit (e.g. netsec, cybersecurity) — no API key needed."""
+    try:
+        from core.intel_feeds import get_intel_feeds
+        items = await get_intel_feeds().fetch_reddit(subreddit, limit=limit)
+        return _ok({"count": len(items), "items": _intel_items_json(items)})
+    except Exception as e:
+        return _err(str(e))
+
+
+@router.get("/intel/otx")
+async def otx_feed():
+    """AlienVault OTX subscribed pulses (needs OTX_API_KEY — empty list without it)."""
+    try:
+        from core.intel_feeds import get_intel_feeds
+        items = await get_intel_feeds().fetch_otx_pulses()
+        return _ok({"count": len(items), "items": _intel_items_json(items),
+                     "configured": bool(os.environ.get("OTX_API_KEY"))})
+    except Exception as e:
+        return _err(str(e))
+
+
+@router.get("/intel/urlhaus")
+async def urlhaus_feed():
+    """abuse.ch URLhaus recent malicious URLs (needs ABUSECH_AUTH_KEY)."""
+    try:
+        from core.intel_feeds import get_intel_feeds
+        items = await get_intel_feeds().fetch_urlhaus()
+        return _ok({"count": len(items), "items": _intel_items_json(items),
+                     "configured": bool(os.environ.get("ABUSECH_AUTH_KEY"))})
+    except Exception as e:
+        return _err(str(e))
+
+
+@router.get("/intel/threatfox")
+async def threatfox_feed(days: int = 3):
+    """abuse.ch ThreatFox recent IOCs (needs ABUSECH_AUTH_KEY)."""
+    try:
+        from core.intel_feeds import get_intel_feeds
+        items = await get_intel_feeds().fetch_threatfox(days=days)
+        return _ok({"count": len(items), "items": _intel_items_json(items),
+                     "configured": bool(os.environ.get("ABUSECH_AUTH_KEY"))})
+    except Exception as e:
+        return _err(str(e))
+
+
 # ── Cross-domain classifier ────────────────────────────────────────────────────
 
 @router.post("/classify")
@@ -256,29 +326,105 @@ async def mitre_map_cve(payload: dict):
 
 @router.post("/osint/recon")
 async def osint_recon(payload: dict):
-    """Passive OSINT recon: DNS, certs, subdomains, geolocation."""
+    """Passive OSINT recon: DNS, certs, subdomains, geolocation, Shodan (if configured)."""
     target = (payload or {}).get("target", "").strip()
     if not target:
         raise HTTPException(400, "target required")
     try:
         from domains.cybersec.osint_engine import OSINTEngine
-        engine = OSINTEngine()
-        result = await engine.recon(target)
-        if result.error:
-            return _err(result.error)
+        engine = _make_osint_engine()
+        # NOTE: was calling engine.recon(target) and reading fields
+        # (ip_addresses/ssl_info/email_addresses/technology_stack/shodan_data)
+        # that don't exist on this class/dataclass — always raised, silently
+        # caught below. Real method is passive_recon(), real OSINTReport
+        # fields are dns_records/geo_info/technologies/risk_indicators/summary.
+        result = await engine.passive_recon(target)
         return _ok({
             "target": result.target,
-            "ip_addresses": result.ip_addresses,
+            "target_type": result.target_type,
+            "dns_records": [{"type": r.type, "value": r.value} for r in result.dns_records],
             "subdomains": result.subdomains[:30],
             "open_ports": result.open_ports[:20],
-            "ssl_info": result.ssl_info,
-            "geolocation": result.geolocation,
-            "email_addresses": result.email_addresses,
-            "technology_stack": result.technology_stack,
-            "shodan_data": result.shodan_data,
+            "certificates": len(result.certificates),
+            "geolocation": (
+                {"city": result.geo_info.city, "country": result.geo_info.country,
+                 "isp": result.geo_info.isp, "asn": result.geo_info.asn}
+                if result.geo_info else None
+            ),
+            "technologies": result.technologies,
+            "risk_indicators": result.risk_indicators,
+            "summary": result.summary,
         })
     except Exception as e:
         return _err(str(e))
+
+
+def _make_osint_engine():
+    """Shared constructor so Shodan/VirusTotal/AbuseIPDB actually get their
+    keys instead of the engine silently no-op'ing every lookup (see
+    core/security/alert_correlator.py-adjacent fixes this session)."""
+    from domains.cybersec.osint_engine import OSINTEngine
+    return OSINTEngine(
+        shodan_key=os.environ.get("SHODAN_API_KEY") or None,
+        vt_key=os.environ.get("VIRUSTOTAL_API_KEY") or None,
+        abuseipdb_key=os.environ.get("ABUSEIPDB_API_KEY") or None,
+    )
+
+
+@router.get("/osint/shodan/{ip}")
+async def shodan_lookup(ip: str):
+    """Shodan exposure lookup for an IP (needs SHODAN_API_KEY)."""
+    engine = _make_osint_engine()
+    record = await engine.shodan_lookup(ip)
+    if record is None:
+        return _err("SHODAN_API_KEY not configured or no data", 404)
+    return _ok({
+        "ip": record.ip, "ports": record.ports, "hostnames": record.hostnames,
+        "country": record.country, "org": record.org, "isp": record.isp,
+        "os": record.os, "vulns": record.vulns,
+    })
+
+
+@router.get("/osint/virustotal/{indicator}")
+async def virustotal_lookup(indicator: str):
+    """VirusTotal reputation for an IP or domain (needs VIRUSTOTAL_API_KEY)."""
+    engine = _make_osint_engine()
+    v = await engine.virustotal_lookup(indicator)
+    if v.error:
+        return _err(v.error)
+    return _ok({
+        "indicator": v.indicator, "type": v.indicator_type,
+        "malicious": v.malicious, "suspicious": v.suspicious,
+        "harmless": v.harmless, "undetected": v.undetected,
+        "reputation": v.reputation,
+    })
+
+
+@router.get("/osint/abuseipdb/{ip}")
+async def abuseipdb_lookup(ip: str):
+    """AbuseIPDB reputation check for an IP (needs ABUSEIPDB_API_KEY)."""
+    engine = _make_osint_engine()
+    v = await engine.abuseipdb_lookup(ip)
+    if v.error:
+        return _err(v.error)
+    return _ok({
+        "ip": v.ip, "abuse_confidence_score": v.abuse_confidence_score,
+        "total_reports": v.total_reports, "country_code": v.country_code,
+        "isp": v.isp, "is_tor": v.is_tor, "last_reported_at": v.last_reported_at,
+    })
+
+
+@router.get("/osint/http-security/{host}")
+async def http_security_scan(host: str):
+    """Mozilla HTTP Observatory security header/config grade — no API key needed."""
+    engine = _make_osint_engine()
+    r = await engine.http_security_scan(host)
+    if r.error:
+        return _err(r.error)
+    return _ok({
+        "host": r.host, "grade": r.grade, "score": r.score, "state": r.state,
+        "tests_passed": r.tests_passed, "tests_failed": r.tests_failed,
+    })
 
 
 @router.post("/exploit/search")

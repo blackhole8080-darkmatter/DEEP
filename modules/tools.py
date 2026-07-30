@@ -1289,41 +1289,54 @@ class ToolBox:
         except Exception as e:
             return ToolResult(ok=False, content=f"[MITRE] Mapping failed: {e}")
 
+    def _make_osint_engine(self):
+        import os
+        from domains.cybersec.osint_engine import OSINTEngine
+        return OSINTEngine(
+            shodan_key=os.environ.get("SHODAN_API_KEY") or None,
+            vt_key=os.environ.get("VIRUSTOTAL_API_KEY") or None,
+            abuseipdb_key=os.environ.get("ABUSEIPDB_API_KEY") or None,
+        )
+
     def _osint_passive_recon(self, target: str) -> ToolResult:
+        # NOTE: previously called engine.recon() (doesn't exist — real method
+        # is passive_recon()) and read fields (ip_addresses/ssl_info/
+        # email_addresses/technology_stack/shodan_data/.error) that don't
+        # exist on OSINTReport — always raised, silently caught below.
         try:
             import asyncio
-            from domains.cybersec.osint_engine import OSINTEngine
-            engine = OSINTEngine()
-            result = asyncio.run(engine.recon(target.strip()))
-            if result.error:
-                return ToolResult(ok=False, content=f"[OSINT] {result.error}")
+            engine = self._make_osint_engine()
+            result = asyncio.run(engine.passive_recon(target.strip()))
+            a_records = [r.value for r in result.dns_records if r.type == "A"]
             lines = [
-                f"[OSINT] Passive recon: {result.target}",
-                f"IPs: {', '.join(result.ip_addresses[:10])}",
+                f"[OSINT] Passive recon: {result.target} ({result.target_type})",
+                f"A records: {', '.join(a_records[:10]) or 'None'}",
                 f"Subdomains ({len(result.subdomains)}): {', '.join(result.subdomains[:8])}",
-                f"Open Ports: {', '.join(str(p) for p in result.open_ports[:20])}",
-                f"SSL Issuer: {result.ssl_info.get('issuer', 'N/A') if result.ssl_info else 'N/A'}",
-                f"SSL Expires: {result.ssl_info.get('not_after', 'N/A') if result.ssl_info else 'N/A'}",
-                f"GeoIP: {result.geolocation.get('country', '?')}, {result.geolocation.get('org', '?')}",
-                f"Email Addresses: {', '.join(result.email_addresses[:5]) or 'None found'}",
-                f"Technology Stack: {', '.join(result.technology_stack[:5]) or 'Unknown'}",
+                f"Open Ports: {', '.join(str(p) for p in result.open_ports[:20]) or 'None (needs SHODAN_API_KEY)'}",
+                f"GeoIP: {result.geo_info.country if result.geo_info else '?'}, "
+                f"{result.geo_info.org if result.geo_info else '?'}",
+                f"Certificates found: {len(result.certificates)}",
             ]
-            if result.shodan_data:
-                lines.append(f"Shodan Hostnames: {', '.join(result.shodan_data.get('hostnames', [])[:3])}")
+            if result.risk_indicators:
+                lines.append(f"Risk indicators: {', '.join(result.risk_indicators[:5])}")
             return ToolResult(ok=True, content="\n".join(lines))
         except Exception as e:
             return ToolResult(ok=False, content=f"[OSINT] Recon failed: {e}")
 
     def _osint_metadata(self, file_path: str) -> ToolResult:
+        # NOTE: previously called engine.extract_file_metadata() (doesn't
+        # exist — real method is extract_metadata()) and did `"error" in
+        # result` against a MetadataReport dataclass (not a dict, not
+        # iterable that way) — always raised, silently caught below.
         try:
             import asyncio
-            from domains.cybersec.osint_engine import OSINTEngine
-            engine = OSINTEngine()
-            result = asyncio.run(engine.extract_file_metadata(file_path))
-            if "error" in result:
-                return ToolResult(ok=False, content=f"[OSINT] {result['error']}")
+            from dataclasses import asdict
+            engine = self._make_osint_engine()
+            result = asyncio.run(engine.extract_metadata(file_path))
+            if result.suspicious_indicators and not result.author and not result.creator_tool:
+                return ToolResult(ok=False, content=f"[OSINT] {'; '.join(result.suspicious_indicators)}")
             import json
-            return ToolResult(ok=True, content=f"[OSINT] Metadata:\n{json.dumps(result, indent=2, default=str)}")
+            return ToolResult(ok=True, content=f"[OSINT] Metadata:\n{json.dumps(asdict(result), indent=2, default=str)}")
         except Exception as e:
             return ToolResult(ok=False, content=f"[OSINT] Metadata extraction failed: {e}")
 

@@ -94,6 +94,41 @@ class MetadataReport:
 
 
 @dataclass
+class VTVerdict:
+    indicator: str
+    indicator_type: str          # "ip" | "domain"
+    malicious: int = 0
+    suspicious: int = 0
+    harmless: int = 0
+    undetected: int = 0
+    reputation: int = 0
+    error: Optional[str] = None
+
+
+@dataclass
+class HTTPObservatoryResult:
+    host: str
+    grade: Optional[str] = None
+    score: Optional[int] = None
+    state: str = "UNKNOWN"        # PENDING | RUNNING | FINISHED | FAILED
+    tests_passed: int = 0
+    tests_failed: int = 0
+    error: Optional[str] = None
+
+
+@dataclass
+class AbuseIPDBVerdict:
+    ip: str
+    abuse_confidence_score: int = 0
+    total_reports: int = 0
+    country_code: str = ""
+    isp: str = ""
+    is_tor: bool = False
+    last_reported_at: Optional[str] = None
+    error: Optional[str] = None
+
+
+@dataclass
 class OSINTReport:
     target: str
     target_type: str            # "domain" | "ip" | "email"
@@ -116,9 +151,15 @@ class OSINTEngine:
     Queries public APIs only — no active probing of targets.
     """
 
-    def __init__(self, shodan_key: Optional[str] = None, vt_key: Optional[str] = None):
+    def __init__(
+        self,
+        shodan_key: Optional[str] = None,
+        vt_key: Optional[str] = None,
+        abuseipdb_key: Optional[str] = None,
+    ):
         self._shodan_key = shodan_key
         self._vt_key = vt_key
+        self._abuseipdb_key = abuseipdb_key
 
     # ── Public API ─────────────────────────────────────────────────────────────
 
@@ -192,6 +233,84 @@ class OSINTEngine:
         if not self._shodan_key:
             return None
         return await self._query_shodan_raw(ip)
+
+    async def virustotal_lookup(self, indicator: str) -> VTVerdict:
+        """VirusTotal reputation lookup for an IP or domain (requires VIRUSTOTAL_API_KEY).
+        Free-tier VT API v3: GET /api/v3/ip_addresses/{ip} or /domains/{domain}."""
+        indicator = indicator.strip()
+        is_ip = bool(re.match(r"^\d{1,3}(\.\d{1,3}){3}$", indicator))
+        indicator_type = "ip" if is_ip else "domain"
+        if not self._vt_key:
+            return VTVerdict(indicator=indicator, indicator_type=indicator_type,
+                              error="VIRUSTOTAL_API_KEY not configured")
+        path = "ip_addresses" if is_ip else "domains"
+        url = f"https://www.virustotal.com/api/v3/{path}/{quote(indicator)}"
+        try:
+            data = await self._request_json(url, headers={"x-apikey": self._vt_key})
+            stats = data.get("data", {}).get("attributes", {}).get("last_analysis_stats", {})
+            reputation = data.get("data", {}).get("attributes", {}).get("reputation", 0)
+            return VTVerdict(
+                indicator=indicator, indicator_type=indicator_type,
+                malicious=stats.get("malicious", 0),
+                suspicious=stats.get("suspicious", 0),
+                harmless=stats.get("harmless", 0),
+                undetected=stats.get("undetected", 0),
+                reputation=reputation,
+            )
+        except Exception as e:
+            return VTVerdict(indicator=indicator, indicator_type=indicator_type, error=str(e))
+
+    async def http_security_scan(self, host: str, max_polls: int = 4) -> HTTPObservatoryResult:
+        """Mozilla HTTP Observatory scan — website security header/config grade.
+        No API key required. Triggers a scan then polls briefly for completion
+        (Observatory scans are usually near-instant but can take a few seconds
+        on a cold cache)."""
+        host = host.strip().lower()
+        analyze_url = f"https://http-observatory.security.mozilla.org/api/v1/analyze?host={quote(host)}"
+        try:
+            data = await self._request_json(analyze_url, method="POST")
+            for _ in range(max_polls):
+                state = (data or {}).get("state", "")
+                if state in ("FINISHED", "FAILED", "ABORTED"):
+                    break
+                await asyncio.sleep(2)
+                data = await self._request_json(analyze_url, method="GET")
+            return HTTPObservatoryResult(
+                host=host,
+                grade=data.get("grade"),
+                score=data.get("score"),
+                state=data.get("state", "UNKNOWN"),
+                tests_passed=data.get("tests_passed", 0),
+                tests_failed=data.get("tests_failed", 0),
+            )
+        except Exception as e:
+            return HTTPObservatoryResult(host=host, state="FAILED", error=str(e))
+
+    async def abuseipdb_lookup(self, ip: str, max_age_days: int = 90) -> AbuseIPDBVerdict:
+        """AbuseIPDB reputation check (requires ABUSEIPDB_API_KEY)."""
+        ip = ip.strip()
+        if not self._abuseipdb_key:
+            return AbuseIPDBVerdict(ip=ip, error="ABUSEIPDB_API_KEY not configured")
+        url = (
+            f"https://api.abuseipdb.com/api/v2/check"
+            f"?ipAddress={quote(ip)}&maxAgeInDays={max_age_days}"
+        )
+        try:
+            data = await self._request_json(
+                url, headers={"Key": self._abuseipdb_key, "Accept": "application/json"}
+            )
+            d = data.get("data", {})
+            return AbuseIPDBVerdict(
+                ip=ip,
+                abuse_confidence_score=d.get("abuseConfidenceScore", 0),
+                total_reports=d.get("totalReports", 0),
+                country_code=d.get("countryCode", "") or "",
+                isp=d.get("isp", "") or "",
+                is_tor=bool(d.get("isTor", False)),
+                last_reported_at=d.get("lastReportedAt"),
+            )
+        except Exception as e:
+            return AbuseIPDBVerdict(ip=ip, error=str(e))
 
     # ── DNS ───────────────────────────────────────────────────────────────────
 
@@ -405,14 +524,24 @@ class OSINTEngine:
     # ── HTTP helper ───────────────────────────────────────────────────────────
 
     async def _get_json(self, url: str) -> Any:
-        headers = {"User-Agent": "DEEP-ETIS/1.0 (+https://github.com/deep)"}
+        return await self._request_json(url)
+
+    async def _request_json(
+        self, url: str, method: str = "GET", headers: Optional[Dict[str, str]] = None
+    ) -> Any:
+        """GET/POST + JSON helper with custom headers, for API-key'd lookups
+        (VirusTotal, AbuseIPDB) and the Observatory's analyze POST."""
+        req_headers = {"User-Agent": "DEEP-ETIS/1.0 (+https://github.com/deep)"}
+        req_headers.update(headers or {})
         if _AIOHTTP_OK:
             async with aiohttp.ClientSession() as session:
-                async with session.get(url, headers=headers, timeout=aiohttp.ClientTimeout(total=15)) as resp:
+                async with session.request(
+                    method, url, headers=req_headers, timeout=aiohttp.ClientTimeout(total=15)
+                ) as resp:
                     return await resp.json(content_type=None)
         else:
             import urllib.request
-            req = urllib.request.Request(url, headers=headers)
+            req = urllib.request.Request(url, headers=req_headers, method=method)
             with urllib.request.urlopen(req, timeout=15) as resp:
                 return json.loads(resp.read())
 

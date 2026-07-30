@@ -24,9 +24,12 @@ from core.intel_feeds import IntelItem
 from core.world_model import WorldModel
 
 
-def _make_watch(kev_items, kg_entities, world_model, event_bus):
+def _make_watch(kev_items, kg_entities, world_model, event_bus, otx_items=None):
     intel_feeds = MagicMock()
     intel_feeds.fetch_kev = AsyncMock(return_value=kev_items)
+    # run_once() also checks OTX pulses now (see core/global_threat_watch.py);
+    # default to empty so existing KEV-only tests don't need to know about it.
+    intel_feeds.fetch_otx_pulses = AsyncMock(return_value=otx_items or [])
     knowledge_graph = MagicMock()
     knowledge_graph.get_all_entities = MagicMock(return_value=kg_entities)
     return GlobalThreatWatch(
@@ -133,6 +136,38 @@ async def test_same_match_does_not_fire_twice() -> None:
         assert len(first) == 1
         assert len(second) == 0  # already seen this cycle
         assert len(wm.state["world_alerts"]) == 1
+
+
+@pytest.mark.asyncio
+async def test_otx_pulse_matching_known_entity_produces_alert() -> None:
+    """run_once() now checks OTX pulses too, not just KEV — same matching
+    pipeline, reused via _process_items()."""
+    bus = EventBus()
+    await bus.start()
+
+    with tempfile.TemporaryDirectory() as tmp:
+        wm = WorldModel(data_dir=Path(tmp))
+
+        otx_item = IntelItem(
+            source="OTX", item_id="pulse-99",
+            title="Campaign abusing Docker misconfigurations for initial access",
+            summary="Attackers are scanning for exposed Docker APIs.",
+            published="2026-07-30", severity="HIGH",
+            url="https://otx.alienvault.com/pulse/pulse-99",
+        )
+        watch = _make_watch(
+            kev_items=[], otx_items=[otx_item],
+            kg_entities=[{"name": "Docker", "type": "technology", "mention_count": 5}],
+            world_model=wm, event_bus=bus,
+        )
+
+        matches = await watch.run_once()
+
+        assert len(matches) == 1
+        assert matches[0]["source"] == "OTX pulse"
+        assert matches[0]["matched_entity"] == "Docker"
+        assert len(wm.state["world_alerts"]) == 1
+        assert "pulse-99" in wm.state["world_alerts"][0]["text"]
 
 
 def test_world_model_add_world_alert_bounded_and_deduped() -> None:

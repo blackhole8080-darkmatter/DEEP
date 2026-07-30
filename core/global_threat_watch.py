@@ -81,25 +81,44 @@ class GlobalThreatWatch:
     # ── core cycle (also callable directly, e.g. from tests / a manual trigger) ──
 
     async def run_once(self) -> List[Dict[str, Any]]:
-        kev_items = await self.intel_feeds.fetch_kev()
-        if not kev_items:
-            return []
-
         entities = self._get_kg_entities()
         if not entities:
             return []
 
+        # (fetcher, source_label, alert_phrasing). OTX pulses are opt-in —
+        # fetch_otx_pulses() itself no-ops to [] without OTX_API_KEY, so this
+        # stays free to run even if the user hasn't configured it yet.
+        sources = [
+            (self.intel_feeds.fetch_kev, "CISA KEV",
+             lambda entity: f"actively exploited — relates to '{entity}', which you've worked with. Worth checking exposure."),
+            (self.intel_feeds.fetch_otx_pulses, "OTX pulse",
+             lambda entity: f"a threat-intel pulse mentions '{entity}', which you've worked with. Worth a look."),
+        ]
+
         matches: List[Dict[str, Any]] = []
-        for item in kev_items:
+        for fetcher, source_label, phrase in sources:
+            items = await fetcher()
+            matches.extend(await self._process_items(items, source_label, phrase, entities))
+
+        # Keep the seen-set from growing unbounded across a long-running process.
+        if len(self._last_matched_cve_ids) > 500:
+            self._last_matched_cve_ids = set(list(self._last_matched_cve_ids)[-250:])
+
+        return matches
+
+    async def _process_items(self, items, source_label: str, phrase, entities: List[str]) -> List[Dict[str, Any]]:
+        matches: List[Dict[str, Any]] = []
+        for item in items:
             hit_entity = self._match_entity(item, entities)
             if not hit_entity:
                 continue
-            key = f"{item.item_id}:{hit_entity}"
+            key = f"{source_label}:{item.item_id}:{hit_entity}"
             if key in self._last_matched_cve_ids:
                 continue
             self._last_matched_cve_ids.add(key)
 
             match = {
+                "source": source_label,
                 "cve_id": item.item_id,
                 "title": item.title,
                 "url": item.url,
@@ -109,16 +128,8 @@ class GlobalThreatWatch:
             matches.append(match)
 
             await self.event_bus.publish("world_threat_match", match)
-            self.world_model.add_world_alert(
-                f"CISA KEV: {item.item_id} (actively exploited) relates to "
-                f"'{hit_entity}', which you've worked with — worth checking exposure."
-            )
-            logger.info(f"[global_threat_watch] {item.item_id} matched KG entity '{hit_entity}'")
-
-        # Keep the seen-set from growing unbounded across a long-running process.
-        if len(self._last_matched_cve_ids) > 500:
-            self._last_matched_cve_ids = set(list(self._last_matched_cve_ids)[-250:])
-
+            self.world_model.add_world_alert(f"{source_label}: {item.item_id} — {phrase(hit_entity)}")
+            logger.info(f"[global_threat_watch] {source_label} {item.item_id} matched KG entity '{hit_entity}'")
         return matches
 
     # ── matching ────────────────────────────────────────────────────────────
