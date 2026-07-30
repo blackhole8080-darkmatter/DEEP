@@ -59,6 +59,7 @@ from core.tools.deep_registry import DeepToolRegistry
 from core.ltm_memory import LongTermMemory
 # core.voice_web / core.local_stt imports removed (VoiceWeb/LocalSTT stubbed above)
 from core.security.network_monitor import NetworkMonitor
+from core.security.alert_correlator import AlertCorrelator
 from core.predictive_engine import PredictiveEngine
 from core.self_evaluation import SelfEvaluationEngine
 from core.knowledge_graph import KnowledgeGraph
@@ -247,6 +248,9 @@ threat_classifier = ThreatClassifier(
     network_baseline=network_baseline,
     system_baseline=system_baseline,
 )
+# Enriches anomaly_detected/threat_classified with MITRE ATT&CK + CVE
+# context and republishes as `security_alert` — see core/security/alert_correlator.py
+alert_correlator = AlertCorrelator(event_bus=event_bus)
 
 # ── Knowledge Intelligence Layer ────────────────────────────────────────
 knowledge_store = KnowledgeStore(event_bus=event_bus)
@@ -464,6 +468,12 @@ async def startup_event():
         print("[DEEP] ThreatClassifier started")
     except Exception as e:
         print(f"[DEEP] ThreatClassifier init error: {e}")
+
+    try:
+        await alert_correlator.start()
+        print("[DEEP] AlertCorrelator started")
+    except Exception as e:
+        print(f"[DEEP] AlertCorrelator init error: {e}")
 
     try:
         await graph_orchestrator.start()
@@ -769,6 +779,10 @@ async def shutdown_event():
         pass
     try:
         await threat_classifier.stop()
+    except Exception:
+        pass
+    try:
+        await alert_correlator.stop()
     except Exception:
         pass
     try:
