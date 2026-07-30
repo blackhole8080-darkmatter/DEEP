@@ -21,12 +21,10 @@ import type { CommandPalette } from "./command-palette";
 // Heavy secondary views are code-split: their bundles load on first visit.
 const lazyView: Record<string, () => Promise<unknown>> = {
   gallery: () => import("./gallery"),
-  science: () => import("./science/science-view"),
   ops: () => import("./ops/ops-view"),
   network: () => import("./ops/network-view"),
   audit: () => import("./ops/audit-view"),
   memory: () => import("./memory/memory-graph"),
-  projects: () => import("./knowledge/projects-view"),
 };
 
 @customElement("deep-app")
