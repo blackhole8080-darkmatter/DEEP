@@ -357,50 +357,6 @@ class ToolBox:
                 "desc": "Generate Wireshark Lua dissector from binary samples. Args: {'hex_samples': [...], 'protocol_name': 'MyProto', 'port': 9999}"
             },
 
-            # ── Hardware / Firmware ────────────────────────────────────────────
-            "analyze_firmware": {
-                "func": lambda args: self._analyze_firmware(file_path=str(args.get("file_path", ""))),
-                "desc": "Firmware binary analysis: entropy map, architecture, filesystem carving, credential extraction. Args: {'file_path': 'firmware.bin'}"
-            },
-
-            # ── Physics ────────────────────────────────────────────────────────
-            "compute_physics": {
-                "func": lambda args: self._compute_physics(
-                    expression=str(args.get("expression", "")),
-                    variables=args.get("variables", {}),
-                    output=str(args.get("output", "symbolic")),
-                ),
-                "desc": "Physics computation: symbolic math, formula evaluation, LaTeX output. Args: {'expression': 'plasma_frequency', 'variables': {'n': 1e18}}"
-            },
-            "simulate_physics": {
-                "func": lambda args: self._simulate_physics(
-                    system=str(args.get("system", "pendulum")),
-                    params=args.get("params", {}),
-                    t_span=tuple(args.get("t_span", [0, 10])),
-                ),
-                "desc": "Simulate a physical system ODE. Systems: pendulum, lorenz, harmonic_oscillator, plasma_wave. Args: {'system': 'lorenz', 't_span': [0, 50]}"
-            },
-            "get_physics_constant": {
-                "func": lambda args: self._get_physics_constant(name=str(args.get("name", ""))),
-                "desc": "Lookup NIST CODATA physical constant. Args: {'name': 'speed_of_light' or 'boltzmann_constant'}"
-            },
-
-            # ── Robotics ───────────────────────────────────────────────────────
-            "robot_forward_kinematics": {
-                "func": lambda args: self._robot_fk(
-                    joint_angles=args.get("joint_angles", []),
-                    robot_model=str(args.get("robot_model", "ur5")),
-                ),
-                "desc": "Robot forward kinematics (UR5/PUMA560). Args: {'joint_angles': [0,0,0,0,0,0], 'robot_model': 'ur5'}"
-            },
-            "robot_inverse_kinematics": {
-                "func": lambda args: self._robot_ik(
-                    target_pos=tuple(args.get("target_pos", [0, 0, 0])),
-                    robot_model=str(args.get("robot_model", "ur5")),
-                ),
-                "desc": "Robot IK: compute joint angles to reach (x,y,z) position. Args: {'target_pos': [0.3, 0.2, 0.5], 'robot_model': 'ur5'}"
-            },
-
             # ── Sandbox Execution ──────────────────────────────────────────────
             "run_sandboxed": {
                 "func": lambda args: self._run_sandboxed(
@@ -1289,7 +1245,7 @@ class ToolBox:
             import asyncio
             from domains.cybersec.cve_intel import CVEIntel
             intel = CVEIntel()
-            results = asyncio.run(intel.search_recent(keyword=keyword, min_cvss=min_cvss, days_back=days_back))
+            results = asyncio.run(intel.search(keyword=keyword, min_cvss=min_cvss, days_back=days_back))
             if not results:
                 return ToolResult(ok=True, content=f"[CVE] No CVEs found for '{keyword}' (CVSS≥{min_cvss}) in last {days_back}d.")
             lines = [f"[CVE] Found {len(results)} CVEs for '{keyword}':"]
@@ -1569,119 +1525,6 @@ class ToolBox:
             return ToolResult(ok=True, content=f"[DISSECTOR] Wireshark Lua dissector:\n\n{preview}")
         except Exception as e:
             return ToolResult(ok=False, content=f"[DISSECTOR] Generation failed: {e}")
-
-    # ── Hardware / Firmware ────────────────────────────────────────────────────
-
-    def _analyze_firmware(self, file_path: str) -> ToolResult:
-        try:
-            import asyncio
-            from domains.hardware.firmware_analyzer import FirmwareAnalyzer
-            analyzer = FirmwareAnalyzer()
-            report = asyncio.run(analyzer.analyze(file_path))
-            if report.error:
-                return ToolResult(ok=False, content=f"[FIRMWARE] {report.error}")
-            lines = [
-                f"[FIRMWARE] {file_path}",
-                f"Size: {report.file_size:,}B | MD5: {report.md5} | SHA256: {report.sha256}",
-                f"Architecture: {report.architecture.arch} ({report.architecture.endianness}-endian) [{report.architecture.confidence:.0%}]",
-                f"Evidence: {report.architecture.evidence}",
-                f"Entropy segments: {len(report.entropy_segments)}",
-            ]
-            type_counts: dict = {}
-            for seg in report.entropy_segments:
-                type_counts[seg.segment_type] = type_counts.get(seg.segment_type, 0) + 1
-            for seg_type, count in type_counts.items():
-                lines.append(f"  {seg_type}: {count} segment(s)")
-            if report.filesystems:
-                lines.append(f"\nFilesystem signatures ({len(report.filesystems)}):")
-                for fs in report.filesystems[:5]:
-                    lines.append(f"  @0x{fs.offset:08X}: {fs.description}")
-            if report.security_findings:
-                lines.append(f"\nSecurity Findings ({len(report.security_findings)}):")
-                for finding in report.security_findings[:10]:
-                    lines.append(f"  ⚠ {finding}")
-            if report.entropy_plot_path:
-                lines.append(f"\nEntropy plot: {report.entropy_plot_path}")
-            return ToolResult(ok=True, content="\n".join(lines))
-        except Exception as e:
-            return ToolResult(ok=False, content=f"[FIRMWARE] Analysis failed: {e}")
-
-    # ── Physics ────────────────────────────────────────────────────────────────
-
-    def _compute_physics(self, expression: str, variables: dict, output: str) -> ToolResult:
-        try:
-            from domains.physics.engine import PhysicsEngine
-            engine = PhysicsEngine()
-            result = engine.compute(expression=expression, variables=variables, output=output)
-            if result.get("error"):
-                return ToolResult(ok=False, content=f"[PHYSICS] {result['error']}")
-            import json
-            return ToolResult(ok=True, content=f"[PHYSICS]\n{json.dumps(result, indent=2, default=str)}")
-        except Exception as e:
-            return ToolResult(ok=False, content=f"[PHYSICS] Computation failed: {e}")
-
-    def _simulate_physics(self, system: str, params: dict, t_span: tuple) -> ToolResult:
-        try:
-            from domains.physics.engine import PhysicsEngine
-            engine = PhysicsEngine()
-            result = engine.simulate(system=system, params=params, t_span=t_span)
-            if result.get("error"):
-                return ToolResult(ok=False, content=f"[PHYSICS] {result['error']}")
-            import json
-            return ToolResult(ok=True, content=f"[PHYSICS SIM]\n{json.dumps(result, indent=2, default=str)}")
-        except Exception as e:
-            return ToolResult(ok=False, content=f"[PHYSICS] Simulation failed: {e}")
-
-    def _get_physics_constant(self, name: str) -> ToolResult:
-        try:
-            from domains.physics.engine import PhysicsEngine
-            engine = PhysicsEngine()
-            result = engine.get_constant(name)
-            if result.get("error"):
-                return ToolResult(ok=False, content=f"[PHYSICS] {result['error']}")
-            return ToolResult(ok=True, content=f"[PHYSICS CONSTANT] {name}:\n  Value: {result['value']}\n  Units: {result['unit']}")
-        except Exception as e:
-            return ToolResult(ok=False, content=f"[PHYSICS] Constant lookup failed: {e}")
-
-    # ── Robotics ───────────────────────────────────────────────────────────────
-
-    def _robot_fk(self, joint_angles: list, robot_model: str = "ur5") -> ToolResult:
-        try:
-            from domains.robotics.kinematics import make_ur5, make_puma560
-            arm = make_ur5() if robot_model.lower() == "ur5" else make_puma560()
-            result = arm.forward_kinematics([float(a) for a in joint_angles])
-            if result.error:
-                return ToolResult(ok=False, content=f"[ROBOTICS FK] {result.error}")
-            x, y, z = result.end_effector_position
-            return ToolResult(ok=True, content=(
-                f"[ROBOTICS FK] {robot_model.upper()} Forward Kinematics:\n"
-                f"End Effector Position: x={x:.4f}m  y={y:.4f}m  z={z:.4f}m\n"
-                f"Manipulability: {result.manipulability:.4f}\n"
-                f"Singularity: {'⚠ YES' if result.singularity_detected else 'No'}"
-            ))
-        except Exception as e:
-            return ToolResult(ok=False, content=f"[ROBOTICS FK] Failed: {e}")
-
-    def _robot_ik(self, target_pos: tuple, robot_model: str = "ur5") -> ToolResult:
-        try:
-            from domains.robotics.kinematics import make_ur5, make_puma560
-            import math
-            arm = make_ur5() if robot_model.lower() == "ur5" else make_puma560()
-            target = tuple(float(c) for c in target_pos)
-            result = arm.inverse_kinematics(target)
-            if result.error:
-                return ToolResult(ok=False, content=f"[ROBOTICS IK] {result.error}")
-            angles_deg = [math.degrees(q) for q in result.joint_angles_rad]
-            x, y, z = result.end_effector_position
-            error = ((x - target[0])**2 + (y - target[1])**2 + (z - target[2])**2) ** 0.5
-            return ToolResult(ok=True, content=(
-                f"[ROBOTICS IK] {robot_model.upper()} Inverse Kinematics:\n"
-                f"Target: ({target[0]:.3f}, {target[1]:.3f}, {target[2]:.3f})m\n"
-                f"Achieved: ({x:.4f}, {y:.4f}, {z:.4f})m | Error: {error*1000:.2f}mm\n"
-                f"Joint angles (deg): {', '.join(f'{a:.1f}°' for a in angles_deg)}"
-            ))
-        except Exception as e:
-            return ToolResult(ok=False, content=f"[ROBOTICS IK] Failed: {e}")
 
     # ── Sandbox Execution ──────────────────────────────────────────────────────
 

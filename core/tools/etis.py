@@ -4,37 +4,6 @@ DEEP ETIS tools — Modern registry integration.
 
 from core.tools.registry import tool
 from core.domain.models import ToolResult
-import json
-
-@tool(
-    "etis_physics_compute",
-    "Symbolic or numeric physics computation. Example: expression='m*a', variables={'m': 10, 'a': 9.8}.",
-    {
-        "expression": "The physics expression (e.g. 'E = m*c**2' or 'm*a')",
-        "variables": "JSON string of variable values (e.g. '{\"m\": 10, \"a\": 9.8}')",
-        "output": "Format: 'symbolic' or 'numeric'"
-    }
-)
-async def etis_physics_compute(ctx, args) -> ToolResult:
-    try:
-        from domains.physics.engine import PhysicsEngine
-        engine = PhysicsEngine()
-        variables = json.loads(args.get("variables", "{}"))
-        output = args.get("output", "symbolic")
-        result = await engine.compute(expression=args["expression"], variables=variables, output=output)
-        if result.error:
-            return ToolResult(ok=False, content=f"[PHYSICS] {result.error}", tool_name="etis_physics_compute")
-        
-        # P3: Wrap latex in $$...$$ for KaTeX rendering
-        wrapped_latex = f"$$\n{result.latex}\n$$"
-        
-        return ToolResult(
-            ok=True, 
-            content=f"[PHYSICS Computation]\nResult: {result.numerical if result.numerical is not None else result.symbolic}\nLaTeX:\n{wrapped_latex}", 
-            tool_name="etis_physics_compute"
-        )
-    except Exception as e:
-        return ToolResult(ok=False, content=f"[PHYSICS] {e}", tool_name="etis_physics_compute")
 
 @tool(
     "etis_cve_lookup",

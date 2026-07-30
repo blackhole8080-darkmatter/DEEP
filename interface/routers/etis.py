@@ -40,14 +40,6 @@ async def etis_status():
     """ETIS system status — which domains are available."""
     domains: Dict[str, Dict] = {}
 
-    # Physics
-    try:
-        from domains.physics.engine import PhysicsEngine
-        PhysicsEngine()
-        domains["physics"] = {"available": True, "capabilities": ["compute", "simulate", "constants"]}
-    except Exception as e:
-        domains["physics"] = {"available": False, "error": str(e)}
-
     # Cybersecurity
     try:
         from domains.cybersec.cve_intel import CVEIntel
@@ -68,20 +60,6 @@ async def etis_status():
         domains["protocols"] = {"available": True, "capabilities": ["pcap_analysis", "binary_re", "dissector_gen"]}
     except Exception as e:
         domains["protocols"] = {"available": False, "error": str(e)}
-
-    # Hardware
-    try:
-        from domains.hardware.firmware_analyzer import FirmwareAnalyzer
-        domains["hardware"] = {"available": True, "capabilities": ["firmware_analysis", "string_extraction"]}
-    except Exception as e:
-        domains["hardware"] = {"available": False, "error": str(e)}
-
-    # Robotics
-    try:
-        from domains.robotics.kinematics import make_ur5
-        domains["robotics"] = {"available": True, "capabilities": ["forward_kinematics", "inverse_kinematics", "trajectory"]}
-    except Exception as e:
-        domains["robotics"] = {"available": False, "error": str(e)}
 
     # Sandbox
     try:
@@ -207,7 +185,7 @@ async def cve_search(payload: dict):
     try:
         from domains.cybersec.cve_intel import CVEIntel
         intel = CVEIntel()
-        results = await intel.search_recent(keyword=keyword, min_cvss=min_cvss, days_back=days_back)
+        results = await intel.search(keyword=keyword, min_cvss=min_cvss, days_back=days_back)
         return _ok({
             "count": len(results),
             "results": [
@@ -542,225 +520,6 @@ async def generate_dissector(payload: dict):
         gen = DissectorGenerator()
         lua = gen.generate(proto, protocol_name, port, transport)
         return _ok({"lua": lua, "filename": f"{protocol_name.lower().replace(' ','_')}.lua"})
-    except Exception as e:
-        return _err(str(e))
-
-
-# ── Hardware / Firmware ───────────────────────────────────────────────────────
-
-@router.post("/firmware/analyze")
-async def firmware_analyze(file: UploadFile = File(...)):
-    """Upload and analyze a firmware binary."""
-    import tempfile
-    try:
-        with tempfile.NamedTemporaryFile(suffix=".bin", delete=False) as tmp:
-            content = await file.read()
-            tmp.write(content)
-            tmp_path = tmp.name
-
-        from domains.hardware.firmware_analyzer import FirmwareAnalyzer
-        analyzer = FirmwareAnalyzer()
-        report = await analyzer.analyze(tmp_path)
-        os.unlink(tmp_path)
-
-        if report.error:
-            return _err(report.error)
-
-        # Entropy histogram (downsample for JSON)
-        entropy_hist = [
-            {"offset": s.offset, "entropy": round(s.entropy, 3), "type": s.segment_type}
-            for s in report.entropy_segments[::max(1, len(report.entropy_segments) // 200)]
-        ]
-
-        return _ok({
-            "file": file.filename,
-            "size": report.file_size,
-            "md5": report.md5,
-            "sha256": report.sha256,
-            "architecture": {
-                "arch": report.architecture.arch,
-                "endianness": report.architecture.endianness,
-                "confidence": report.architecture.confidence,
-                "evidence": report.architecture.evidence,
-            },
-            "filesystems": [
-                {"offset": fs.offset, "type": fs.fs_type, "description": fs.description}
-                for fs in report.filesystems[:10]
-            ],
-            "entropy_histogram": entropy_hist,
-            "security_findings": report.security_findings[:20],
-            "interesting_strings": report.interesting_strings[:50],
-            "entropy_plot_url": (
-                "/science-output/" + os.path.basename(report.entropy_plot_path)
-                if report.entropy_plot_path and os.path.exists(report.entropy_plot_path)
-                else None
-            ),
-        })
-    except Exception as e:
-        return _err(str(e))
-
-
-# ── Physics ───────────────────────────────────────────────────────────────────
-
-@router.post("/physics/compute")
-async def physics_compute(payload: dict):
-    """Symbolic/numeric physics computation."""
-    expression = (payload or {}).get("expression", "")
-    variables = (payload or {}).get("variables", {})
-    output_fmt = (payload or {}).get("output", "symbolic")
-    if not expression:
-        raise HTTPException(400, "expression required")
-    try:
-        from domains.physics.engine import PhysicsEngine
-        engine = PhysicsEngine()
-        result = await engine.compute(expression=expression, variables=variables, output=output_fmt)
-        from dataclasses import asdict
-        return _ok(asdict(result))
-    except Exception as e:
-        return _err(str(e))
-
-
-@router.post("/physics/simulate")
-async def physics_simulate(payload: dict):
-    """Simulate a physical system ODE."""
-    system = (payload or {}).get("system", "pendulum")
-    params = (payload or {}).get("params", {})
-    t_span = tuple((payload or {}).get("t_span", [0, 10]))
-    try:
-        from domains.physics.engine import PhysicsEngine
-        engine = PhysicsEngine()
-        result = await engine.simulate(system=system, params=params, t_span=t_span)
-        from dataclasses import asdict
-        return _ok(asdict(result))
-    except Exception as e:
-        return _err(str(e))
-
-
-@router.get("/physics/constants")
-async def physics_constants():
-    """List all known physical constants."""
-    try:
-        from domains.physics.constants import CONSTANTS
-        return _ok({
-            "count": len(CONSTANTS),
-            "constants": [
-                {"name": k, "value": v["value"], "unit": v["unit"], "description": v.get("description", "")}
-                for k, v in CONSTANTS.items()
-            ],
-        })
-    except Exception as e:
-        return _err(str(e))
-
-
-@router.get("/physics/constant/{name}")
-async def physics_constant(name: str):
-    """Get a specific physical constant."""
-    try:
-        import math
-        from dataclasses import asdict
-        from domains.physics.engine import PhysicsEngine
-        engine = PhysicsEngine()
-        result = engine.get_constant(name)
-        # get_constant returns a PhysicsConstant dataclass; the not-found sentinel
-        # carries a NaN value. Serialize to a dict for the JSON response.
-        if isinstance(result.value, float) and math.isnan(result.value):
-            return _err(f"unknown constant: {name}", 404)
-        return _ok(asdict(result))
-    except Exception as e:
-        return _err(str(e))
-
-
-# ── Robotics ──────────────────────────────────────────────────────────────────
-
-@router.post("/robotics/fk")
-async def robot_fk(payload: dict):
-    """Forward kinematics for UR5 or PUMA560."""
-    joint_angles = (payload or {}).get("joint_angles", [])
-    model = (payload or {}).get("model", "ur5").lower()
-    if not joint_angles:
-        raise HTTPException(400, "joint_angles required")
-    try:
-        from domains.robotics.kinematics import make_ur5, make_puma560
-        arm = make_ur5() if model == "ur5" else make_puma560()
-        result = arm.forward_kinematics([float(a) for a in joint_angles])
-        if result.error:
-            return _err(result.error)
-        x, y, z = result.end_effector_position
-        return _ok({
-            "model": model,
-            "joint_angles_rad": result.joint_angles_rad,
-            "position": {"x": x, "y": y, "z": z},
-            "rotation": result.end_effector_rotation,
-            "transform": result.transform_matrix,
-            "jacobian": result.jacobian,
-            "manipulability": result.manipulability,
-            "singularity": result.singularity_detected,
-        })
-    except Exception as e:
-        return _err(str(e))
-
-
-@router.post("/robotics/ik")
-async def robot_ik(payload: dict):
-    """Inverse kinematics for UR5 or PUMA560."""
-    target = (payload or {}).get("target_pos", [0, 0, 0])
-    model = (payload or {}).get("model", "ur5").lower()
-    initial = (payload or {}).get("initial_angles")
-    try:
-        import math
-        from domains.robotics.kinematics import make_ur5, make_puma560
-        arm = make_ur5() if model == "ur5" else make_puma560()
-        result = arm.inverse_kinematics(
-            tuple(float(c) for c in target),
-            initial_angles=[float(a) for a in initial] if initial else None,
-        )
-        if result.error:
-            return _err(result.error)
-        x, y, z = result.end_effector_position
-        error = ((x - target[0])**2 + (y - target[1])**2 + (z - target[2])**2) ** 0.5
-        return _ok({
-            "model": model,
-            "target": {"x": target[0], "y": target[1], "z": target[2]},
-            "achieved": {"x": x, "y": y, "z": z},
-            "error_mm": error * 1000,
-            "joint_angles_rad": result.joint_angles_rad,
-            "joint_angles_deg": [math.degrees(q) for q in result.joint_angles_rad],
-            "manipulability": result.manipulability,
-            "singularity": result.singularity_detected,
-        })
-    except Exception as e:
-        return _err(str(e))
-
-
-@router.post("/robotics/trajectory")
-async def robot_trajectory(payload: dict):
-    """Generate cubic polynomial trajectory."""
-    q_start = (payload or {}).get("q_start", [])
-    q_end = (payload or {}).get("q_end", [])
-    duration = float((payload or {}).get("duration", 3.0))
-    n_points = int((payload or {}).get("n_points", 50))
-    if not q_start or not q_end:
-        raise HTTPException(400, "q_start and q_end required")
-    try:
-        from domains.robotics.path_planner import PathPlanner
-        planner = PathPlanner()
-        result = planner.cubic_trajectory(
-            [float(a) for a in q_start],
-            [float(a) for a in q_end],
-            duration=duration,
-            n_points=n_points,
-        )
-        if result.error:
-            return _err(result.error)
-        return _ok({
-            "duration_s": result.total_duration,
-            "n_points": len(result.waypoints),
-            "max_velocities_rad_s": result.max_velocities,
-            "waypoints": [
-                {"t": w.time, "q": w.joint_angles, "dq": w.velocity}
-                for w in result.waypoints[::max(1, len(result.waypoints)//20)]  # downsample for JSON
-            ],
-        })
     except Exception as e:
         return _err(str(e))
 
