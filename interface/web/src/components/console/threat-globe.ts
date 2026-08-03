@@ -24,7 +24,11 @@ export class ThreatGlobe extends LitElement {
   @property({ attribute: false }) activity = 0;
   @property({ attribute: false }) status = "idle";
   
-  @state() private recentAttacks: { ip: string, country: string, time: string, source?: string, targetCity?: string, targetCountry?: string, method?: string }[] = [];
+  // Entries mirror what the upstream feeds reported. There is no synthesised
+  // attack traffic here — see the fetch in firstUpdated().
+  @state() private recentAttacks: { ip: string, country: string, city?: string, org?: string, source?: string, classification?: string, severity?: string, detail?: string }[] = [];
+  @state() private degraded: string[] = [];
+  @state() private mapError = "";
   @state() private selectedNode: any = null;
   @state() private osintLoading = false;
   @state() private osintData: any = null;
@@ -44,7 +48,9 @@ export class ThreatGlobe extends LitElement {
   private lastDrag = 0;
   
   // Data
-  private nodes: { lat: number, lon: number, size: number, pulse: number, isReal: boolean, ip?: string, country?: string, city?: string, org?: string, source?: string, isServer?: boolean, isBotnet?: boolean, isTor?: boolean }[] = [];
+  // `isReal` nodes come from a named feed and carry its classification.
+  // `isAmbient` nodes are decoration with no data attached.
+  private nodes: { lat: number, lon: number, size: number, pulse: number, isReal: boolean, isAmbient?: boolean, ip?: string, country?: string, city?: string, org?: string, source?: string, classification?: string, severity?: string, detail?: Record<string, unknown> }[] = [];
   private impacts: { lat: number, lon: number, age: number }[] = [];
   private satellites: { r: number, speed: number, angle: number, tilt: number }[] = [];
   private cables: { start: [number, number], end: [number, number] }[] = [
@@ -163,7 +169,7 @@ export class ThreatGlobe extends LitElement {
 
     // Interactive Drag Rotation
     select(this.canvas).call(
-      drag()
+      drag<HTMLCanvasElement, unknown>()
         .on("start", () => { this.isDragging = true; this.targetRot = null; })
         .on("drag", (e) => {
           this.rotY += e.dx * 0.4;
@@ -219,90 +225,72 @@ export class ThreatGlobe extends LitElement {
       }
     });
     
-    // Seed noise nodes and botnet swarms
-    for(let i=0; i<150; i++) {
-      const isBotnet = Math.random() > 0.6;
+    // Ambient decorative points. These are explicitly NOT intelligence: they
+    // carry no IP, are never clickable, and render dimmer than real nodes, so
+    // the globe still feels alive on a quiet network without implying activity
+    // that isn't there. Every node with `isReal` came from a named feed.
+    for (let i = 0; i < 150; i++) {
       this.nodes.push({
         lat: (Math.random() - 0.5) * 160,
         lon: (Math.random() - 0.5) * 360,
-        size: isBotnet ? (Math.random() * 0.8 + 0.3) : (Math.random() * 1.5 + 0.5),
+        size: Math.random() * 1.2 + 0.4,
         pulse: Math.random() * Math.PI * 2,
         isReal: false,
-        isBotnet: isBotnet
+        isAmbient: true,
       });
     }
 
+    // Real, attributed threat nodes. /api/intel/map is the current source;
+    // /api/threats/live remains as a compatibility alias onto the same data.
     try {
-      const res = await fetch("/api/threats/live");
-      const threats = await res.json();
-      if (threats && threats.length > 0) {
-        for (const t of threats) {
-          this.nodes.push({
-            lat: t.lat,
-            lon: t.lon,
-            size: 3.5,
-            pulse: Math.random() * Math.PI * 2,
-            isReal: true,
-            ip: t.ip,
-            country: t.country || t.countryCode || "UNKNOWN",
-            city: t.city || "Unknown City",
-            org: t.org || "Unknown ISP",
-            source: t.source || "SANS ISC"
-          });
-        }
+      const res = await fetch("/api/intel/map?limit=150");
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      const payload = await res.json();
+      const nodes = payload?.nodes ?? [];
+      for (const t of nodes) {
+        this.nodes.push({
+          lat: t.lat,
+          lon: t.lon,
+          // C2 infrastructure reads larger than a scanning source.
+          size: t.classification === "botnet_c2" ? 4.2 : 3.2,
+          pulse: Math.random() * Math.PI * 2,
+          isReal: true,
+          ip: t.ip,
+          country: t.country || "Unknown",
+          city: t.city || "Unknown",
+          org: t.org || "Unknown",
+          source: t.source,
+          classification: t.classification,
+          severity: t.severity,
+          detail: t.detail ?? {},
+        });
       }
-    } catch(e) { console.error("Failed to fetch live threats", e); }
+      this.degraded = Object.keys(payload?.degraded ?? {});
 
-    try {
-      const res = await fetch("/api/servers/live");
-      const servers = await res.json();
-      if (servers && servers.length > 0) {
-        for (const s of servers) {
-          this.nodes.push({
-            lat: s.lat,
-            lon: s.lon,
-            size: s.type === "Hub" ? 4.5 : 2.5,
-            pulse: Math.random() * Math.PI * 2,
-            isReal: true,
-            ip: s.ip,
-            country: s.country,
-            city: s.city,
-            org: s.org,
-            source: s.type,
-            isServer: true,
-            isTor: Math.random() > 0.85 && s.type !== "Hub"
-          });
-        }
-      }
-    } catch(e) { console.error("Failed to fetch live servers", e); }
-
-    // Simulate real-time streaming to the UI feed
-    setInterval(() => {
-      if (this.nodes.length > 0) {
-        const realNodes = this.nodes.filter(n => n.isReal);
-        if (realNodes.length > 1) {
-          const attacker = realNodes[Math.floor(Math.random() * realNodes.length)];
-          let target = realNodes[Math.floor(Math.random() * realNodes.length)];
-          while(target === attacker) target = realNodes[Math.floor(Math.random() * realNodes.length)];
-          
-          const d = new Date();
-          const time = `${d.getHours().toString().padStart(2,'0')}:${d.getMinutes().toString().padStart(2,'0')}:${d.getSeconds().toString().padStart(2,'0')}`;
-          
-          const methods = ["SSH Brute Force (tcp/22)", "RDP Exploit (tcp/3389)", "Telnet Scan (tcp/23)", "DDoS Amplification", "HTTP Exploit (tcp/80)", "HTTPS Scan (tcp/443)", "SQLi Payload (tcp/3306)", "Mirai Botnet Scan", "Ransomware Delivery"];
-          const method = methods[Math.floor(Math.random() * methods.length)];
-          
-          this.recentAttacks = [{ 
-            ip: attacker.ip || "UNKNOWN", 
-            country: attacker.country || "UNK", 
-            time, 
-            source: attacker.source || "SANS ISC",
-            targetCity: target.city || "Unknown City",
-            targetCountry: target.country || "Unknown Region",
-            method: method
-          }, ...this.recentAttacks].slice(0, 6); // keep 6 so it doesn't overflow the UI
-        }
-      }
-    }, 2500);
+      // The activity feed lists what the feeds actually reported, newest
+      // first. It used to invent an "attack" every 2.5s by picking two random
+      // nodes and captioning them with a randomly-chosen technique — none of
+      // which had happened.
+      this.recentAttacks = nodes
+        .slice(0, 8)
+        .map((t: any) => ({
+          ip: t.ip,
+          country: t.country || "Unknown",
+          city: t.city || "Unknown",
+          org: t.org || "Unknown",
+          source: t.source,
+          classification: t.classification,
+          severity: t.severity,
+          detail: t.detail?.malware
+            ? `${t.detail.malware} C2${t.detail.port ? ` :${t.detail.port}` : ""}`
+            : t.detail?.attacks
+              ? `${t.detail.attacks} attacks reported`
+              : "",
+        }));
+    } catch (e) {
+      console.error("Failed to fetch threat map", e);
+      this.mapError = (e as Error).message;
+    }
 
     new ResizeObserver(() => this._resize()).observe(this);
     this.raf = requestAnimationFrame((ts) => this._loop(ts));
@@ -318,7 +306,7 @@ export class ThreatGlobe extends LitElement {
       this.osintLoading = true;
       this.osintData = null;
       try {
-        const res = await fetch(`/api/threats/osint?ip=${node.ip}`);
+        const res = await fetch(`/api/intel/investigate?target=${encodeURIComponent(node.ip ?? "")}`);
         this.osintData = await res.json();
       } catch (e) {
         console.error("OSINT fetch failed", e);
@@ -477,46 +465,19 @@ export class ThreatGlobe extends LitElement {
        path({type: "Point", coordinates: [node.lon, node.lat]});
        
        if (node.isReal) {
-         if (node.isTor) {
-           ctx.fillStyle = 'rgba(180, 0, 255, 1.0)';
-           ctx.globalAlpha = 0.8 + pulse * 0.2;
-         } else if (node.isServer) {
-           if (node.source === 'Hub') ctx.fillStyle = 'rgba(0, 255, 128, 1.0)';
-           else if (node.source === 'Mobile Tower') ctx.fillStyle = 'rgba(255, 150, 0, 1.0)';
-           else if (node.source === 'IXP') ctx.fillStyle = 'rgba(255, 0, 150, 1.0)';
-           else if (node.source === 'Datacenter') ctx.fillStyle = 'rgba(50, 150, 255, 1.0)';
-           else ctx.fillStyle = 'rgba(0, 255, 255, 1.0)';
+         // Colour encodes the classification the feed assigned, nothing else.
+         if (node.classification === 'botnet_c2') {
+           ctx.fillStyle = 'rgba(255, 40, 120, 1.0)';   // C2 infrastructure
            ctx.globalAlpha = 0.8 + pulse * 0.2;
          } else {
-           ctx.fillStyle = 'rgba(255, 0, 60, 1.0)';
+           ctx.fillStyle = 'rgba(255, 140, 40, 1.0)';   // scanning source
            ctx.globalAlpha = 0.6 + pulse * 0.4;
          }
        } else {
-         if (node.isBotnet) {
-           ctx.fillStyle = 'rgba(150, 100, 200, 0.8)';
-           ctx.globalAlpha = 0.3 + pulse * 0.4;
-         } else {
-           ctx.fillStyle = brightColor;
-           ctx.globalAlpha = 0.2 + pulse * 0.5;
-         }
+         ctx.fillStyle = brightColor;
+         ctx.globalAlpha = 0.15 + pulse * 0.35;         // ambient, deliberately dim
        }
        ctx.fill();
-
-       if (node.isReal && node.isServer && node.source === 'Mobile Tower') {
-           const p = projection([node.lon, node.lat]);
-           if (p) {
-               ctx.beginPath();
-               ctx.arc(p[0], p[1], node.size + pulse * 4 + 2, -Math.PI/4, Math.PI/4);
-               ctx.strokeStyle = `rgba(255, 150, 0, ${(1 - pulse) * 0.8})`;
-               ctx.lineWidth = 1;
-               ctx.stroke();
-               ctx.beginPath();
-               ctx.arc(p[0], p[1], node.size + pulse * 8 + 4, -Math.PI/4, Math.PI/4);
-               ctx.strokeStyle = `rgba(255, 150, 0, ${(1 - pulse) * 0.4})`;
-               ctx.lineWidth = 0.5;
-               ctx.stroke();
-           }
-       }
 
        // Draw Reticle if selected
        if (this.selectedNode === node) {
@@ -592,66 +553,23 @@ export class ThreatGlobe extends LitElement {
       }
     }
 
-    // 8.5 Draw Server Connections
-    const servers = this.nodes.filter(n => n.isServer);
-    const hubs = servers.filter(s => s.source === 'Hub');
-    const edges = servers.filter(s => s.source !== 'Hub');
-    
-    ctx.globalAlpha = 0.6;
-    for (const s of edges) {
-        if (hubs.length === 0) break;
-        const hub = hubs[(s.ip ? s.ip.length : 0) % hubs.length]; // pseudo-random stable choice
-        
-        const interpolator = geoInterpolate([s.lon, s.lat], [hub.lon, hub.lat]);
-        const lineCoords = [];
-        for(let i=0; i<=1.0; i+=0.04) {
-            lineCoords.push(interpolator(i));
-        }
-        
-        let visible = false;
-        for (const coord of lineCoords) {
-           if (geoDistance([-this.rotY, -this.rotX], [coord[0], coord[1]]) <= Math.PI/2) { visible = true; break; }
-        }
-        
-        if (visible) {
-            ctx.beginPath();
-            path({type: "LineString", coordinates: lineCoords});
-            ctx.strokeStyle = 'rgba(0, 255, 255, 0.4)';
-            ctx.lineWidth = 1.2;
-            ctx.stroke();
-            
-            let packetT = (ts * 0.0003 + s.lon) % 1.0;
-            if (packetT < 0) packetT += 1.0; // Fix JS negative modulo
-            
-            if (packetT > 0 && packetT < 1.0) {
-               const packetPos = interpolator(packetT);
-               if (geoDistance([-this.rotY, -this.rotX], [packetPos[0], packetPos[1]]) <= Math.PI/2) {
-                   ctx.beginPath();
-                   path.pointRadius(1.5);
-                   path({type: "Point", coordinates: packetPos});
-                   ctx.fillStyle = '#00ffff';
-                   ctx.shadowBlur = 5;
-                   ctx.shadowColor = '#00ffff';
-                   ctx.fill();
-                   ctx.shadowBlur = 0;
-               }
-            }
-        }
-    }
-    ctx.globalAlpha = 1.0;
+    // 9. Ambient traffic arcs.
+    //
+    // These are decoration driven by DEEP's own activity level, NOT observed
+    // attack paths — DEEP has no source of global attack telemetry, and drawing
+    // one node "attacking" another would be a claim it cannot support. They are
+    // therefore anchored to ambient points only, never to real feed nodes.
+    const ambientNodes = this.nodes.filter(n => n.isAmbient);
+    if (ambientNodes.length > 1 && (this.status === 'warning' || this.status === 'thinking' || this.activity > 0)) {
+      const numArcs = this.status === 'warning' ? 6 : 3;
 
-    // 9. Active Attack Vectors (True spherical Great Circles)
-    if (this.status === 'warning' || this.status === 'thinking' || this.activity > 0) {
-      const numAttacks = this.status === 'warning' ? 6 : 3;
-      const sourceNodes = realNodes.length > 0 ? realNodes : this.nodes;
-      
-      for(let a=0; a<numAttacks; a++) {
+      for(let a=0; a<numArcs; a++) {
         const cycleDuration = 1200 + a * 400;
         const rawT = (ts + a*900) % cycleDuration;
         const t = rawT / cycleDuration;
-        
-        const startNode = sourceNodes[(a * 37) % sourceNodes.length];
-        const endNode = this.nodes[(a * 89 + 1) % this.nodes.length];
+
+        const startNode = ambientNodes[(a * 37) % ambientNodes.length];
+        const endNode = ambientNodes[(a * 89 + 1) % ambientNodes.length];
         
         const interpolator = geoInterpolate([startNode.lon, startNode.lat], [endNode.lon, endNode.lat]);
         const curPos = interpolator(t);
@@ -730,65 +648,76 @@ export class ThreatGlobe extends LitElement {
       
       <div class="threat-feed">
         <div class="feed-title">GLOBAL THREAT INTELLIGENCE</div>
+        ${this.mapError
+          ? html`<div class="feed-line"><div class="feed-main"><span class="method">Feed unavailable: ${this.mapError}</span></div></div>`
+          : null}
+        ${!this.mapError && this.recentAttacks.length === 0
+          ? html`<div class="feed-line"><div class="feed-main"><span class="method">No entries returned by the upstream feeds.</span></div></div>`
+          : null}
         ${this.recentAttacks.map(a => html`
           <div class="feed-line" @click=${() => this._focusThreat(a)}>
              <div class="feed-main">
-               <span class="time">[${a.time}]</span>
                <span class="source">[${a.source}]</span>
-               <span class="method">${a.method}</span>
+               <span class="method">${a.classification === 'botnet_c2' ? 'BOTNET C2' : 'SCANNING SOURCE'}</span>
              </div>
              <div class="feed-details">
                <span class="attacker">${a.ip} (${a.country})</span>
-               <span class="arrow">⟶</span>
-               <span class="target">${a.targetCity}, ${a.targetCountry}</span>
+               ${a.detail ? html`<span class="arrow">·</span><span class="target">${a.detail}</span>` : null}
              </div>
           </div>
         `)}
+        ${this.degraded.length
+          ? html`<div class="feed-line"><div class="feed-main"><span class="method">Degraded sources: ${this.degraded.join(", ")}</span></div></div>`
+          : null}
       </div>
 
       <div class="map-legend">
         <div class="legend-title">GLOBE LEGEND</div>
-        <div class="legend-item"><div class="legend-color attacker"></div> Active Threats & Attackers</div>
-        <div class="legend-item"><div class="legend-color botnet"></div> IoT Botnet Swarms</div>
-        <div class="legend-item"><div class="legend-color tor"></div> Tor Exit Nodes</div>
-        <div class="legend-item"><div class="legend-color server"></div> Public Servers & Nodes</div>
-        <div class="legend-item"><div class="legend-color" style="background:rgba(255,150,0,1);box-shadow:0 0 8px rgba(255,150,0,1)"></div> Mobile Towers (Cellular)</div>
-        <div class="legend-item"><div class="legend-color" style="background:rgba(50,150,255,1);box-shadow:0 0 8px rgba(50,150,255,1)"></div> Datacenters</div>
-        <div class="legend-item"><div class="legend-color" style="background:rgba(255,0,150,1);box-shadow:0 0 8px rgba(255,0,150,1)"></div> IXPs (Internet Exchange)</div>
-        <div class="legend-item"><div class="legend-color hub"></div> Central Infrastructure Hubs</div>
-        <div class="legend-item"><div class="legend-line attack-line"></div> Attack Vectors</div>
-        <div class="legend-item"><div class="legend-line data-line"></div> Sat-Relays & Data Routes</div>
-        <div class="legend-item"><div class="legend-line cable"></div> Undersea Backbones</div>
-        <div class="legend-item"><div class="legend-color shield"></div> WAF Defensive Shields</div>
+        <div class="legend-item"><div class="legend-color" style="background:rgba(255,40,120,1);box-shadow:0 0 8px rgba(255,40,120,1)"></div> Botnet C2 (abuse.ch Feodo)</div>
+        <div class="legend-item"><div class="legend-color" style="background:rgba(255,140,40,1);box-shadow:0 0 8px rgba(255,140,40,1)"></div> Scanning source (SANS ISC)</div>
+        <div class="legend-item"><div class="legend-line cable"></div> Undersea backbones (static reference)</div>
+        <div class="legend-item"><div class="legend-line data-line"></div> Satellite relays (decorative)</div>
+        <div class="legend-item"><div class="legend-line attack-line"></div> Ambient arcs (decorative — not observed traffic)</div>
+        <div class="legend-item"><div class="legend-color botnet"></div> Ambient points (decorative — no data)</div>
       </div>
 
       ${this.selectedNode ? html`
         <div class="osint-panel">
-          <div class="panel-header">TARGET LOCKED // OSINT PROFILE</div>
+          <div class="panel-header">TARGET // OSINT PROFILE</div>
           <div class="osint-body">
             <div class="stat"><span class="lbl">IP_ADDR</span> <span class="val red">${this.selectedNode.ip}</span></div>
             <div class="stat"><span class="lbl">LAT_LON</span> <span class="val">${this.selectedNode.lat.toFixed(4)}, ${this.selectedNode.lon.toFixed(4)}</span></div>
-            
+            <div class="stat"><span class="lbl">LISTED_BY</span> <span class="val" style="color:#ffcc00">${this.selectedNode.source}</span></div>
+            <div class="stat"><span class="lbl">CLASS</span> <span class="val">${this.selectedNode.classification === 'botnet_c2' ? 'BOTNET C2' : 'SCANNING SOURCE'}</span></div>
+
             ${this.osintLoading ? html`
-               <div class="stat"><span class="lbl">OSINT_DB</span> <span class="val" style="color:#00ffff; animation: blink 1s infinite;">Querying Global Registries...</span></div>
+               <div class="stat"><span class="lbl">OSINT_DB</span> <span class="val" style="color:#00ffff; animation: blink 1s infinite;">Querying public sources…</span></div>
             ` : this.osintData ? html`
-               <div class="stat"><span class="lbl">REG_NAME</span> <span class="val">${this.osintData.name || "UNREGISTERED"}</span></div>
-               ${this.osintData.entities?.length > 0 ? html`
-                 <div class="stat"><span class="lbl">ORG_ISP</span> <span class="val">${this.osintData.entities[0].name || this.selectedNode.org || "Unknown"}</span></div>
-                 ${this.osintData.entities[0].email ? html`<div class="stat"><span class="lbl">ABUSE_EMAIL</span> <span class="val" style="color:#ffcc00">${this.osintData.entities[0].email}</span></div>` : null}
-                 ${this.osintData.entities[0].phone ? html`<div class="stat"><span class="lbl">PHONE</span> <span class="val">${this.osintData.entities[0].phone}</span></div>` : null}
-               ` : html`
-                 <div class="stat"><span class="lbl">ORG_ISP</span> <span class="val">${this.selectedNode.org || "Unknown"}</span></div>
-               `}
+               <!-- Verdict comes from the investigator's own scoring; it is never
+                    hardcoded. The panel previously showed CRITICAL for every node. -->
+               <div class="stat"><span class="lbl">VERDICT</span>
+                 <span class="val red">${String(this.osintData.risk ?? "unknown").toUpperCase()}
+                   (${this.osintData.risk_score ?? 0}/100)</span></div>
+               <div class="stat"><span class="lbl">CONFIDENCE</span>
+                 <span class="val">${this.osintData.sources_answered?.length ?? 0}/${this.osintData.sources_queried?.length ?? 0} sources</span></div>
+               ${(this.osintData.findings ?? []).slice(0, 10).map((f: any) => html`
+                 <div class="stat">
+                   <span class="lbl">${String(f.label).toUpperCase().slice(0, 12)}</span>
+                   <span class="val" style=${f.severity === 'critical' || f.severity === 'high' ? 'color:#ff6666' : ''}>
+                     ${typeof f.value === 'object' ? JSON.stringify(f.value).slice(0, 90) : String(f.value).slice(0, 90)}
+                   </span>
+                 </div>
+               `)}
+               ${Object.keys(this.osintData.degraded ?? {}).length ? html`
+                 <div class="stat"><span class="lbl">DEGRADED</span>
+                   <span class="val">${Object.keys(this.osintData.degraded).join(", ")}</span></div>
+               ` : null}
             ` : html`
                <div class="stat"><span class="lbl">ORG_ISP</span> <span class="val">${this.selectedNode.org || "Unknown"}</span></div>
             `}
-            
-            <div class="stat"><span class="lbl">THREAT_SRC</span> <span class="val" style="color:#ffcc00">${this.selectedNode.source || "SANS ISC"}</span></div>
-            <div class="stat"><span class="lbl">THREAT_LVL</span> <span class="val red">CRITICAL (ACTIVE)</span></div>
-            
+
             <div class="actions">
-              <button class="btn" @click=${() => { this.targetRot = null; this.selectedNode = null; }}>DISENGAGE</button>
+              <button class="btn" @click=${() => { this.targetRot = null; this.selectedNode = null; this.osintData = null; }}>DISENGAGE</button>
             </div>
           </div>
         </div>

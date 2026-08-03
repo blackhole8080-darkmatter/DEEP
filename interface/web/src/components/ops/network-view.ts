@@ -3,7 +3,6 @@
 import { LitElement, html, css } from "lit";
 import { customElement, state } from "lit/decorators.js";
 import { SignalWatcher } from "@lit-labs/signals";
-import { proximityFeed } from "../../core/store";
 import {
   fetchSecurityStatus, fetchSecurityDevices, fetchSecurityEvents,
   fetchNetworkThreats, fetchWifiStatus, scanTarget,

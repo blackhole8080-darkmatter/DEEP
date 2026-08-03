@@ -3,11 +3,12 @@
   "version": "0.1.0",
   "private": true,
   "type": "module",
-  "description": "DEEP modern frontend — Vite + Lit + TypeScript",
+  "description": "DEEP modern frontend \u2014 Vite + Lit + TypeScript",
   "scripts": {
     "dev": "vite",
-    "build": "vite build",
-    "preview": "vite preview"
+    "build": "tsc --noEmit && vite build",
+    "preview": "vite preview",
+    "typecheck": "tsc --noEmit"
   },
   "dependencies": {
     "@lit-labs/signals": "^0.1.2",

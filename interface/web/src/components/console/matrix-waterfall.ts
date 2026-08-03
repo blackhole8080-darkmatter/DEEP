@@ -55,7 +55,7 @@ export class MatrixWaterfall extends LitElement {
     
     new ResizeObserver(() => this._resize()).observe(this);
     this._resize();
-    this.raf = requestAnimationFrame((ts) => this._loop(ts));
+    this.raf = requestAnimationFrame(() => this._loop());
     
     this._fetchThreats();
     setInterval(() => this._fetchThreats(), 15000);
@@ -143,8 +143,8 @@ export class MatrixWaterfall extends LitElement {
     }
   }
 
-  private _loop(ts: number) {
-    this.raf = requestAnimationFrame((t) => this._loop(t));
+  private _loop() {
+    this.raf = requestAnimationFrame(() => this._loop());
     if (!this.ctx) return;
     
     // Full clear. No messy trails.

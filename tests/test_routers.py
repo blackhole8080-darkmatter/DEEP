@@ -87,3 +87,73 @@ def test_retraining_status_does_not_raise_nameerror(client):
     assert response.status_code == 200
     body = response.json()
     assert "is not defined" not in str(body.get("error", ""))
+
+
+# ── intelligence layer routes ────────────────────────────────────────────────
+
+
+def test_intel_sources_catalog(client):
+    response = client.get("/api/intel/sources")
+    assert response.status_code == 200
+    body = response.json()
+    assert body["total"] > 0
+    assert body["keyless"] > 0
+    assert all("configured" in s for s in body["sources"])
+
+
+def test_intel_sources_filters_by_category(client):
+    response = client.get("/api/intel/sources?category=vulnerability")
+    assert response.status_code == 200
+    assert {s["category"] for s in response.json()["sources"]} == {"vulnerability"}
+
+
+def test_intel_classify(client):
+    response = client.get("/api/intel/classify?target=CVE-2021-44228")
+    assert response.status_code == 200
+    body = response.json()
+    assert body["indicator"] == "cve"
+    assert len(body["sources"]) > 0
+
+
+def test_intel_classify_unknown_indicator(client):
+    response = client.get("/api/intel/classify?target=not-an-indicator-at-all")
+    assert response.status_code == 200
+    assert response.json()["indicator"] is None
+
+
+def test_intel_investigate_rejects_garbage_with_422(client):
+    """Unlike the older routers, failures here are real status codes."""
+    response = client.get("/api/intel/investigate?target=%3F%3F%3F")
+    assert response.status_code == 422
+
+
+def test_terminal_command_catalog(client):
+    response = client.get("/api/intel/terminal/commands")
+    assert response.status_code == 200
+    names = {c["name"] for c in response.json()["commands"]}
+    assert {"help", "investigate", "cve", "kev", "stats", "scan"} <= names
+
+
+def test_terminal_exec_help(client):
+    response = client.post("/api/intel/terminal/exec", json={"line": "help"})
+    assert response.status_code == 200
+    body = response.json()
+    assert body["ok"] is True
+    assert "investigate" in body["text"]
+
+
+def test_terminal_exec_rejects_shell_injection(client):
+    response = client.post("/api/intel/terminal/exec", json={"line": "rm -rf /"})
+    assert response.status_code == 200
+    body = response.json()
+    assert body["ok"] is False
+    assert "unknown command" in body["error"]
+
+
+def test_terminal_exec_requires_a_line(client):
+    assert client.post("/api/intel/terminal/exec", json={"line": ""}).status_code == 422
+
+
+def test_terminal_requires_auth(anon_client):
+    response = anon_client.post("/api/intel/terminal/exec", json={"line": "help"})
+    assert response.status_code == 401

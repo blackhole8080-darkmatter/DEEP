@@ -18,6 +18,10 @@ export interface ToolDef {
 
 export const TOOL_REGISTRY: ToolDef[] = [
   // ── Intelligence ──
+  { id: "terminal", label: "Terminal",  icon: "❯", group: "intelligence",
+    load: () => import("../components/console/ops-terminal"), render: () => html`<ops-terminal></ops-terminal>` },
+  { id: "intel",    label: "Intel",     icon: "◈", group: "intelligence",
+    load: () => import("../components/ops/intel-stats-view"), render: () => html`<intel-stats-view></intel-stats-view>` },
   { id: "memory",   label: "Knowledge", icon: "◐", group: "intelligence",
     load: () => import("../components/memory/memory-graph"), render: () => html`<memory-graph></memory-graph>` },
 

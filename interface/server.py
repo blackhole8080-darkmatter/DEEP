@@ -1823,18 +1823,29 @@ _register_services(
 for _r in _DEEP_ROUTERS:
     app.include_router(_r)
 
-from core.services.threat_intel import get_live_threats, get_osint_details, get_live_public_servers
+# Legacy threat-globe endpoints. Superseded by /api/intel/* (see
+# interface/routers/intel.py); kept as thin async adapters so the existing
+# frontend keeps working during the migration.
+from core.services.threat_intel import (
+    get_live_public_servers,
+    get_live_threats,
+    get_osint_details,
+)
+
+
 @app.get("/api/threats/live")
-def api_live_threats():
-    return get_live_threats()
+async def api_live_threats():
+    return await get_live_threats()
+
 
 @app.get("/api/threats/osint")
-def api_osint_details(ip: str):
-    return get_osint_details(ip)
+async def api_osint_details(ip: str):
+    return await get_osint_details(ip)
+
 
 @app.get("/api/servers/live")
-def api_live_servers():
-    return get_live_public_servers()
+async def api_live_servers():
+    return await get_live_public_servers()
 
 if __name__ == "__main__":
     import uvicorn

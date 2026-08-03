@@ -63,9 +63,6 @@ export class TopologyCanvas extends LitElement {
   private _ambientParticles: AmbientParticle[] = [];
   private _ambientInited = false;
 
-  // Arrival ring effects
-  private _arrivalRings: { x: number; y: number; color: string; t: number }[] = [];
-
   // Sonar glow intensification per node
   private _sonarGlow = new Map<string, number>();
 
@@ -561,32 +558,6 @@ export class TopologyCanvas extends LitElement {
     }
   }
 
-  private _drawTargetReticule(ctx: CanvasRenderingContext2D, x: number, y: number, r: number, color: string) {
-    ctx.strokeStyle = color;
-    ctx.lineWidth = 1.5;
-    const s = r + 8;
-    const len = 6;
-    ctx.beginPath();
-    // Top Left
-    ctx.moveTo(x - s, y - s + len); ctx.lineTo(x - s, y - s); ctx.lineTo(x - s + len, y - s);
-    // Top Right
-    ctx.moveTo(x + s - len, y - s); ctx.lineTo(x + s, y - s); ctx.lineTo(x + s, y - s + len);
-    // Bottom Right
-    ctx.moveTo(x + s, y + s - len); ctx.lineTo(x + s, y + s); ctx.lineTo(x + s - len, y + s);
-    // Bottom Left
-    ctx.moveTo(x - s + len, y + s); ctx.lineTo(x - s, y + s); ctx.lineTo(x - s, y + s - len);
-    ctx.stroke();
-
-    // Rotating inner dashed ring
-    ctx.save();
-    ctx.translate(x, y);
-    ctx.rotate(this.time * 0.02);
-    ctx.beginPath();
-    ctx.arc(0, 0, r + 3, 0, Math.PI * 2);
-    ctx.setLineDash([4, 6]);
-    ctx.stroke();
-    ctx.restore();
-  }
 
   /* ─── Main Render Loop ─── */
   private _loop = () => {

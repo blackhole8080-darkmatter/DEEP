@@ -13,7 +13,6 @@ import { SignalWatcher } from "@lit-labs/signals";
 import { messages, thinking, sendChat } from "../../core/store";
 import { toolById } from "../../core/tool-registry";
 import { skin, cycleSkin, type Skin } from "../../core/theme";
-import { AudioAnalyser, type AudioLevels } from "../../core/audio";
 import "./matrix-waterfall";
 import "./threat-globe";
 import "./tool-dock";
@@ -30,9 +29,8 @@ export class DeepConsole extends SignalWatcher(LitElement) {
   @state() private _toolView: TemplateResult | null = null;
   @state() private _loadingTool = false;
   @state() private _draft = "";
-  @state() private _micLevels: AudioLevels | null = null;
 
-  private _audioAnalyser: AudioAnalyser | null = null;
+  private _audioAnalyser: { destroy(): void } | null = null;
   private _audioRaf = 0;
 
   static styles = css`
@@ -237,36 +235,12 @@ export class DeepConsole extends SignalWatcher(LitElement) {
     this._stopAudio();
   }
 
-  private async _startMic(): Promise<void> {
-    if (this._audioAnalyser?.connected) return;
-    this._audioAnalyser = new AudioAnalyser();
-    const ok = await this._audioAnalyser.connectMic();
-    if (!ok) { this._audioAnalyser = null; return; }
-    const tick = () => {
-      if (!this._audioAnalyser) return;
-      this._audioAnalyser.update();
-      this._micLevels = { ...this._audioAnalyser.levels };
-      this._audioRaf = requestAnimationFrame(tick);
-    };
-    this._audioRaf = requestAnimationFrame(tick);
-  }
-
   private _stopAudio(): void {
     cancelAnimationFrame(this._audioRaf);
     this._audioAnalyser?.destroy();
     this._audioAnalyser = null;
-    this._micLevels = null;
   }
 
-  private _onSphereListen = () => {
-    this._startMic();
-  };
-
-  private _onSphereCommand = () => {
-    // Open command palette if available
-    const palette = document.querySelector("command-palette") as { toggle?: () => void } | null;
-    palette?.toggle?.();
-  };
   private _onKey = (e: KeyboardEvent) => {
     if (e.key === "Escape" && this._openTool) this._closeTool();
   };
