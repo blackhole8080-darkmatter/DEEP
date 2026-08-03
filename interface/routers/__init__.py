@@ -20,6 +20,7 @@ ROUTERS = [
     security.router,
     etis.router,
     knowledge.router,
+    knowledge.docs_router,
     state.router,
     network.router,
     audit.router,

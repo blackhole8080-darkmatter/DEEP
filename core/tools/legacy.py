@@ -15,37 +15,406 @@ from core.integrations import integration_manager
 
 logger = logging.getLogger(__name__)
 
-LEGACY_TOOLS = {'search_web': {'description': 'Search the live internet for up-to-date information, news, or weather.', 'args': {'query': 'The search query string'}}, 'investigate': {'description': 'Build an intelligence dossier on an IP address, MAC address, hostname or domain (vendor, reverse-DNS, geolocation, ISP/ASN, private-vs-public, risk flags). Use this to identify unknown network/Bluetooth devices or remote hosts.', 'args': {'target': 'An IP (e.g. 8.8.8.8), MAC (e.g. C4:9A:31:FF:CA:A0), hostname or domain'}}, 'trust_device': {'description': 'ACTION: mark a network device as trusted (whitelist it) by its MAC address. Use when the user confirms a device is theirs/safe.', 'args': {'mac': 'Device MAC address'}}, 'block_device': {'description': 'ACTION (protective): flag a network device as blocked/suspicious by its MAC address. Use when the user wants to block a suspicious or unknown device.', 'args': {'mac': 'Device MAC address'}}, 'network_scan': {'description': 'ACTION: actively scan a specific device/IP for open ports and OS fingerprint. Use to inspect a suspicious host more deeply.', 'args': {'ip': 'Target IP on the local network, e.g. 192.168.1.42'}}, 'vpn_control': {'description': "ACTION (protective): bring the VPN up or down. Use 'up' to secure the connection, 'down' to disconnect.", 'args': {'action': "'up' or 'down'"}}, 'home_automation': {'description': 'Control smart home devices via Home Assistant.', 'args': {'action': "'turn_on', 'turn_off', or 'get_state'", 'entity_id': "e.g., 'light.living_room' or 'climate.home'", 'brightness': 'optional 0-255 for lights'}}, 'add_task': {'description': "Add a task/todo to the user's persistent list.", 'args': {'title': 'Task description', 'due': 'Optional ISO 8601 datetime, e.g. 2026-06-02T17:00:00', 'priority': "Optional: 'low', 'med', or 'high' (default 'med')"}}, 'list_tasks': {'description': "List the user's open (incomplete) tasks.", 'args': {}}, 'complete_task': {'description': 'Mark a task as done by its id.', 'args': {'id': 'The integer task id'}}, 'set_reminder': {'description': 'Set a time-based reminder that fires (notifies + optional SMS) when due.', 'args': {'text': 'What to remind the user about', 'at': 'When to fire, as an ISO 8601 datetime, e.g. 2026-06-01T18:00:00'}}, 'list_reminders': {'description': 'List pending (not-yet-fired) reminders.', 'args': {}}, 'calendar_upcoming': {'description': "List the user's upcoming Google Calendar events.", 'args': {'count': 'Optional number of events to return (default 5)'}}, 'calendar_create_event': {'description': "Create an event on the user's Google Calendar.", 'args': {'title': 'Event title', 'start': 'Start time, ISO 8601 datetime', 'end': 'Optional end time, ISO 8601 (defaults to start + 1 hour)'}}, 'science_compute': {'description': 'Run a scientific or technical computation across 16 domains (maths, physics, quantum mechanics, chemistry, biology, astrophysics, nuclear, ML, neural nets, quantum computing, robotics, engineering, cybersecurity, gaming, cloud, finance). Use for symbolic maths, simulations, option pricing, circuits, binding energies, Black-Scholes, Grover/VQE, PINNs, etc.', 'args': {'query': "Natural-language computation request, e.g. 'integrate x^2 from 0 to 3' or 'black hole 10 solar masses'"}}, 'solve_math': {'description': 'Symbolic & numerical mathematics: derivatives, integrals, limits, series, equation solving, matrices/eigenvalues, transforms, number theory, combinatorics.', 'args': {'query': "e.g. 'differentiate sin(x)*x^2' or 'factor 360' or 'solve x^2 - 5x + 6 = 0'"}}, 'run_simulation': {'description': 'Run a physics/chemistry/biology/astro/nuclear/quantum simulation: projectile, orbits, FDTD, Navier-Stokes, Schrödinger, reactions, SIR epidemics, black holes, reactor kinetics, Grover/VQE quantum circuits.', 'args': {'query': "e.g. 'projectile at 45 degrees 30 m/s' or 'run a grover search for 101' or 'SIR epidemic'"}}, 'quant_finance': {'description': 'Quantitative finance: Black-Scholes option pricing + Greeks, Monte Carlo, portfolio optimisation, VaR/CVaR risk, MACD/Bollinger indicators, strategy backtesting, pairs trading.', 'args': {'query': "e.g. 'price a call option stock 105 strike 100' or 'optimize my portfolio' or 'stock risk VaR'"}}, 'cyber_scan_network': {'description': 'Scans the local network using ARP to find connected devices.', 'args': {}}, 'cyber_scan_ports': {'description': 'Scans an IP address for open ports.', 'args': {'ip': 'The target IP address'}}, 'vision_screenshot': {'description': "Look at the user's screen RIGHT NOW: captures a screenshot and analyzes it with local AI vision (LLaVA). Use when the user asks 'what's on my screen', 'look at this', or wants DEEP to see what they're doing.", 'args': {'question': 'Optional: what to look for (default: describe the whole screen)'}}, 'vision_analyze': {'description': "Analyze an image using local AI vision (LLaVA). Understands what's in the image.", 'args': {'image_path': 'Path to the image file', 'question': 'Optional question about the image (default: describe it)'}}, 'vision_debug_ui': {'description': 'Analyze a UI screenshot for bugs, layout issues, and UX improvements.', 'args': {'image_path': 'Path to UI screenshot'}}, 'vision_analyze_circuit': {'description': 'Analyze a circuit board or electronic component image (for robotics).', 'args': {'image_path': 'Path to circuit image'}}, 'research_query': {'description': 'Search the local Academic database for information extracted from PDFs.', 'args': {'query': 'The search query'}}, 'research_ingest': {'description': 'Scan data/research_papers to add new PDFs into the academic database.', 'args': {}}, 'xr_send_command': {'description': 'Sends a command directly to a connected VR/AR headset running Unity/Unreal.', 'args': {'command': "e.g., 'spawn_object', 'change_color'", 'payload': 'JSON dict payload'}}, 'agent_create': {'description': 'Create a new specialized sub-agent with a specific role and tool access.', 'args': {'name': 'Unique name for the agent', 'role': "'researcher', 'coder', 'cybersec', 'robotics', 'data_analyst', 'writer', 'planner', or 'custom'", 'custom_prompt': 'Optional custom system prompt', 'allowed_tools': 'Optional list of tool names this agent can use'}}, 'agent_assign': {'description': 'Assign a task to an existing sub-agent and get the result.', 'args': {'agent_name': 'Name of the agent to use', 'task': 'Task description'}}, 'agent_list': {'description': 'List all active sub-agents and their status.', 'args': {}}, 'agent_terminate': {'description': 'Terminate and remove a sub-agent.', 'args': {'agent_name': 'Name of the agent to terminate'}}, 'agent_swarm': {'description': 'Execute a complex goal by auto-decomposing it into sub-tasks and running multiple agents in parallel.', 'args': {'goal': 'High-level goal description'}}, 'ask_options': {'description': 'Present multiple options/alternatives to the user for selection. Use when there are multiple valid approaches.', 'args': {'message': 'Question or context for the options', 'options': 'List of dicts with label, description, pros, cons, recommended'}}, 'ask_clarification': {'description': 'Ask clarifying questions before proceeding. Use when you need more information from the user.', 'args': {'message': 'Context message', 'questions': 'List of dicts with question, context, required, suggestions'}}, 'ask_confirmation': {'description': 'Ask for yes/no confirmation before taking an action.', 'args': {'message': "What you're asking about", 'action': 'The action that will be taken if confirmed'}}, 'ml_train': {'description': "Train a real ML model via scikit-learn/XGBoost. Data is a CSV path OR 'internal:processes'/'internal:network'. Supervised algos need a target column.", 'args': {'algorithm': "e.g. 'random_forest', 'xgboost', 'kmeans', 'isolation_forest'", 'data': "CSV path or 'internal:processes' / 'internal:network'", 'target': 'Target column name (supervised only)', 'params': 'Optional JSON object of hyperparameters, e.g. {"n_clusters": 3}', 'save_as': 'Optional name to save the trained model under'}}, 'ml_predict': {'description': 'Predict using a previously trained+saved model.', 'args': {'model_name': 'Saved model name', 'data': "CSV path or 'internal:...'"}}, 'predict_my_tasks': {'description': "Score Aryan's OPEN tasks by how likely he is to complete each, learned from his own task history. Trains on first use. Use to surface which tasks are at risk / need a nudge.", 'args': {}}, 'train_task_model': {'description': '(Re)train the personal task-completion model from the latest scheduler history.', 'args': {}}, 'add_transaction': {'description': 'Record a financial transaction (income or expense). DEEP auto-categorises based on description keywords.', 'args': {'date': 'YYYY-MM-DD', 'amount': 'Positive for income, negative for expense', 'description': "e.g. 'ICA Supermarket' or 'Salary June'", 'category': 'Optional override (auto-detected if omitted)', 'currency': 'Default SEK'}}, 'spending_summary': {'description': 'Get a spending breakdown by category for the last N months with net income/spent.', 'args': {'months': 'Default 1'}}, 'set_budget': {'description': 'Set a monthly budget limit for a spending category.', 'args': {'category': "e.g. 'food'", 'limit': 'Amount', 'currency': 'Default SEK'}}, 'get_budget_status': {'description': 'Show current spend vs budget for every category this month.', 'args': {}}, 'add_bill': {'description': 'Track a recurring bill or subscription with due date and frequency.', 'args': {'name': "e.g. 'Netflix'", 'amount': 'Amount', 'frequency': 'monthly/weekly/yearly (default monthly)', 'next_due': 'YYYY-MM-DD (optional, defaults to 30 days)'}}, 'upcoming_bills': {'description': 'List bills due within the next N days.', 'args': {'days': 'Default 14'}}, 'detect_spending_anomalies': {'description': 'Find unusual transactions that deviate from historical patterns in a category.', 'args': {'category': 'Optional: check one category; default checks all'}}, 'inbox_summary': {'description': 'Check unread count and recent email subjects.', 'args': {'limit': 'Number of recent messages (default 20)'}}, 'search_emails': {'description': 'Search inbox by sender, subject, or body keyword.', 'args': {'query': 'Search term', 'limit': 'Default 10'}}, 'send_email': {'description': 'Send an email via SMTP.', 'args': {'to': 'Recipient address', 'subject': 'Email subject', 'body': 'Email body (plain text)'}}, 'track_email': {'description': 'Flag an email thread as needing a reply (follow-up tracking).', 'args': {'msg_id': 'Message ID', 'sender': 'Sender address', 'subject': 'Subject line', 'notes': 'Optional reminder note'}}, 'awaiting_replies': {'description': "List email threads you've flagged as needing a reply.", 'args': {}}, 'create_mission': {'description': 'Start a complex, multi-step autonomous mission that DEEP executes in the background over minutes or hours. Examples: research a topic, plan a trip, audit a codebase, generate a report.', 'args': {'goal': "High-level mission description, e.g. 'Research quantum AI and write a blog summary'"}}, 'list_missions': {'description': 'List active and recent autonomous missions with their progress.', 'args': {'status': 'Optional filter: pending, running, completed, failed'}}, 'mission_status': {'description': 'Get detailed status of a specific mission including subtasks.', 'args': {'mission_id': 'The mission ID'}}, 'cancel_mission': {'description': 'Cancel an in-progress mission.', 'args': {'mission_id': 'The mission ID'}}, 'phone_status': {'description': 'Check whether DEEP can control the phone: lists connected Android devices (adb) and iPhone shortcut readiness. Use FIRST before other phone tools.', 'args': {}}, 'phone_connect': {'description': "Connect to an Android phone over Wi-Fi (wireless ADB) at host:port, e.g. '192.168.1.42:5555' or the port shown under Wireless debugging. Makes it the active device for subsequent phone tools. Run phone_pair first on Android 11+ if not already paired.", 'args': {'address': 'host:port, e.g. 192.168.1.42:5555'}}, 'phone_pair': {'description': "Android 11+ one-time wireless pairing. Use the host:port and 6-digit code from Settings → Developer options → Wireless debugging → 'Pair device with pairing code'. After pairing, use phone_connect with the (different) connect port.", 'args': {'address': 'pairing host:port', 'code': '6-digit pairing code'}}, 'phone_screenshot': {'description': "Capture the Android phone's screen RIGHT NOW and look at it with local AI vision (LLaVA). Use to see what's on the phone before deciding where to tap. Returns a description + the saved frame path.", 'args': {'question': 'Optional: what to look for on the phone screen'}}, 'phone_tap': {'description': 'Tap the Android phone screen at pixel coordinates (x, y). Get coordinates by calling phone_screenshot first.', 'args': {'x': 'X pixel', 'y': 'Y pixel'}}, 'phone_swipe': {'description': 'Swipe/scroll on the Android phone from (x1,y1) to (x2,y2). Use for scrolling, unlocking, or dragging.', 'args': {'x1': 'start X', 'y1': 'start Y', 'x2': 'end X', 'y2': 'end Y', 'duration_ms': 'Optional swipe duration in ms (default 300)'}}, 'phone_text': {'description': 'Type text into the currently focused field on the Android phone.', 'args': {'text': 'The text to type'}}, 'phone_key': {'description': 'Press a hardware/navigation key on the Android phone. Accepts aliases: home, back, enter, recents, power, wake, volup, voldown, search, del, space — or any raw KEYCODE_*.', 'args': {'key': "e.g. 'back', 'home', 'enter'"}}, 'phone_open_app': {'description': 'Launch an app on the Android phone by its package name (e.g. com.whatsapp, com.android.chrome).', 'args': {'package': 'Android package name'}}, 'phone_shortcut': {'description': 'iPhone: trigger a Siri Shortcut by name (iOS blocks raw taps; this is the command-driven path). Requires DEEP_IPHONE_SHORTCUT_WEBHOOK configured.', 'args': {'name': 'Shortcut name', 'input': 'Optional text input to pass to the shortcut'}}}
-
-_deep_orchestrator = None
-
-def _science_compute(query: str) -> dict:
-    """Route a natural-language request through the DEEP science/tech engine."""
-    try:
-        global _deep_orchestrator
-        if _deep_orchestrator is None:
-            from engine.main import DEEP
-            _deep_orchestrator = DEEP()
-        return _deep_orchestrator.process_command(query)
-    except Exception as e:
-        logger.exception('science_compute failed')
-        return {'result': None, 'verbal': f'Science engine error: {e}', 'module': None}
+LEGACY_TOOLS = {
+    'search_web': {
+        'description': 'Search the live internet for up-to-date information, news, or weather.',
+        'args': {
+            'query': 'The search query string',
+        },
+    },
+    'investigate': {
+        'description': 'Build an intelligence dossier on an IP address, MAC address, hostname or domain (vendor, reverse-DNS, geolocation, ISP/ASN, private-vs-public, risk flags). Use this to identify unknown network/Bluetooth devices or remote hosts.',
+        'args': {
+            'target': 'An IP (e.g. 8.8.8.8), MAC (e.g. C4:9A:31:FF:CA:A0), hostname or domain',
+        },
+    },
+    'trust_device': {
+        'description': 'ACTION: mark a network device as trusted (whitelist it) by its MAC address. Use when the user confirms a device is theirs/safe.',
+        'args': {
+            'mac': 'Device MAC address',
+        },
+    },
+    'block_device': {
+        'description': 'ACTION (protective): flag a network device as blocked/suspicious by its MAC address. Use when the user wants to block a suspicious or unknown device.',
+        'args': {
+            'mac': 'Device MAC address',
+        },
+    },
+    'network_scan': {
+        'description': 'ACTION: actively scan a specific device/IP for open ports and OS fingerprint. Use to inspect a suspicious host more deeply.',
+        'args': {
+            'ip': 'Target IP on the local network, e.g. 192.168.1.42',
+        },
+    },
+    'vpn_control': {
+        'description': "ACTION (protective): bring the VPN up or down. Use 'up' to secure the connection, 'down' to disconnect.",
+        'args': {
+            'action': "'up' or 'down'",
+        },
+    },
+    'home_automation': {
+        'description': 'Control smart home devices via Home Assistant.',
+        'args': {
+            'action': "'turn_on', 'turn_off', or 'get_state'",
+            'entity_id': "e.g., 'light.living_room' or 'climate.home'",
+            'brightness': 'optional 0-255 for lights',
+        },
+    },
+    'add_task': {
+        'description': "Add a task/todo to the user's persistent list.",
+        'args': {
+            'title': 'Task description',
+            'due': 'Optional ISO 8601 datetime, e.g. 2026-06-02T17:00:00',
+            'priority': "Optional: 'low', 'med', or 'high' (default 'med')",
+        },
+    },
+    'list_tasks': {
+        'description': "List the user's open (incomplete) tasks.",
+        'args': {},
+    },
+    'complete_task': {
+        'description': 'Mark a task as done by its id.',
+        'args': {
+            'id': 'The integer task id',
+        },
+    },
+    'set_reminder': {
+        'description': 'Set a time-based reminder that fires (notifies + optional SMS) when due.',
+        'args': {
+            'text': 'What to remind the user about',
+            'at': 'When to fire, as an ISO 8601 datetime, e.g. 2026-06-01T18:00:00',
+        },
+    },
+    'list_reminders': {
+        'description': 'List pending (not-yet-fired) reminders.',
+        'args': {},
+    },
+    'calendar_upcoming': {
+        'description': "List the user's upcoming Google Calendar events.",
+        'args': {
+            'count': 'Optional number of events to return (default 5)',
+        },
+    },
+    'calendar_create_event': {
+        'description': "Create an event on the user's Google Calendar.",
+        'args': {
+            'title': 'Event title',
+            'start': 'Start time, ISO 8601 datetime',
+            'end': 'Optional end time, ISO 8601 (defaults to start + 1 hour)',
+        },
+    },
+    'cyber_scan_network': {
+        'description': 'Scans the local network using ARP to find connected devices.',
+        'args': {},
+    },
+    'cyber_scan_ports': {
+        'description': 'Scans an IP address for open ports.',
+        'args': {
+            'ip': 'The target IP address',
+        },
+    },
+    'vision_screenshot': {
+        'description': "Look at the user's screen RIGHT NOW: captures a screenshot and analyzes it with local AI vision (LLaVA). Use when the user asks 'what's on my screen', 'look at this', or wants DEEP to see what they're doing.",
+        'args': {
+            'question': 'Optional: what to look for (default: describe the whole screen)',
+        },
+    },
+    'vision_analyze': {
+        'description': "Analyze an image using local AI vision (LLaVA). Understands what's in the image.",
+        'args': {
+            'image_path': 'Path to the image file',
+            'question': 'Optional question about the image (default: describe it)',
+        },
+    },
+    'vision_debug_ui': {
+        'description': 'Analyze a UI screenshot for bugs, layout issues, and UX improvements.',
+        'args': {
+            'image_path': 'Path to UI screenshot',
+        },
+    },
+    'vision_analyze_circuit': {
+        'description': 'Analyze a circuit board or electronic component image (for robotics).',
+        'args': {
+            'image_path': 'Path to circuit image',
+        },
+    },
+    'research_query': {
+        'description': 'Search the local Academic database for information extracted from PDFs.',
+        'args': {
+            'query': 'The search query',
+        },
+    },
+    'research_ingest': {
+        'description': 'Scan data/research_papers to add new PDFs into the academic database.',
+        'args': {},
+    },
+    'xr_send_command': {
+        'description': 'Sends a command directly to a connected VR/AR headset running Unity/Unreal.',
+        'args': {
+            'command': "e.g., 'spawn_object', 'change_color'",
+            'payload': 'JSON dict payload',
+        },
+    },
+    'agent_create': {
+        'description': 'Create a new specialized sub-agent with a specific role and tool access.',
+        'args': {
+            'name': 'Unique name for the agent',
+            'role': "'researcher', 'coder', 'cybersec', 'robotics', 'data_analyst', 'writer', 'planner', or 'custom'",
+            'custom_prompt': 'Optional custom system prompt',
+            'allowed_tools': 'Optional list of tool names this agent can use',
+        },
+    },
+    'agent_assign': {
+        'description': 'Assign a task to an existing sub-agent and get the result.',
+        'args': {
+            'agent_name': 'Name of the agent to use',
+            'task': 'Task description',
+        },
+    },
+    'agent_list': {
+        'description': 'List all active sub-agents and their status.',
+        'args': {},
+    },
+    'agent_terminate': {
+        'description': 'Terminate and remove a sub-agent.',
+        'args': {
+            'agent_name': 'Name of the agent to terminate',
+        },
+    },
+    'agent_swarm': {
+        'description': 'Execute a complex goal by auto-decomposing it into sub-tasks and running multiple agents in parallel.',
+        'args': {
+            'goal': 'High-level goal description',
+        },
+    },
+    'ask_options': {
+        'description': 'Present multiple options/alternatives to the user for selection. Use when there are multiple valid approaches.',
+        'args': {
+            'message': 'Question or context for the options',
+            'options': 'List of dicts with label, description, pros, cons, recommended',
+        },
+    },
+    'ask_clarification': {
+        'description': 'Ask clarifying questions before proceeding. Use when you need more information from the user.',
+        'args': {
+            'message': 'Context message',
+            'questions': 'List of dicts with question, context, required, suggestions',
+        },
+    },
+    'ask_confirmation': {
+        'description': 'Ask for yes/no confirmation before taking an action.',
+        'args': {
+            'message': "What you're asking about",
+            'action': 'The action that will be taken if confirmed',
+        },
+    },
+    'ml_train': {
+        'description': "Train a real ML model via scikit-learn/XGBoost. Data is a CSV path OR 'internal:processes'/'internal:network'. Supervised algos need a target column.",
+        'args': {
+            'algorithm': "e.g. 'random_forest', 'xgboost', 'kmeans', 'isolation_forest'",
+            'data': "CSV path or 'internal:processes' / 'internal:network'",
+            'target': 'Target column name (supervised only)',
+            'params': 'Optional JSON object of hyperparameters, e.g. {"n_clusters": 3}',
+            'save_as': 'Optional name to save the trained model under',
+        },
+    },
+    'ml_predict': {
+        'description': 'Predict using a previously trained+saved model.',
+        'args': {
+            'model_name': 'Saved model name',
+            'data': "CSV path or 'internal:...'",
+        },
+    },
+    'predict_my_tasks': {
+        'description': "Score Aryan's OPEN tasks by how likely he is to complete each, learned from his own task history. Trains on first use. Use to surface which tasks are at risk / need a nudge.",
+        'args': {},
+    },
+    'train_task_model': {
+        'description': '(Re)train the personal task-completion model from the latest scheduler history.',
+        'args': {},
+    },
+    'add_transaction': {
+        'description': 'Record a financial transaction (income or expense). DEEP auto-categorises based on description keywords.',
+        'args': {
+            'date': 'YYYY-MM-DD',
+            'amount': 'Positive for income, negative for expense',
+            'description': "e.g. 'ICA Supermarket' or 'Salary June'",
+            'category': 'Optional override (auto-detected if omitted)',
+            'currency': 'Default SEK',
+        },
+    },
+    'spending_summary': {
+        'description': 'Get a spending breakdown by category for the last N months with net income/spent.',
+        'args': {
+            'months': 'Default 1',
+        },
+    },
+    'set_budget': {
+        'description': 'Set a monthly budget limit for a spending category.',
+        'args': {
+            'category': "e.g. 'food'",
+            'limit': 'Amount',
+            'currency': 'Default SEK',
+        },
+    },
+    'get_budget_status': {
+        'description': 'Show current spend vs budget for every category this month.',
+        'args': {},
+    },
+    'add_bill': {
+        'description': 'Track a recurring bill or subscription with due date and frequency.',
+        'args': {
+            'name': "e.g. 'Netflix'",
+            'amount': 'Amount',
+            'frequency': 'monthly/weekly/yearly (default monthly)',
+            'next_due': 'YYYY-MM-DD (optional, defaults to 30 days)',
+        },
+    },
+    'upcoming_bills': {
+        'description': 'List bills due within the next N days.',
+        'args': {
+            'days': 'Default 14',
+        },
+    },
+    'detect_spending_anomalies': {
+        'description': 'Find unusual transactions that deviate from historical patterns in a category.',
+        'args': {
+            'category': 'Optional: check one category; default checks all',
+        },
+    },
+    'inbox_summary': {
+        'description': 'Check unread count and recent email subjects.',
+        'args': {
+            'limit': 'Number of recent messages (default 20)',
+        },
+    },
+    'search_emails': {
+        'description': 'Search inbox by sender, subject, or body keyword.',
+        'args': {
+            'query': 'Search term',
+            'limit': 'Default 10',
+        },
+    },
+    'send_email': {
+        'description': 'Send an email via SMTP.',
+        'args': {
+            'to': 'Recipient address',
+            'subject': 'Email subject',
+            'body': 'Email body (plain text)',
+        },
+    },
+    'track_email': {
+        'description': 'Flag an email thread as needing a reply (follow-up tracking).',
+        'args': {
+            'msg_id': 'Message ID',
+            'sender': 'Sender address',
+            'subject': 'Subject line',
+            'notes': 'Optional reminder note',
+        },
+    },
+    'awaiting_replies': {
+        'description': "List email threads you've flagged as needing a reply.",
+        'args': {},
+    },
+    'create_mission': {
+        'description': 'Start a complex, multi-step autonomous mission that DEEP executes in the background over minutes or hours. Examples: research a topic, plan a trip, audit a codebase, generate a report.',
+        'args': {
+            'goal': "High-level mission description, e.g. 'Research quantum AI and write a blog summary'",
+        },
+    },
+    'list_missions': {
+        'description': 'List active and recent autonomous missions with their progress.',
+        'args': {
+            'status': 'Optional filter: pending, running, completed, failed',
+        },
+    },
+    'mission_status': {
+        'description': 'Get detailed status of a specific mission including subtasks.',
+        'args': {
+            'mission_id': 'The mission ID',
+        },
+    },
+    'cancel_mission': {
+        'description': 'Cancel an in-progress mission.',
+        'args': {
+            'mission_id': 'The mission ID',
+        },
+    },
+    'phone_status': {
+        'description': 'Check whether DEEP can control the phone: lists connected Android devices (adb) and iPhone shortcut readiness. Use FIRST before other phone tools.',
+        'args': {},
+    },
+    'phone_connect': {
+        'description': "Connect to an Android phone over Wi-Fi (wireless ADB) at host:port, e.g. '192.168.1.42:5555' or the port shown under Wireless debugging. Makes it the active device for subsequent phone tools. Run phone_pair first on Android 11+ if not already paired.",
+        'args': {
+            'address': 'host:port, e.g. 192.168.1.42:5555',
+        },
+    },
+    'phone_pair': {
+        'description': "Android 11+ one-time wireless pairing. Use the host:port and 6-digit code from Settings → Developer options → Wireless debugging → 'Pair device with pairing code'. After pairing, use phone_connect with the (different) connect port.",
+        'args': {
+            'address': 'pairing host:port',
+            'code': '6-digit pairing code',
+        },
+    },
+    'phone_screenshot': {
+        'description': "Capture the Android phone's screen RIGHT NOW and look at it with local AI vision (LLaVA). Use to see what's on the phone before deciding where to tap. Returns a description + the saved frame path.",
+        'args': {
+            'question': 'Optional: what to look for on the phone screen',
+        },
+    },
+    'phone_tap': {
+        'description': 'Tap the Android phone screen at pixel coordinates (x, y). Get coordinates by calling phone_screenshot first.',
+        'args': {
+            'x': 'X pixel',
+            'y': 'Y pixel',
+        },
+    },
+    'phone_swipe': {
+        'description': 'Swipe/scroll on the Android phone from (x1,y1) to (x2,y2). Use for scrolling, unlocking, or dragging.',
+        'args': {
+            'x1': 'start X',
+            'y1': 'start Y',
+            'x2': 'end X',
+            'y2': 'end Y',
+            'duration_ms': 'Optional swipe duration in ms (default 300)',
+        },
+    },
+    'phone_text': {
+        'description': 'Type text into the currently focused field on the Android phone.',
+        'args': {
+            'text': 'The text to type',
+        },
+    },
+    'phone_key': {
+        'description': 'Press a hardware/navigation key on the Android phone. Accepts aliases: home, back, enter, recents, power, wake, volup, voldown, search, del, space — or any raw KEYCODE_*.',
+        'args': {
+            'key': "e.g. 'back', 'home', 'enter'",
+        },
+    },
+    'phone_open_app': {
+        'description': 'Launch an app on the Android phone by its package name (e.g. com.whatsapp, com.android.chrome).',
+        'args': {
+            'package': 'Android package name',
+        },
+    },
+    'phone_shortcut': {
+        'description': 'iPhone: trigger a Siri Shortcut by name (iOS blocks raw taps; this is the command-driven path). Requires DEEP_IPHONE_SHORTCUT_WEBHOOK configured.',
+        'args': {
+            'name': 'Shortcut name',
+            'input': 'Optional text input to pass to the shortcut',
+        },
+    },
+}
 
 async def execute_legacy_tool(ctx, tool_name: str, args: Dict[str, Any]) -> ToolResult:
-    import asyncio
     from datetime import datetime
     logger.info(f'[TOOL] Executing {tool_name} with {args}')
     try:
         spec = TOOL_SPECS.get(tool_name)
         if spec is not None:
-            return await spec.handler(self, args)
-        if tool_name in ('science_compute', 'solve_math', 'run_simulation', 'quant_finance'):
-            query = args.get('query', '')
-            if not query:
-                return ToolResult(False, 'Missing query', tool_name)
-            out = await asyncio.to_thread(_science_compute, query)
-            return ToolResult(out.get('module') is not None or out.get('result') is not None, out.get('verbal', 'No result.'), tool_name)
-        elif tool_name == 'search_web':
+            return await spec.handler(ctx, args)
+        if tool_name == 'search_web':
             query = args.get('query', '')
             if not query:
                 return ToolResult(False, 'Missing query', tool_name)

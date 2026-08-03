@@ -42,6 +42,9 @@ async def audit_threats(hours: int = 24):
 async def audit_current_session():
     """Get current session info."""
     try:
+        session_mgr = getattr(services, "session_manager", None)
+        if session_mgr is None:
+            return {"active": False, "error": "session manager unavailable"}
         session = session_mgr.get_current()
         return session.__dict__ if session else {"active": False}
     except Exception as e:
@@ -97,7 +100,7 @@ async def audit_export_session(session_id: str, format: str = "text"):
 async def retraining_status():
     """Return retraining scheduler status."""
     try:
-        return retraining_scheduler.status()
+        return services.retraining_scheduler.status()
     except Exception as e:
         return {"error": str(e)}
 

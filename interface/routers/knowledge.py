@@ -4,6 +4,12 @@ from interface.deps import services
 
 router = APIRouter(prefix="/knowledge", tags=["knowledge"])
 
+# Personal-document endpoints live under /api/knowledge/* (what the frontend
+# calls). They need their own un-prefixed router — declaring them on `router`
+# above served them at /knowledge/api/knowledge/*, so the UI's upload and
+# document list both 404'd.
+docs_router = APIRouter(prefix="/api/knowledge", tags=["knowledge"])
+
 @router.get("/status")
 async def knowledge_status():
     """Return KnowledgeStore operational status."""
@@ -113,7 +119,7 @@ def _extract_text(filename: str, raw: bytes) -> str:
     return raw.decode("utf-8", errors="ignore")
 
 
-@router.post("/api/knowledge/ingest")
+@docs_router.post("/ingest")
 async def knowledge_ingest(file: UploadFile = File(...)):
     """
     Personal knowledge ingestion: extract text from an uploaded document
@@ -154,12 +160,12 @@ async def knowledge_ingest(file: UploadFile = File(...)):
         return {"ok": False, "error": f"{type(e).__name__}: {e}"}
 
 
-@router.get("/api/knowledge/list")
+@docs_router.get("/list")
 async def knowledge_list():
     """List ingested documents (grouped by source) from long-term memory."""
     docs: Dict[str, dict] = {}
     try:
-        coll = getattr(ltm, "_collection", None)
+        coll = getattr(services.ltm, "_collection", None)
         if coll is not None:
             res = coll.get(where={"memory_type": "document"})
             for meta in (res.get("metadatas") or []):

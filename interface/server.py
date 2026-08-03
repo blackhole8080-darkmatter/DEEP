@@ -6,6 +6,7 @@ Minimal FastAPI backend for voice-first AI interface
 import json
 import asyncio
 import hashlib
+import secrets
 import sys
 from contextlib import asynccontextmanager
 # The mac_vendor_lookup library's sync lookup() leaks an un-awaited coroutine
@@ -95,6 +96,7 @@ from network import (
     EvilTwinDetector, PiholeClient,
     ProximityMonitor,
 )
+from interface.ws.manager import manager
 from core.redis_state import RedisStateManager
 from core.device_registry import DeviceRegistry
 from core.audit_trail import AuditTrail
@@ -186,7 +188,7 @@ async def security_middleware(request: Request, call_next):
         is_public = path in _PUBLIC_PATHS or any(path.startswith(p) for p in _PUBLIC_PREFIXES)
         if not is_public:
             key = _extract_deep_key(request)
-            if not key or key != settings.deep_api_key:
+            if not key or not secrets.compare_digest(key, settings.deep_api_key):
                 metrics.record_unauthorized()
                 return JSONResponse(
                     status_code=401,
@@ -345,14 +347,17 @@ async def startup_event():
     # Start the central event bus first
     await event_bus.start()
 
-    # Pre-warm the chemistry periodic-table cache (118 mendeleev lookups) during
-    # boot so the /api/chem/table endpoint never pays that cost on a live request.
-    try:
-        from core.reasoning import chem_oracle as _chem
-        n = len(_chem.table())
-        print(f"[DEEP] Chemistry oracle warmed ({n} elements)")
-    except Exception as e:
-        print(f"[DEEP] Chemistry oracle warm error: {e}")
+    # Surface the remote-access credential. When DEEP_API_KEY is unset, config
+    # mints a random one and persists it to data/.deep_api_key — print it once
+    # so remote access is actually usable without digging through the repo.
+    if settings.require_remote_auth:
+        if os.environ.get("DEEP_API_KEY"):
+            print("[DEEP] Remote access: using DEEP_API_KEY from environment")
+        else:
+            print(f"[DEEP] Remote access key (auto-generated): {settings.deep_api_key}")
+            print("[DEEP]   stored in data/.deep_api_key — set DEEP_API_KEY in .env to pin your own")
+    else:
+        print("[DEEP] ⚠  Remote auth DISABLED (DEEP_REQUIRE_REMOTE_AUTH=false) — API open to any reachable client")
 
     # Start Audit Trail FIRST — captures everything from boot
     try:
@@ -1770,7 +1775,6 @@ async def retraining_history():
 # ═══════════════════════════════════════════════════════════════════════════════
 from interface.deps import register as _register_services
 from interface.routers import ROUTERS as _DEEP_ROUTERS
-from datetime import datetime
 
 def _time_of_day():
     h = datetime.now().hour
@@ -1810,6 +1814,7 @@ _register_services(
     network_baseline=network_baseline,
     anomaly_detector=anomaly_detector,
     audit_trail=audit,
+    session_manager=session_mgr,
     retraining_scheduler=retraining_scheduler,
     alert_correlator=alert_correlator,
     security_timeline=security_timeline,
