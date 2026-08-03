@@ -535,3 +535,24 @@ def test_every_indicator_type_has_a_keyless_source_except_hash():
             assert keyless == []
         else:
             assert keyless, f"no keyless source covers {kind.value}"
+
+
+@pytest.mark.asyncio
+async def test_shared_http_session_closes_cleanly():
+    """The pooled session must be closable, or every shutdown leaks a connector."""
+    from core.intel.http import IntelHTTP
+
+    http = IntelHTTP()
+    await http.close()   # never opened — must not raise
+    await http.close()   # idempotent
+    assert http.stats()["cache_entries"] == 0
+
+
+def test_server_shutdown_closes_the_intel_session():
+    """Regression: the shared aiohttp session had no shutdown hook."""
+    import inspect
+
+    from interface import server
+
+    source = inspect.getsource(server.shutdown_event)
+    assert "shared_http" in source and "close()" in source

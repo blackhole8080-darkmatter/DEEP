@@ -5,7 +5,6 @@ classical-CV core (edges, blur, thresholding, Hough-free corner energy) runs
 without OpenCV so the module is always useful."""
 from __future__ import annotations
 
-import re
 
 import numpy as np
 

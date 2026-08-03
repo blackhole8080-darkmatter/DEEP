@@ -1,6 +1,5 @@
-import time
 import random
-from typing import Dict, List, Any
+from typing import Dict, Any
 
 class NetworkGraph:
     def __init__(self):

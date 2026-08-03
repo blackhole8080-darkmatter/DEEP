@@ -9,12 +9,10 @@ from __future__ import annotations
 import argparse
 import importlib
 import inspect
-import json
 import os
 import re
 from typing import Optional
 
-from . import config
 
 try:
     from loguru import logger

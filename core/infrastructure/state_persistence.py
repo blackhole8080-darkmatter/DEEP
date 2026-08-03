@@ -7,14 +7,13 @@ Ensures conversations and context survive restarts.
 
 from __future__ import annotations
 
-import json
 import logging
 import os
 import pickle
 import time
 import zlib
 from dataclasses import dataclass, asdict
-from datetime import datetime, timedelta
+from datetime import datetime
 from pathlib import Path
 from typing import Dict, List, Optional, Any, Callable
 from threading import Lock, Timer

@@ -9,11 +9,9 @@ import asyncio
 import json
 import re
 import socket
-import struct
-import time
 from dataclasses import dataclass, field
 from typing import Any, Dict, List, Optional
-from urllib.parse import urlparse, urlencode, quote
+from urllib.parse import quote
 
 try:
     import aiohttp

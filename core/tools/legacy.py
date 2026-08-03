@@ -447,7 +447,7 @@ async def execute_legacy_tool(ctx, tool_name: str, args: Dict[str, Any]) -> Tool
             target = args.get('target', '') or args.get('ip', '') or args.get('mac', '')
             if not target:
                 return ToolResult(False, 'Missing target (IP/MAC/host/domain)', tool_name)
-            import asyncio as _asyncio, json as _json
+            import asyncio as _asyncio
             from network.investigator import investigate as _investigate
             dossier = await _asyncio.to_thread(_investigate, str(target))
             summary = dossier.get('summary', '')

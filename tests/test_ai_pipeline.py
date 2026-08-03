@@ -42,7 +42,6 @@ from ai.pipeline import (
     DeepPipeline,
     IntentClassifier,
     MoodDetector,
-    SkillRouter,
     PipelineResult,
     SEED_DATA,
 )

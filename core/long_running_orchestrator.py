@@ -28,7 +28,7 @@ import sqlite3
 from contextlib import closing
 import uuid
 from dataclasses import dataclass, asdict
-from datetime import datetime, timedelta
+from datetime import datetime
 from enum import Enum
 from pathlib import Path
 from typing import Any, Dict, List, Optional

@@ -15,7 +15,7 @@ import difflib
 import json
 import logging
 import time
-from typing import AsyncIterator, Dict, List, Optional, Any, Tuple
+from typing import AsyncIterator, Dict, Optional, Any, Tuple
 
 from ..domain.interfaces import Agent, LLMClient, ToolExecutor
 from ..domain.models import AgentLoopResult, ToolResult

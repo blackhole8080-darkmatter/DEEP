@@ -7,8 +7,6 @@ Also handles cross-layer heuristics (same MAC → same device, etc.).
 
 from __future__ import annotations
 
-import asyncio
-import json
 import logging
 from datetime import datetime, timezone
 from typing import Any, Optional

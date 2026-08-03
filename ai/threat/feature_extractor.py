@@ -8,7 +8,7 @@ from __future__ import annotations
 
 import logging
 from dataclasses import dataclass
-from typing import Any, List, Optional
+from typing import Any, Optional
 
 try:
     import numpy as np
@@ -17,7 +17,7 @@ except ImportError:
     NUMPY_AVAILABLE = False
 
 from ai.anomaly.network_baseline import NetworkBaseline, NetworkFlowSnapshot
-from ai.anomaly.system_baseline import SystemBaseline, SystemSnapshot
+from ai.anomaly.system_baseline import SystemSnapshot
 
 logger = logging.getLogger(__name__)
 

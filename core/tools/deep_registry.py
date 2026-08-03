@@ -10,15 +10,9 @@ from typing import Dict, Any
 
 from core.domain.interfaces import ToolExecutor
 from core.domain.models import ToolResult
-from core.integrations import integration_manager
 
 # Import modern tool decorators to register them
 from core.tools.registry import TOOL_SPECS
-import core.tools.builtin
-import core.tools.ml
-import core.tools.files
-import core.tools.etis
-import core.tools.legacy # Auto-registers remaining tools from the old monolith
 
 logger = logging.getLogger(__name__)
 

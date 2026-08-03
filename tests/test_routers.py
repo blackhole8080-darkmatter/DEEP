@@ -157,3 +157,49 @@ def test_terminal_exec_requires_a_line(client):
 def test_terminal_requires_auth(anon_client):
     response = anon_client.post("/api/intel/terminal/exec", json={"line": "help"})
     assert response.status_code == 401
+
+
+# ── retired surfaces ─────────────────────────────────────────────────────────
+
+
+def test_removed_audio_endpoints_are_gone(client):
+    """These served a hard-deleted voice subsystem and returned 500s.
+
+    /audio/bluetooth and /audio/spatial called a stub whose __getattr__ handed
+    back an async no-op, so the handler returned an un-awaited coroutine that
+    FastAPI could not serialise; /audio/devices iterated None.
+    """
+    for path in ("/audio/bluetooth", "/audio/spatial", "/audio/devices"):
+        assert client.get(path).status_code == 404, path
+
+
+def test_removed_science_endpoints_are_gone(client):
+    """The compute engine behind these was archived; they answered anyway."""
+    for path in ("/api/chem/table", "/api/physics/constants", "/api/physics/formulas"):
+        assert client.get(path).status_code == 404, path
+    for path in ("/api/science/compute", "/api/math/solve"):
+        assert client.post(path, json={"query": "x"}).status_code == 404, path
+
+
+def test_disabled_voice_endpoints_report_503_not_200(client):
+    """A disabled subsystem is a status code, not an error string inside a 200."""
+    assert client.get("/api/tts?text=hello").status_code == 503
+
+
+def test_investigate_without_a_target_is_422(client):
+    """Was 200 with {"error": "missing target"} — indistinguishable from a result."""
+    assert client.get("/api/investigate").status_code == 422
+
+
+def test_no_endpoint_returns_a_server_error(client):
+    """Sweep every parameterless GET; nothing may 5xx."""
+    from interface.server import app
+
+    paths = [
+        p for p, ops in app.openapi()["paths"].items()
+        if "get" in ops and "{" not in p
+        and p not in ("/api/vision/screen", "/docs", "/redoc", "/openapi.json", "/api/tts")
+    ]
+    failures = [(p, r.status_code) for p in paths
+                if (r := client.get(p)).status_code >= 500]
+    assert not failures, f"endpoints returning 5xx: {failures}"

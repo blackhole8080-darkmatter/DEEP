@@ -7,7 +7,6 @@ signatures, and MAC/BSSID OUI → vendor. Pure functions, offline-friendly.
 """
 from __future__ import annotations
 
-import math
 from typing import Iterable
 
 # ── Bluetooth SIG company identifiers (common subset) ────────────────────

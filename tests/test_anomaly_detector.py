@@ -6,15 +6,13 @@ Unit tests for the behaviour-based anomaly detection system.
 
 from __future__ import annotations
 
-import asyncio
 import sqlite3
 import sys
 import tempfile
 from contextlib import closing
-from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 

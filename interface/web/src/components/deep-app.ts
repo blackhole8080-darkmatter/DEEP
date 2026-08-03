@@ -8,7 +8,10 @@ import { customElement, state } from "lit/decorators.js";
 import { SignalWatcher } from "@lit-labs/signals";
 import { initStore, thinking, isStreaming, connection } from "../core/store";
 import { socket } from "../core/ws";
-import type { BrainState, BrainStatus } from "./deep-cortex-bg";
+// Per-subsystem activity model. Lived in deep-cortex-bg, which is archived —
+// these two types are all deep-app ever used from it.
+type BrainStatus = "idle" | "active" | "speaking" | "thinking" | "warning" | "indexing";
+type BrainState = Partial<Record<string, BrainStatus>>;
 import "../core/commands";
 import "./command-palette";
 import "./deep-boot";
@@ -18,14 +21,8 @@ import "./gpu/shader-bg";
 import "./console/deep-console";
 import type { CommandPalette } from "./command-palette";
 
-// Heavy secondary views are code-split: their bundles load on first visit.
-const lazyView: Record<string, () => Promise<unknown>> = {
-  gallery: () => import("./gallery"),
-  ops: () => import("./ops/ops-view"),
-  network: () => import("./ops/network-view"),
-  audit: () => import("./ops/audit-view"),
-  memory: () => import("./memory/memory-graph"),
-};
+// Secondary views are code-split and loaded on demand by the console, driven
+// by core/tool-registry.ts. (A duplicate map lived here but was never invoked.)
 
 @customElement("deep-app")
 export class DeepApp extends SignalWatcher(LitElement) {
@@ -81,7 +78,6 @@ export class DeepApp extends SignalWatcher(LitElement) {
     socket.on(this.onTelemetry as (m: unknown) => void);
     this.pollStatus();
     this.statusTimer = window.setInterval(() => this.pollStatus(), 15000);
-    void lazyView; // lazy views available for HUD to trigger
     window.addEventListener("keydown", this.onGlobalKey);
   }
 

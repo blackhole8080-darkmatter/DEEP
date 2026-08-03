@@ -39,13 +39,11 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
-import re
 import time
-from collections import defaultdict, Counter
 from dataclasses import dataclass, field
-from datetime import datetime, timedelta
+from datetime import datetime
 from pathlib import Path
-from typing import Dict, List, Optional, Any, Callable
+from typing import Dict, List, Optional, Any
 
 try:
     from core.event_bus import EventBus

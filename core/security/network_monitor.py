@@ -38,12 +38,11 @@ import socket
 import struct
 import subprocess
 import time
-from collections import defaultdict
-from dataclasses import dataclass, field, asdict
+from dataclasses import dataclass, field
 from datetime import datetime, timedelta
 from enum import Enum
 from pathlib import Path
-from typing import Dict, List, Optional, Set, Any, Callable
+from typing import Dict, List, Optional, Set, Any
 
 try:
     from core.event_bus import EventBus

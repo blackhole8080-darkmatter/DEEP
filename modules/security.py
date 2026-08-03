@@ -11,7 +11,6 @@ Cybersecurity monitoring and intrusion detection for DEEP.
 
 from __future__ import annotations
 
-import json
 import os
 import sys
 import time
@@ -22,8 +21,6 @@ from dataclasses import dataclass, asdict
 from typing import Any, Optional, Callable, Dict, List
 from datetime import datetime
 from collections import defaultdict, deque
-import socket
-import subprocess
 
 import psutil
 

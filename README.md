@@ -74,7 +74,11 @@ wishlist.
 - Live, real-time visualizations (a global threat globe, a Matrix-style
   waterfall) driven by actual WebSocket telemetry — not decoration
 - Four selectable visual skins (calm / neon / etis / hacker)
-- Voice in and out (offline Whisper STT, Edge/Piper/ElevenLabs TTS)
+- Chat renders sanitized markdown and code blocks
+
+> **Voice is currently removed.** The `voice/` package was deleted and the
+> endpoints that fronted it (`/api/tts`, `/api/transcribe`) now return 503
+> rather than pretending to work.
 
 ---
 
@@ -179,6 +183,7 @@ DEEP/
 │       └── (builds to interface/static/app-dist, served by the backend)
 ├── mcp_server/       # MCP server exposing DEEP as tools to other agents
 ├── archive/          # retired subsystems, kept for history — not loaded
+│   └── web/          #   34 frontend modules that reached no entry point
 └── tests/            # pytest suite
 ```
 

@@ -1,4 +1,4 @@
-import{i as p,n as b,a as c,b as l,t as v}from"./index-B7rr7K40.js";var g=Object.defineProperty,h=Object.getOwnPropertyDescriptor,i=(n,s,o,a)=>{for(var r=a>1?void 0:a?h(s,o):s,t=n.length-1,d;t>=0;t--)(d=n[t])&&(r=(a?d(s,o,r):d(r))||r);return a&&r&&g(s,o,r),r};let e=class extends c{constructor(){super(...arguments),this.heading="",this.variant="solid"}render(){return l`
+import{a as p,n as b,i as c,b as l,t as v}from"./index-BDF8Pc56.js";var g=Object.defineProperty,h=Object.getOwnPropertyDescriptor,i=(n,s,o,a)=>{for(var r=a>1?void 0:a?h(s,o):s,t=n.length-1,d;t>=0;t--)(d=n[t])&&(r=(a?d(s,o,r):d(r))||r);return a&&r&&g(s,o,r),r};let e=class extends c{constructor(){super(...arguments),this.heading="",this.variant="solid"}render(){return l`
       <section class=${this.variant}>
         ${this.heading?l`<header><span>${this.heading}</span><slot name="actions"></slot></header>`:""}
         <div class="body"><slot></slot></div>
@@ -56,4 +56,4 @@ import{i as p,n as b,a as c,b as l,t as v}from"./index-B7rr7K40.js";var g=Object
       box-shadow: 0 0 12px rgba(var(--ds-periwinkle-rgb), 0.1);
     }
   `;i([b()],e.prototype,"heading",2);i([b()],e.prototype,"variant",2);e=i([v("ds-panel")],e);
-//# sourceMappingURL=ds-panel-Dsx1Q8tI.js.map
+//# sourceMappingURL=ds-panel-B3Jr7Ayo.js.map

@@ -1,5 +1,5 @@
-// <deep-console> — DEEP's primary interface shell. Simple, advanced layout:
-//   • center  : the neural sphere (DEEP's living presence)
+// <deep-console> — DEEP's primary interface shell. Layout:
+//   • stage   : the live visualiser (threat globe or matrix waterfall)
 //   • bottom  : a glassmorphic tool dock (all tools, added via TOOL_REGISTRY)
 //               and a chat dock to talk to DEEP, stacked above it
 //   • overlay : a focus surface — selecting a tool opens its full view here,
@@ -16,6 +16,7 @@ import { skin, cycleSkin, type Skin } from "../../core/theme";
 import "./matrix-waterfall";
 import "./threat-globe";
 import "./tool-dock";
+import "../chat/chat-message";
 
 type Status = "idle" | "active" | "speaking" | "thinking" | "warning" | "indexing";
 
@@ -315,7 +316,7 @@ export class DeepConsole extends SignalWatcher(LitElement) {
         <div class="dock">
           ${msgs.length ? html`
             <div class="transcript">
-              ${msgs.map((m) => html`<div class="msg ${m.role}">${m.text}</div>`)}
+              ${msgs.map((m) => html`<chat-message class="msg ${m.role}" .msg=${m}></chat-message>`)}
             </div>` : null}
           ${thinking.get() ? html`<div class="thinking">DEEP is thinking…</div>` : null}
           <div class="composer">

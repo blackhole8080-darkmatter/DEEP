@@ -25,7 +25,7 @@ import logging
 import time
 from datetime import datetime
 from pathlib import Path
-from typing import Dict, List, Optional, Any, Set
+from typing import Dict, List, Optional, Any
 
 from core.plugins.base import DeepPlugin
 

@@ -12,7 +12,6 @@ from __future__ import annotations
 import asyncio
 import sys
 import tempfile
-from datetime import datetime, timezone
 from pathlib import Path
 from unittest.mock import MagicMock
 

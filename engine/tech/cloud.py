@@ -3,7 +3,6 @@
 benchmarking, FastAPI serving stubs. numpy core; torch/onnx/docker optional."""
 from __future__ import annotations
 
-import re
 import time
 
 import numpy as np

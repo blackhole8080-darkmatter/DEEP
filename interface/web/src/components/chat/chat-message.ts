@@ -1,43 +1,31 @@
 // <chat-message> — one message bubble. AI text renders as sanitized markdown;
 // streaming shows a caret; finished AI messages show a model/latency badge.
+//
+// No LaTeX typesetting: KaTeX was here to serve the science view, which is
+// gone, and it cost ~340 kB in the entry chunk — a poor trade for a security
+// console whose answers are prose, CVE text, command output and code.
 import { LitElement, html, css } from "lit";
 import { customElement, property } from "lit/decorators.js";
 import { unsafeHTML } from "lit/directives/unsafe-html.js";
 import { marked } from "marked";
 import DOMPurify from "dompurify";
 import type { ChatMessage } from "../../core/store";
-import { katexStyles, renderTeX } from "../../core/math";
 import "./reasoning-trail";
 
 marked.setOptions({ breaks: true, gfm: true });
 
-// Render markdown, typesetting any LaTeX ($$…$$, \[…\] display; $…$, \(…\) inline)
-// with KaTeX. Math is pulled out first so marked/DOMPurify can't mangle it, then
-// the trusted KaTeX HTML is spliced back in after sanitization.
+// Render markdown, sanitized. DOMPurify runs on the marked output, so model
+// text can never inject markup into the console.
 function renderMarkdown(text: string): string {
-  const math: string[] = [];
-  const stash = (tex: string, display: boolean) => {
-    const i = math.push(renderTeX(tex.trim(), display)) - 1;
-    return ` @@MATH${i}@@ `;
-  };
-  const protectedText = text
-    .replace(/\$\$([\s\S]+?)\$\$/g, (_m, t) => stash(t, true))
-    .replace(/\\\[([\s\S]+?)\\\]/g, (_m, t) => stash(t, true))
-    .replace(/\\\(([\s\S]+?)\\\)/g, (_m, t) => stash(t, false))
-    .replace(/(?<![\\$])\$(?!\s)([^$\n]+?)(?<!\s)\$(?!\d)/g, (_m, t) => stash(t, false));
-  let htmlOut = DOMPurify.sanitize(marked.parse(protectedText, { async: false }) as string);
-  htmlOut = htmlOut.replace(/@@MATH(\d+)@@/g, (_m, i) => math[+i] ?? "");
-  return htmlOut;
+  return DOMPurify.sanitize(marked.parse(text, { async: false }) as string);
 }
 
 @customElement("chat-message")
 export class ChatMessageEl extends LitElement {
   @property({ attribute: false }) msg!: ChatMessage;
 
-  static styles = [katexStyles, css`
+  static styles = [css`
     :host { display: grid; }
-    .md .katex { color: var(--ds-text); }
-    .md .katex-display { margin: var(--ds-space-3) 0; overflow-x: auto; overflow-y: hidden; }
     .bubble {
       padding: var(--ds-space-3) var(--ds-space-4);
       border-radius: var(--ds-radius-md);

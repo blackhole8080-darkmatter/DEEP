@@ -5,7 +5,7 @@ Identifies radio protocols from signal characteristics (bandwidth, duty cycle, m
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any, Dict, List, Optional
 
 
 @dataclass

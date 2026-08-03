@@ -22,32 +22,6 @@ export interface ProviderHealth {
 export const fetchProviderHealth = (force = false) =>
   get<ProviderHealth>(`/api/providers/health${force ? "?force=true" : ""}`);
 
-export interface ElementInfo {
-  atomic_number: number;
-  symbol: string;
-  name: string;
-  atomic_weight: number;
-  electron_configuration?: string;
-  category: string;
-  series?: string;
-  group?: number;
-  period?: number;
-  [k: string]: unknown;
-}
-export const fetchPeriodicTable = () =>
-  get<{ ok: boolean; elements: ElementInfo[] }>("/api/chem/table");
-export const fetchElement = (q: string | number) =>
-  get<{ ok: boolean; element?: ElementInfo; error?: string }>(`/api/chem/element/${q}`);
-
-export const fetchPhysicsConstants = () =>
-  get<{ ok: boolean; constants: { name: string; value: number; unit: string; symbol: string }[] }>(
-    "/api/physics/constants",
-  );
-export const fetchPhysicsFormulas = (era?: string) =>
-  get<{ ok: boolean; formulas: { name: string; era: string; domain: string; formula: string; desc: string; latex?: string | null }[] }>(
-    `/api/physics/formulas${era ? `?era=${era}` : ""}`,
-  );
-
 export const fetchKnowledgeList = () =>
   get<{ ok: boolean; documents: { source: string; chunks: number; doc_id: string }[] }>(
     "/api/knowledge/list",
@@ -84,24 +58,6 @@ export interface TelemetrySummary {
 }
 export const fetchTelemetry = (hours = 24) => get<TelemetrySummary>(`/api/telemetry/summary?hours=${hours}`);
 
-
-export interface MathSolveResult { ok: boolean; kind?: string; expression?: string; result?: string; engine?: string; latex?: string | null; latex_expr?: string | null; }
-export async function mathSolve(query: string): Promise<MathSolveResult> {
-  const r = await fetch("/api/math/solve", {
-    method: "POST", headers: { "content-type": "application/json" },
-    body: JSON.stringify({ query }),
-  });
-  return (await r.json()) as MathSolveResult;
-}
-
-export interface ScienceComputeResult { ok: boolean; verbal: string; result: unknown; media: unknown[]; latex?: string | null; symbolic?: string | null; numeric?: number | string | null; }
-export async function scienceCompute(query: string): Promise<ScienceComputeResult> {
-  const r = await fetch("/api/science/compute", {
-    method: "POST", headers: { "content-type": "application/json" },
-    body: JSON.stringify({ query }),
-  });
-  return (await r.json()) as ScienceComputeResult;
-}
 
 export async function ingestDocument(file: File): Promise<{ ok: boolean; source?: string; chunks?: number; error?: string }> {
   const fd = new FormData();

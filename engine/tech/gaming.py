@@ -6,7 +6,6 @@ from __future__ import annotations
 import heapq
 import math
 import random
-import re
 
 import numpy as np
 

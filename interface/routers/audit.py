@@ -1,6 +1,5 @@
 """Audit endpoints."""
 from fastapi import APIRouter
-from typing import Optional
 from interface.deps import services
 
 router = APIRouter(tags=["audit"])

@@ -5,7 +5,6 @@ from __future__ import annotations
 
 import threading
 import time
-from datetime import datetime
 
 try:
     from apscheduler.schedulers.background import BackgroundScheduler

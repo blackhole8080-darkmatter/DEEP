@@ -19,13 +19,12 @@ from __future__ import annotations
 
 import asyncio
 import logging
-import platform
 import subprocess
 import sys
 import time
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
-from typing import Any, Dict, List
+from typing import Any
 
 logger = logging.getLogger(__name__)
 

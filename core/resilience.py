@@ -11,8 +11,8 @@ import asyncio
 import time
 import logging
 from enum import Enum
-from typing import Callable, Any, Optional, TypeVar, Generic
-from dataclasses import dataclass, field
+from typing import Callable, Any, Optional, TypeVar
+from dataclasses import dataclass
 from functools import wraps
 import threading
 

@@ -5,7 +5,6 @@ Minimal FastAPI backend for voice-first AI interface
 
 import json
 import asyncio
-import hashlib
 import secrets
 import sys
 from contextlib import asynccontextmanager
@@ -14,7 +13,7 @@ from contextlib import asynccontextmanager
 # gracefully to the OUI fallback table, so silence this known-benign warning.
 import warnings as _warnings
 _warnings.filterwarnings("ignore", message=r".*AsyncMacLookup\.lookup.*")
-from typing import Set, Optional, Dict, List
+from typing import Optional, Dict
 from datetime import datetime
 from pathlib import Path
 
@@ -28,14 +27,13 @@ for _stream in (sys.stdout, sys.stderr):
     except Exception:
         pass
 
-from fastapi import FastAPI, WebSocket, WebSocketDisconnect, Request, HTTPException
+from fastapi import FastAPI, Request, HTTPException
 from fastapi.staticfiles import StaticFiles
-from fastapi.responses import FileResponse, JSONResponse, HTMLResponse
+from fastapi.responses import FileResponse, JSONResponse
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi import UploadFile, File
 import time as _time
 from collections import deque
-import tempfile
 import os
 
 # Add parent to path for imports
@@ -76,20 +74,11 @@ from knowledge import (
     KnowledgeStore, KnowledgeIngester,
     BreakthroughDetector, BriefingEngine, ConceptLinker,
 )
-# ── Voice subsystem removed (voice/ hard-deleted). These stubs keep the existing
-#    instantiation/usage sites in this file as harmless no-ops so the server boots
-#    without voice; the voice HTTP endpoints are disabled further below. ──
-class _VoiceStub:
-    def __init__(self, *a, **k):
-        pass
-    def __getattr__(self, _name):
-        async def _noop(*a, **k):
-            return None
-        return _noop
-WakeWordDetector = STTEngine = TTSEngine = _VoiceStub
-BluetoothAudioManager = WhisperEar = SpatialAudio = _VoiceStub
-VoiceWeb = LocalSTT = VoiceSecurity = AlertManager = VoiceAssistant = ActionRegistry = _VoiceStub
-audio_utils = _VoiceStub()
+# ── Voice subsystem removed (voice/ was hard-deleted) ──────────────────────
+# This file used to carry a _VoiceStub shim so ~12 orphaned instantiation sites
+# kept "working" as async no-ops. Every one of those sites is gone now, and the
+# stubs went with them — they were hiding /audio/* endpoints that returned
+# un-awaited coroutines (HTTP 500) rather than admitting the feature was absent.
 from network import (
     TailscaleManager, RemoteAccessManager,
     NetworkScanner, ThreatMonitor,
@@ -145,7 +134,7 @@ app.add_middleware(
 )
 
 _PUBLIC_PATHS = {"/", "/ai", "/manifest.webmanifest", "/sw.js", "/favicon.ico"}
-_PUBLIC_PREFIXES = ("/static", "/science-output")
+_PUBLIC_PREFIXES = ("/static",)
 _LOCAL_HOSTS = {"127.0.0.1", "::1", "localhost", None}
 _rate_buckets: Dict[str, deque] = {}
 
@@ -210,11 +199,9 @@ async def _unhandled_exception_handler(request: Request, exc: Exception):
 
 
 deep_tools = DeepToolRegistry()
-voice_engine = VoiceWeb(settings, event_bus=event_bus)
 ltm = LongTermMemory()
 from core.preference_learning import PreferenceLearner
 pref_learner = PreferenceLearner(ltm)
-stt_engine = LocalSTT("base", event_bus=event_bus)
 netmon = NetworkMonitor(event_bus=event_bus)
 predictive_engine = PredictiveEngine(event_bus=event_bus)
 from core.proactive_core import ProactiveCore
@@ -296,52 +283,12 @@ graph_orchestrator = GraphOrchestrator(
     device_registry=device_registry,
 )
 
-# ── Voice Hardware Layer ────────────────────────────────────────────────
-input_device = audio_utils.get_input_device_index(
-    settings.audio_input_device
-) if settings.audio_input_device else None
-output_device = audio_utils.get_output_device_index(
-    settings.audio_output_device
-) if settings.audio_output_device else None
-
-# ── Spatial Audio (v2) ──────────────────────────────────────────────────
-spatial_audio = SpatialAudio(event_bus=event_bus)
-
-wake_detector = WakeWordDetector(
-    event_bus=event_bus,
-    model_name=settings.wake_word_model,
-    threshold=settings.wake_word_threshold,
-    verifier_threshold=settings.voice_verifier_threshold,
-    device_index=input_device,
-)
-stt = STTEngine(
-    event_bus=event_bus,
-    model_name=settings.whisper_model,
-    silence_threshold=settings.silence_threshold,
-    silence_duration_ms=settings.silence_duration_ms,
-    max_command_duration_s=settings.max_command_duration_s,
-    device_index=input_device,
-)
-tts = TTSEngine(
-    event_bus=event_bus,
-    model_path=settings.piper_model_path,
-    speaking_rate=settings.tts_speaking_rate,
-    spatial_audio=spatial_audio,
-)
-
-# ── DEEP Voice AI Assistant (v4) ────────────────────────────────────────
-voice_security = VoiceSecurity(event_bus=event_bus)
-alert_manager = AlertManager(
-    event_bus=event_bus,
-    voice_security=voice_security,
-    tts_callback=lambda text, priority="normal": asyncio.create_task(
-        event_bus.publish("tts_speak", {"text": text, "priority": priority})
-    ),
-)
-
-# ── Bluetooth Private Ear (v2) ──────────────────────────────────────────
-bt_audio = BluetoothAudioManager(event_bus=event_bus, redis_state=redis_state)
-whisper_ear = WhisperEar(event_bus=event_bus, bt_audio=bt_audio)
+# ── Voice hardware layer — REMOVED ──────────────────────────────────────
+# The voice/ package was hard-deleted; what remained here were _VoiceStub
+# instances (wake word, STT, TTS, spatial audio, Bluetooth ear) that no-op on
+# every call. They are gone along with the /audio/* endpoints they served.
+# Text-to-speech intent still flows over the `tts_speak` bus event, which the
+# HUD can act on; nothing server-side synthesises audio any more.
 
 async def startup_event():
     # Start the central event bus first
@@ -371,13 +318,6 @@ async def startup_event():
         print("[DEEP] SessionManager started")
     except Exception as e:
         print(f"[DEEP] SessionManager init error: {e}")
-
-    # Start all modules (each self-registers any internal subscriptions in start())
-    try:
-        await voice_engine.start()
-        print("[DEEP] Voice engine started")
-    except Exception as e:
-        print(f"[DEEP] Voice engine init error: {e}")
 
     try:
         await netmon.start()
@@ -594,25 +534,6 @@ async def startup_event():
     except Exception as e:
         print(f"[DEEP] NetworkAIAnalyst init error: {e}")
 
-    # Start Bluetooth Private Ear (v2)
-    try:
-        await bt_audio.start()
-        print("[DEEP] BluetoothAudioManager started")
-    except Exception as e:
-        print(f"[DEEP] BluetoothAudioManager init error: {e}")
-
-    try:
-        await whisper_ear.start()
-        print("[DEEP] WhisperEar started")
-    except Exception as e:
-        print(f"[DEEP] WhisperEar init error: {e}")
-
-    try:
-        await spatial_audio.start()
-        print("[DEEP] SpatialAudio started")
-    except Exception as e:
-        print(f"[DEEP] SpatialAudio init error: {e}")
-
     # Start Shared State Layer (v2)
     try:
         await redis_state.start()
@@ -766,12 +687,15 @@ async def _correlation_loop():
 
 async def shutdown_event():
     """Graceful shutdown: stop all modules then the event bus."""
+    # The intel layer keeps one pooled aiohttp session for all public-API
+    # traffic; without this it leaks its connector on every shutdown.
     try:
-        await plugin_manager.stop_all()
+        from core.intel.http import shared_http
+        await shared_http().close()
     except Exception:
         pass
     try:
-        await voice_engine.stop()
+        await plugin_manager.stop_all()
     except Exception:
         pass
     try:
@@ -858,30 +782,6 @@ async def shutdown_event():
     except Exception:
         pass
     try:
-        await voice_assistant.stop()
-    except Exception:
-        pass
-    try:
-        await wake_detector.stop()
-    except Exception:
-        pass
-    try:
-        await stt.stop()
-    except Exception:
-        pass
-    try:
-        await tts.stop()
-    except Exception:
-        pass
-    try:
-        await whisper_ear.stop()
-    except Exception:
-        pass
-    try:
-        await bt_audio.stop()
-    except Exception:
-        pass
-    try:
         await proximity.stop()
     except Exception:
         pass
@@ -950,19 +850,6 @@ ollama_config = ProviderConfig(
     max_tokens=1024
 )
 ollama_client = OllamaClient(ollama_config)
-
-# ── DEEP Voice AI Assistant: Action Registry (needs ollama_client) ────────
-action_registry = ActionRegistry(
-    event_bus=event_bus,
-    scanner=scanner,
-    device_registry=device_registry,
-    threat_monitor=threat_monitor,
-    tailscale=tailscale,
-    pihole=pihole,
-    network_graph=net_graph,
-    llm_client=ollama_client,
-    settings=settings,
-)
 
 # ── Network AI Analyst (needs ollama_client) ──────────────────────────────
 net_ai_analyst = NetworkAIAnalyst(llm_client=ollama_client, event_bus=event_bus, graph=net_graph)
@@ -1057,8 +944,7 @@ async def _docs_scan_loop():
 # /api/docs/* and /api/world/* moved to interface/routers/workspace.py
 
 from core.llm.providers import (
-    stream_ollama_vision_tokens, stream_claude_tokens, stream_groq_tokens,
-    stream_gemini_tokens, _parse_data_url,
+    stream_ollama_vision_tokens,
 )
 from core.llm.router import RoutingLLM, GroqAgentLLM
 
@@ -1070,18 +956,6 @@ brain = AsyncBrain(
     enable_autonomous=True
 )
 
-# ── DEEP Voice AI Assistant (v4) ────────────────────────────────────────
-voice_assistant = VoiceAssistant(
-    event_bus=event_bus,
-    wake_word_detector=wake_detector,
-    stt_engine=stt,
-    tts_engine=tts,
-    brain=brain,
-    action_registry=action_registry,
-    voice_security=voice_security,
-    alert_manager=alert_manager,
-    user_name="Aryan",
-)
 
 # Agents run on Groq when configured (fast + capable), else fall back to local Ollama.
 _agent_llm = (GroqAgentLLM(settings.groq_api_key, settings.groq_model)
@@ -1116,110 +990,13 @@ async def spa_root():
 async def spa_app():
     return _spa_index()
 
-# ── Science Studio — 16-domain compute engine + generated media ─────────────
-try:
-    from engine import config as _sci_config
-    _SCI_BASE = Path(_sci_config.BASE_DIR)
-except Exception:
-    _SCI_BASE = Path.home() / "deep_output"
-for _d in ("plots", "animations", "reports", "manim", "models"):
-    try:
-        (_SCI_BASE / _d).mkdir(parents=True, exist_ok=True)
-    except Exception:
-        pass
-try:
-    app.mount("/science-output", StaticFiles(directory=str(_SCI_BASE)), name="science_output")
-except Exception as _e:
-    print(f"[DEEP] science-output mount failed: {_e}")
-
-_sci_engine = None
-
-def _get_sci_engine():
-    global _sci_engine
-    if _sci_engine is None:
-        from engine.main import DEEP
-        _sci_engine = DEEP()
-    return _sci_engine
-
-def _sci_to_url(p):
-    """Map an engine-produced absolute path under deep_output to a served URL."""
-    try:
-        rel = Path(p).resolve().relative_to(_SCI_BASE.resolve())
-        return "/science-output/" + str(rel).replace("\\", "/")
-    except Exception:
-        return None
-
-def _sci_sanitize(obj, depth=0):
-    """Make arbitrary engine results JSON-safe and compact (arrays truncated)."""
-    if depth > 4:
-        return str(obj)[:240]
-    if obj is None or isinstance(obj, (bool, int, str)):
-        return obj
-    if isinstance(obj, float):
-        return obj if (obj == obj and obj not in (float("inf"), float("-inf"))) else str(obj)
-    if isinstance(obj, dict):
-        return {str(k): _sci_sanitize(v, depth + 1) for k, v in list(obj.items())[:40]}
-    if isinstance(obj, (list, tuple)):
-        return [_sci_sanitize(v, depth + 1) for v in list(obj)[:50]]
-    return str(obj)[:240]
-
-_SCI_MEDIA_KEYS = ("gif_path", "mp4_path", "png_path", "png", "image", "plot_path", "path", "file")
-
-@app.post("/api/math/solve")
-async def math_solve(payload: dict):
-    """Deterministic symbolic math via the SymPy router (exact, no hallucination).
-    Handles solve/derivative/integrate/simplify/factor/evaluate, including
-    implicit multiplication like 'x^3 + 2x'. Returns None when not a clean math
-    query so the caller can fall back to the broader NL science engine."""
-    text = (payload or {}).get("query", "")
-    if not isinstance(text, str) or not text.strip():
-        return {"ok": False, "result": None}
-    try:
-        from core.reasoning import symbolic_router as _sr
-        res = _sr.solve(text)
-        if res:
-            return {"ok": True, "kind": res["kind"], "expression": res["expression"],
-                    "result": res["result"], "engine": res["engine"],
-                    "latex": res.get("latex"), "latex_expr": res.get("latex_expr")}
-        return {"ok": False, "result": None}
-    except Exception as e:
-        return {"ok": False, "result": None, "error": str(e)}
-
-@app.post("/api/science/compute")
-async def science_compute(payload: dict):
-    """Route a natural-language science/tech command through the engine."""
-    text = (payload or {}).get("query", "")
-    if not isinstance(text, str) or not text.strip():
-        return {"ok": False, "verbal": "Empty query, sir.", "media": [], "result": None}
-    try:
-        engine = _get_sci_engine()
-        res = await asyncio.to_thread(engine.process_command, text.strip())
-    except Exception as e:
-        return {"ok": False, "verbal": f"Engine error: {e}", "media": [], "result": None}
-    res = res if isinstance(res, dict) else {"result": res}
-    media, seen = [], set()
-    for k in _SCI_MEDIA_KEYS:
-        v = res.get(k)
-        if isinstance(v, str) and v:
-            url = _sci_to_url(v)
-            if url and url not in seen:
-                seen.add(url)
-                low = url.lower()
-                kind = "gif" if low.endswith(".gif") else ("video" if low.endswith((".mp4", ".webm")) else "image")
-                media.append({"type": kind, "url": url, "name": Path(v).name})
-    return {
-        "ok": True,
-        "verbal": res.get("verbal") or "Done, sir.",
-        "module": res.get("module"),
-        "function": res.get("function"),
-        "result": _sci_sanitize(res.get("result")),
-        # Symbolic engines (compute.py) emit render-ready TeX + exact symbolic /
-        # numeric forms; surface them so the UI can typeset with KaTeX.
-        "latex": res.get("latex"),
-        "symbolic": res.get("symbolic"),
-        "numeric": _sci_sanitize(res.get("numeric")),
-        "media": media,
-    }
+# ── Science Studio — REMOVED ───────────────────────────────────────────────
+# /api/science/compute, /api/math/solve and the /science-output media mount are
+# gone. The compute engine behind them was archived (see archive/), so
+# /api/science/compute answered `ok: true` while reporting "the science.compute
+# module is not available" and /api/math/solve returned a null result. Their
+# only frontend consumer, science-view.ts, shipped in no bundle. Deterministic
+# math remains available to the chat path via core.reasoning.symbolic_router.
 
 @app.post("/api/vision/screen")
 async def vision_screen(payload: dict | None = None):
@@ -1263,12 +1040,13 @@ async def vision_screen(payload: dict | None = None):
 @app.get("/api/tts")
 async def text_to_speech(text: str):
     """Voice subsystem removed — TTS is disabled."""
-    return {"error": "voice subsystem disabled"}
+    raise HTTPException(status_code=503, detail="voice subsystem disabled")
+
 
 @app.post("/api/transcribe")
 async def transcribe_audio(file: UploadFile = File(...)):
     """Voice subsystem removed — transcription is disabled."""
-    return {"error": "voice subsystem disabled"}
+    raise HTTPException(status_code=503, detail="voice subsystem disabled")
 
 # ═══════════════════════════════════════════════════════════════════════════════
 # SECURITY ENDPOINTS
@@ -1532,56 +1310,6 @@ async def windows_stats():
 # ═══════════════════════════════════════════════════════════════════════════════
 # AUDIO / BLUETOOTH ENDPOINTS (v2)
 # ═══════════════════════════════════════════════════════════════════════════════
-
-@app.get("/audio/bluetooth")
-async def audio_bluetooth_status():
-    """Bluetooth audio routing status."""
-    try:
-        return bt_audio.status()
-    except Exception as e:
-        return {"error": str(e)}
-
-@app.get("/audio/devices")
-async def audio_bt_devices():
-    """Available Bluetooth audio devices."""
-    try:
-        devices = await bt_audio.get_available_devices()
-        return {"devices": [d.__dict__ for d in devices]}
-    except Exception as e:
-        return {"error": str(e)}
-
-@app.post("/audio/bluetooth/connect")
-async def audio_bt_connect(data: dict):
-    """Connect to a Bluetooth audio device by MAC."""
-    mac = data.get("mac")
-    if not mac:
-        return {"error": "Missing mac"}
-    try:
-        success = await bt_audio.connect_device(mac)
-        return {"success": success}
-    except Exception as e:
-        return {"error": str(e)}
-
-@app.post("/audio/volume")
-async def audio_set_volume(data: dict):
-    """Set volume percent (0-100)."""
-    percent = data.get("percent")
-    if percent is None:
-        return {"error": "Missing percent"}
-    try:
-        await bt_audio.set_volume(int(percent))
-        return {"success": True, "volume": int(percent)}
-    except Exception as e:
-        return {"error": str(e)}
-
-@app.get("/audio/spatial")
-async def audio_spatial_status():
-    """Spatial audio engine status."""
-    try:
-        return spatial_audio.status()
-    except Exception as e:
-        return {"error": str(e)}
-
 
 # ═══════════════════════════════════════════════════════════════════════════════
 # AUDIT & SESSION ENDPOINTS (v2)

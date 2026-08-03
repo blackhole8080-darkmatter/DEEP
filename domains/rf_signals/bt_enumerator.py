@@ -6,7 +6,6 @@ Uses: bleak (BLE), pybluez (classic BT), or OS CLI tools as fallback.
 from __future__ import annotations
 
 import asyncio
-import math
 import time
 from dataclasses import dataclass, field
 from typing import Any, Dict, List, Optional

@@ -22,7 +22,7 @@ The bar for inclusion here is deliberately high:
 from __future__ import annotations
 
 import os
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from enum import Enum
 from typing import Dict, List, Optional
 

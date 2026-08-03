@@ -7,14 +7,12 @@ Handles Jarvis context, tool routing, memory, and LLM streaming.
 import asyncio
 from datetime import datetime
 from typing import Dict, List, AsyncGenerator
-import json
 import re as _re_tools
 
 from interface.deps import services
 from core.config import Settings
 settings = Settings()
 from core.llm.providers import stream_ollama_vision_tokens, stream_groq_tokens, stream_gemini_tokens, stream_claude_tokens
-from core.infrastructure.async_brain import AsyncBrain
 
 class ChatOrchestrator:
     def __init__(self):
@@ -192,26 +190,6 @@ Current Time: {time}
                     await _enqueue_reasoning({"t": "symbolic", "engine": "sympy", "kind": _sym["kind"], "result": _sym["result"]})
             except Exception as _se:
                 print(f"[symbolic] {_se}")
-
-            # Chemistry oracle
-            try:
-                from core.reasoning import chem_oracle as _chem
-                _el = _chem.detect(text)
-                if _el:
-                    context += _chem.verified_context(_el)
-                    await _enqueue_reasoning({"t": "oracle", "domain": "chemistry", "element": _el.get("name"), "result": f"{_el.get('symbol')} · {_el.get('atomic_weight')}"})
-            except Exception as _ce:
-                print(f"[chem] {_ce}")
-
-            # Physics oracle
-            try:
-                from core.reasoning import physics_oracle as _phys
-                _pd = _phys.detect(text)
-                if _pd:
-                    context += _phys.verified_context(_pd)
-                    await _enqueue_reasoning({"t": "oracle", "domain": "physics", "kind": _pd.get("kind"), "result": _pd.get("name")})
-            except Exception as _pe:
-                print(f"[physics] {_pe}")
 
             # Flush queue to generator
             while not queue.empty():

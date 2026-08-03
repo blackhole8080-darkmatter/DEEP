@@ -15,12 +15,10 @@ from __future__ import annotations
 import json
 import sqlite3
 import sys
-import tempfile
 from contextlib import closing
 from datetime import datetime, timezone
 from pathlib import Path
 
-import pytest
 
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
 if str(PROJECT_ROOT) not in sys.path:
