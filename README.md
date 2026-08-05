@@ -47,6 +47,14 @@ wishlist.
   surfaces proactively instead of getting lost in a feed
 
 **The assistant can use all of it**
+- 53 tools reach the reasoning brain, every one of which actually runs — the
+  surface was audited by executing all of them, not by reading the list.
+  Off-mission groups (phone control, personal finance, email, XR) and tools
+  that referenced integrations the registry never built are gone.
+- Shell execution (`run_command`) is opt-in behind `DEEP_ENABLE_SHELL_TOOL`.
+  The other file tools are path-sandboxed to a workspace root; that command
+  is not — it sandboxes the working directory, not the command — so it isn't
+  handed to an LLM by default.
 - The OSINT layer is exposed to DEEP's reasoning brain as tools, so asking
   "is 45.33.32.156 malicious?" or "how urgent is CVE-2021-44228 really?" in
   chat produces a sourced answer from live feeds rather than a recollection

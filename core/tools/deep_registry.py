@@ -34,7 +34,15 @@ class DeepToolRegistry(ToolExecutor):
         
         from core.integrations.phone_control import PhoneControl
 
-        self.phone = PhoneControl()  # ADB (Android) + Shortcuts (iPhone) bridge
+        # LocalSystem backs the file/code tools in core/tools/files.py. It was
+        # never constructed, so read_file, list_directory, glob_files and
+        # search_code all failed with AttributeError — eight registered tools
+        # that could never run. Its path handling is genuinely sandboxed:
+        # _resolve() refuses anything outside the workspace root.
+        from core.integrations.local_system import LocalSystem
+
+        self.local_system = LocalSystem()
+
         self.world_model = None
         self.plugin_manager = None  # set by server after plugins start; bridges plugin tools
 

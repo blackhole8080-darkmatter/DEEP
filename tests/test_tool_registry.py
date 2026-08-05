@@ -175,3 +175,106 @@ async def test_unknown_tool_is_reported_not_raised(registry):
     result = await registry.execute_tool("no_such_tool", {})
     assert not result.ok
     assert "Unknown tool" in result.content
+
+
+# ═══════════════════════════════════════════════════════════════════════════
+# Tool surface: nothing advertised that cannot run
+# ═══════════════════════════════════════════════════════════════════════════
+
+
+def test_no_tool_references_a_registry_attribute_that_does_not_exist():
+    """Every ctx.<attr> a handler reaches for must be constructed.
+
+    Regression: handlers used ctx.email / ctx.finance / ctx.rag /
+    ctx.local_system, none of which DeepToolRegistry built — so 22 registered
+    tools could only ever raise AttributeError at call time.
+    """
+    import re
+
+    from core.tools import legacy as legacy_mod
+    from core.tools import files as files_mod
+    from core.tools.deep_registry import DeepToolRegistry
+
+    registry = DeepToolRegistry()
+    referenced = set()
+    for module in (legacy_mod, files_mod):
+        with open(module.__file__, encoding="utf-8") as fh:
+            referenced |= set(re.findall(r"\bctx\.([a-z_][a-z0-9_]*)", fh.read()))
+
+    # Attributes set per-call by the server, not in __init__.
+    runtime_supplied = {"world_model", "plugin_manager"}
+    missing = {
+        a for a in referenced
+        if a not in runtime_supplied and not hasattr(registry, a) and not a.startswith("_")
+    }
+    assert not missing, f"handlers reference attributes the registry never builds: {missing}"
+
+
+def test_every_legacy_tool_has_a_dispatch_branch():
+    """Regression: the five agent_* tools were advertised with no branch at all,
+    so the model could call them and only ever get "Unknown tool"."""
+    import re
+
+    from core.tools.legacy import LEGACY_TOOLS, execute_legacy_tool
+    import inspect
+
+    source = inspect.getsource(execute_legacy_tool)
+    dispatched = set(re.findall(r"tool_name (?:==|in) \(?'([a-z_]+)'", source))
+    dispatched |= set(re.findall(r"'([a-z_]+)'", source))
+
+    undispatched = {n for n in LEGACY_TOOLS if n not in dispatched}
+    assert not undispatched, f"advertised with no implementation: {undispatched}"
+
+
+def test_legacy_dispatch_does_not_delegate_to_itself():
+    """Regression: execute_legacy_tool looked up TOOL_SPECS[tool_name] and
+    awaited its handler — but that handler *is* this function's only caller,
+    so every legacy tool recursed until the stack blew."""
+    import inspect
+
+    from core.tools.legacy import execute_legacy_tool
+
+    source = inspect.getsource(execute_legacy_tool)
+    assert "TOOL_SPECS.get(tool_name)" not in source
+    assert "spec.handler" not in source
+
+
+def test_shell_execution_is_opt_in():
+    """run_command is arbitrary shell — LocalSystem sandboxes cwd, not the
+    command — so it must not be handed to the model by default."""
+    import os
+
+    assert not os.environ.get("DEEP_ENABLE_SHELL_TOOL")
+    assert "run_command" not in TOOL_SPECS
+
+
+def test_file_tools_are_registered_and_backed():
+    from core.tools.deep_registry import DeepToolRegistry
+
+    for name in ("read_file", "list_directory", "glob_files", "search_code"):
+        assert name in TOOL_SPECS
+    assert hasattr(DeepToolRegistry(), "local_system")
+
+
+@pytest.mark.asyncio
+async def test_file_tools_refuse_to_escape_the_workspace(registry):
+    result = await registry.execute_tool("read_file", {"filepath": "/etc/passwd"})
+    assert not result.ok
+    assert "escapes the workspace sandbox" in result.content
+
+
+def test_off_mission_tools_are_no_longer_advertised():
+    """A cybersecurity console shouldn't spend prompt budget on phone control,
+    personal finance, email or XR."""
+    for name in ("phone_tap", "send_email", "set_budget", "xr_send_command",
+                 "home_automation", "agent_swarm", "research_query"):
+        assert name not in TOOL_SPECS, f"{name} still advertised"
+
+
+def test_tool_description_payload_stays_bounded():
+    """This text is injected into every prompt; it was 17KB of mostly-dead
+    tools. Guard against silent regrowth."""
+    from core.tools.deep_registry import DeepToolRegistry
+
+    described = DeepToolRegistry().describe_tools()
+    assert len(described) < 13_000, f"tool description grew to {len(described)} chars"

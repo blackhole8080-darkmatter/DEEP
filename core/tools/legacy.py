@@ -52,14 +52,6 @@ LEGACY_TOOLS = {
             'action': "'up' or 'down'",
         },
     },
-    'home_automation': {
-        'description': 'Control smart home devices via Home Assistant.',
-        'args': {
-            'action': "'turn_on', 'turn_off', or 'get_state'",
-            'entity_id': "e.g., 'light.living_room' or 'climate.home'",
-            'brightness': 'optional 0-255 for lights',
-        },
-    },
     'add_task': {
         'description': "Add a task/todo to the user's persistent list.",
         'args': {
@@ -138,55 +130,6 @@ LEGACY_TOOLS = {
             'image_path': 'Path to circuit image',
         },
     },
-    'research_query': {
-        'description': 'Search the local Academic database for information extracted from PDFs.',
-        'args': {
-            'query': 'The search query',
-        },
-    },
-    'research_ingest': {
-        'description': 'Scan data/research_papers to add new PDFs into the academic database.',
-        'args': {},
-    },
-    'xr_send_command': {
-        'description': 'Sends a command directly to a connected VR/AR headset running Unity/Unreal.',
-        'args': {
-            'command': "e.g., 'spawn_object', 'change_color'",
-            'payload': 'JSON dict payload',
-        },
-    },
-    'agent_create': {
-        'description': 'Create a new specialized sub-agent with a specific role and tool access.',
-        'args': {
-            'name': 'Unique name for the agent',
-            'role': "'researcher', 'coder', 'cybersec', 'robotics', 'data_analyst', 'writer', 'planner', or 'custom'",
-            'custom_prompt': 'Optional custom system prompt',
-            'allowed_tools': 'Optional list of tool names this agent can use',
-        },
-    },
-    'agent_assign': {
-        'description': 'Assign a task to an existing sub-agent and get the result.',
-        'args': {
-            'agent_name': 'Name of the agent to use',
-            'task': 'Task description',
-        },
-    },
-    'agent_list': {
-        'description': 'List all active sub-agents and their status.',
-        'args': {},
-    },
-    'agent_terminate': {
-        'description': 'Terminate and remove a sub-agent.',
-        'args': {
-            'agent_name': 'Name of the agent to terminate',
-        },
-    },
-    'agent_swarm': {
-        'description': 'Execute a complex goal by auto-decomposing it into sub-tasks and running multiple agents in parallel.',
-        'args': {
-            'goal': 'High-level goal description',
-        },
-    },
     'ask_options': {
         'description': 'Present multiple options/alternatives to the user for selection. Use when there are multiple valid approaches.',
         'args': {
@@ -233,89 +176,6 @@ LEGACY_TOOLS = {
         'description': '(Re)train the personal task-completion model from the latest scheduler history.',
         'args': {},
     },
-    'add_transaction': {
-        'description': 'Record a financial transaction (income or expense). DEEP auto-categorises based on description keywords.',
-        'args': {
-            'date': 'YYYY-MM-DD',
-            'amount': 'Positive for income, negative for expense',
-            'description': "e.g. 'ICA Supermarket' or 'Salary June'",
-            'category': 'Optional override (auto-detected if omitted)',
-            'currency': 'Default SEK',
-        },
-    },
-    'spending_summary': {
-        'description': 'Get a spending breakdown by category for the last N months with net income/spent.',
-        'args': {
-            'months': 'Default 1',
-        },
-    },
-    'set_budget': {
-        'description': 'Set a monthly budget limit for a spending category.',
-        'args': {
-            'category': "e.g. 'food'",
-            'limit': 'Amount',
-            'currency': 'Default SEK',
-        },
-    },
-    'get_budget_status': {
-        'description': 'Show current spend vs budget for every category this month.',
-        'args': {},
-    },
-    'add_bill': {
-        'description': 'Track a recurring bill or subscription with due date and frequency.',
-        'args': {
-            'name': "e.g. 'Netflix'",
-            'amount': 'Amount',
-            'frequency': 'monthly/weekly/yearly (default monthly)',
-            'next_due': 'YYYY-MM-DD (optional, defaults to 30 days)',
-        },
-    },
-    'upcoming_bills': {
-        'description': 'List bills due within the next N days.',
-        'args': {
-            'days': 'Default 14',
-        },
-    },
-    'detect_spending_anomalies': {
-        'description': 'Find unusual transactions that deviate from historical patterns in a category.',
-        'args': {
-            'category': 'Optional: check one category; default checks all',
-        },
-    },
-    'inbox_summary': {
-        'description': 'Check unread count and recent email subjects.',
-        'args': {
-            'limit': 'Number of recent messages (default 20)',
-        },
-    },
-    'search_emails': {
-        'description': 'Search inbox by sender, subject, or body keyword.',
-        'args': {
-            'query': 'Search term',
-            'limit': 'Default 10',
-        },
-    },
-    'send_email': {
-        'description': 'Send an email via SMTP.',
-        'args': {
-            'to': 'Recipient address',
-            'subject': 'Email subject',
-            'body': 'Email body (plain text)',
-        },
-    },
-    'track_email': {
-        'description': 'Flag an email thread as needing a reply (follow-up tracking).',
-        'args': {
-            'msg_id': 'Message ID',
-            'sender': 'Sender address',
-            'subject': 'Subject line',
-            'notes': 'Optional reminder note',
-        },
-    },
-    'awaiting_replies': {
-        'description': "List email threads you've flagged as needing a reply.",
-        'args': {},
-    },
     'create_mission': {
         'description': 'Start a complex, multi-step autonomous mission that DEEP executes in the background over minutes or hours. Examples: research a topic, plan a trip, audit a codebase, generate a report.',
         'args': {
@@ -340,80 +200,21 @@ LEGACY_TOOLS = {
             'mission_id': 'The mission ID',
         },
     },
-    'phone_status': {
-        'description': 'Check whether DEEP can control the phone: lists connected Android devices (adb) and iPhone shortcut readiness. Use FIRST before other phone tools.',
-        'args': {},
-    },
-    'phone_connect': {
-        'description': "Connect to an Android phone over Wi-Fi (wireless ADB) at host:port, e.g. '192.168.1.42:5555' or the port shown under Wireless debugging. Makes it the active device for subsequent phone tools. Run phone_pair first on Android 11+ if not already paired.",
-        'args': {
-            'address': 'host:port, e.g. 192.168.1.42:5555',
-        },
-    },
-    'phone_pair': {
-        'description': "Android 11+ one-time wireless pairing. Use the host:port and 6-digit code from Settings → Developer options → Wireless debugging → 'Pair device with pairing code'. After pairing, use phone_connect with the (different) connect port.",
-        'args': {
-            'address': 'pairing host:port',
-            'code': '6-digit pairing code',
-        },
-    },
-    'phone_screenshot': {
-        'description': "Capture the Android phone's screen RIGHT NOW and look at it with local AI vision (LLaVA). Use to see what's on the phone before deciding where to tap. Returns a description + the saved frame path.",
-        'args': {
-            'question': 'Optional: what to look for on the phone screen',
-        },
-    },
-    'phone_tap': {
-        'description': 'Tap the Android phone screen at pixel coordinates (x, y). Get coordinates by calling phone_screenshot first.',
-        'args': {
-            'x': 'X pixel',
-            'y': 'Y pixel',
-        },
-    },
-    'phone_swipe': {
-        'description': 'Swipe/scroll on the Android phone from (x1,y1) to (x2,y2). Use for scrolling, unlocking, or dragging.',
-        'args': {
-            'x1': 'start X',
-            'y1': 'start Y',
-            'x2': 'end X',
-            'y2': 'end Y',
-            'duration_ms': 'Optional swipe duration in ms (default 300)',
-        },
-    },
-    'phone_text': {
-        'description': 'Type text into the currently focused field on the Android phone.',
-        'args': {
-            'text': 'The text to type',
-        },
-    },
-    'phone_key': {
-        'description': 'Press a hardware/navigation key on the Android phone. Accepts aliases: home, back, enter, recents, power, wake, volup, voldown, search, del, space — or any raw KEYCODE_*.',
-        'args': {
-            'key': "e.g. 'back', 'home', 'enter'",
-        },
-    },
-    'phone_open_app': {
-        'description': 'Launch an app on the Android phone by its package name (e.g. com.whatsapp, com.android.chrome).',
-        'args': {
-            'package': 'Android package name',
-        },
-    },
-    'phone_shortcut': {
-        'description': 'iPhone: trigger a Siri Shortcut by name (iOS blocks raw taps; this is the command-driven path). Requires DEEP_IPHONE_SHORTCUT_WEBHOOK configured.',
-        'args': {
-            'name': 'Shortcut name',
-            'input': 'Optional text input to pass to the shortcut',
-        },
-    },
 }
 
 async def execute_legacy_tool(ctx, tool_name: str, args: Dict[str, Any]) -> ToolResult:
+    """Dispatch one not-yet-migrated tool.
+
+    NOTE: do not add a `TOOL_SPECS[tool_name]` delegation here. The only caller
+    of this function is the handler registered under that very name (see the
+    loop at the bottom of this module), so such a lookup always resolves to the
+    caller and recurses until the stack blows. That branch used to exist and
+    made every legacy tool fail — first with a NameError on an undefined
+    `self`, then, once that was "fixed", with RecursionError.
+    """
     from datetime import datetime
     logger.info(f'[TOOL] Executing {tool_name} with {args}')
     try:
-        spec = TOOL_SPECS.get(tool_name)
-        if spec is not None:
-            return await spec.handler(ctx, args)
         if tool_name == 'search_web':
             query = args.get('query', '')
             if not query:
@@ -492,22 +293,6 @@ async def execute_legacy_tool(ctx, tool_name: str, args: Dict[str, Any]) -> Tool
                         return ToolResult(True, f'VPN {act.upper()} requested: {str(r.json())[:200]}', tool_name)
             except Exception as _e:
                 return ToolResult(False, f"Action '{tool_name}' failed: {_e}", tool_name)
-        elif tool_name == 'home_automation':
-            action = args.get('action')
-            entity = args.get('entity_id', '')
-            if integration_manager.p0_loaded and integration_manager.get('home_assistant'):
-                ha = integration_manager.get('home_assistant')
-                if action == 'get_state':
-                    state = await ha.get_state(entity)
-                    return ToolResult(True, f'State of {entity}: {state}', tool_name)
-                else:
-                    svc_data = {'entity_id': entity}
-                    if args.get('brightness'):
-                        svc_data['brightness'] = args['brightness']
-                    domain = entity.split('.')[0] if '.' in entity else 'homeassistant'
-                    res = await ha.call_service(domain, action, svc_data)
-                    return ToolResult(res.success, f'Executed {action} on {entity}. Result: {res.data or res.error}', tool_name)
-            return ToolResult(True, f"Successfully simulated '{action}' on '{entity}'. (Home Assistant token required in .env)", tool_name)
         elif tool_name in ('add_task', 'list_tasks', 'complete_task', 'set_reminder', 'list_reminders', 'calendar_upcoming', 'calendar_create_event'):
             sched = ctx.plugin_manager.get_plugin('scheduler') if ctx.plugin_manager else None
             if sched is None:
@@ -577,18 +362,6 @@ async def execute_legacy_tool(ctx, tool_name: str, args: Dict[str, Any]) -> Tool
             image_path = args.get('image_path', '')
             analysis = await llava_vision.analyze_circuit(image_path)
             return ToolResult(True, analysis, tool_name)
-        elif tool_name == 'research_ingest':
-            res = ctx.rag.ingest_directory()
-            return ToolResult(True, res, tool_name)
-        elif tool_name == 'research_query':
-            query = args.get('query', '')
-            res = ctx.rag.query_research(query)
-            return ToolResult(True, res, tool_name)
-        elif tool_name == 'xr_send_command':
-            cmd = args.get('command', '')
-            payload = args.get('payload', {})
-            res = await ctx.xr.send_to_xr(cmd, payload)
-            return ToolResult(True, res, tool_name)
         elif tool_name == 'ask_options':
             message = args.get('message', '')
             options = args.get('options', [])
@@ -642,52 +415,6 @@ async def execute_legacy_tool(ctx, tool_name: str, args: Dict[str, Any]) -> Tool
             if tool_name == 'train_task_model':
                 return ToolResult(True, personal_models.train_task_completion(db_path, ctx._ml_models_dir()), tool_name)
             return ToolResult(True, personal_models.predict_task_completion(db_path, ctx._ml_models_dir()), tool_name)
-        elif tool_name == 'add_transaction':
-            r = ctx.finance.add_transaction(args.get('date', datetime.now().strftime('%Y-%m-%d')), float(args.get('amount', 0)), args.get('description', ''), category=args.get('category'), currency=args.get('currency', 'SEK'))
-            return ToolResult(True, r.get('verbal', 'Recorded.'), tool_name)
-        elif tool_name == 'spending_summary':
-            r = ctx.finance.spending_summary(months=int(args.get('months', 1)))
-            return ToolResult(True, r.get('verbal', json.dumps(r)), tool_name)
-        elif tool_name == 'set_budget':
-            r = ctx.finance.set_budget(args.get('category', ''), float(args.get('limit', 0)), args.get('currency', 'SEK'))
-            return ToolResult(True, r.get('verbal', 'Budget set.'), tool_name)
-        elif tool_name == 'get_budget_status':
-            r = ctx.finance.get_budget_status()
-            lines = [f"{b['category']}: {b['spent']:.0f}/{b['limit']:.0f} ({b['percent']:.0f}%)" for b in r]
-            return ToolResult(True, 'Budgets this month:\n' + '\n'.join(lines), tool_name)
-        elif tool_name == 'add_bill':
-            r = ctx.finance.add_bill(args.get('name', ''), float(args.get('amount', 0)), frequency=args.get('frequency', 'monthly'), next_due=args.get('next_due'))
-            return ToolResult(True, r.get('verbal', 'Bill added.'), tool_name)
-        elif tool_name == 'upcoming_bills':
-            r = ctx.finance.upcoming_bills(days=int(args.get('days', 14)))
-            if not r:
-                return ToolResult(True, 'No upcoming bills.', tool_name)
-            lines = [f"{b['name']} ({b['amount']:.0f}) due {b['next_due']}" for b in r]
-            return ToolResult(True, 'Upcoming bills:\n' + '\n'.join(lines), tool_name)
-        elif tool_name == 'detect_spending_anomalies':
-            r = ctx.finance.detect_anomalies(category=args.get('category'))
-            if not r:
-                return ToolResult(True, 'No spending anomalies detected.', tool_name)
-            lines = [f"{a['description']} ({a['amount']:.0f}) — {a['z_score']:.1f}σ" for a in r]
-            return ToolResult(True, 'Anomalies:\n' + '\n'.join(lines), tool_name)
-        elif tool_name == 'inbox_summary':
-            r = ctx.email.inbox_summary(limit=int(args.get('limit', 20)))
-            return ToolResult(True, r.get('verbal', json.dumps(r)), tool_name)
-        elif tool_name == 'search_emails':
-            r = ctx.email.search(args.get('query', ''), limit=int(args.get('limit', 10)))
-            return ToolResult(True, r.get('verbal', json.dumps(r)), tool_name)
-        elif tool_name == 'send_email':
-            r = ctx.email.send(args.get('to', ''), args.get('subject', ''), args.get('body', ''))
-            return ToolResult(r.get('ok', False), r.get('verbal', ''), tool_name)
-        elif tool_name == 'track_email':
-            r = ctx.email.track_thread(args.get('msg_id', ''), args.get('sender', ''), args.get('subject', ''), notes=args.get('notes', ''))
-            return ToolResult(True, r.get('verbal', ''), tool_name)
-        elif tool_name == 'awaiting_replies':
-            r = ctx.email.awaiting_reply()
-            if not r:
-                return ToolResult(True, 'No emails awaiting reply.', tool_name)
-            lines = [f"{t['subject']} from {t['sender']}" for t in r]
-            return ToolResult(True, 'Awaiting replies:\n' + '\n'.join(lines), tool_name)
         elif tool_name == 'create_mission':
             from ..long_running_orchestrator import LongRunningOrchestrator
             orch = LongRunningOrchestrator()
@@ -721,86 +448,6 @@ async def execute_legacy_tool(ctx, tool_name: str, args: Dict[str, Any]) -> Tool
             orch = LongRunningOrchestrator()
             orch.cancel_mission(args.get('mission_id', ''))
             return ToolResult(True, 'Mission cancelled.', tool_name)
-        elif tool_name == 'phone_status':
-            return ToolResult(True, await ctx.phone.status(), tool_name)
-        elif tool_name == 'phone_connect':
-            err = ctx.phone._need_android()
-            if err:
-                return ToolResult(False, err, tool_name)
-            addr = args.get('address', '')
-            if not addr:
-                return ToolResult(False, 'Missing address (host:port).', tool_name)
-            ok, msg = await ctx.phone.android.connect(addr)
-            return ToolResult(ok, msg, tool_name)
-        elif tool_name == 'phone_pair':
-            err = ctx.phone._need_android()
-            if err:
-                return ToolResult(False, err, tool_name)
-            addr, code = (args.get('address', ''), args.get('code', ''))
-            if not addr or not code:
-                return ToolResult(False, 'Need both address (host:port) and the 6-digit code.', tool_name)
-            ok, msg = await ctx.phone.android.pair(addr, code)
-            return ToolResult(ok, msg, tool_name)
-        elif tool_name == 'phone_screenshot':
-            err = ctx.phone._need_android()
-            if err:
-                return ToolResult(False, err, tool_name)
-            ok, path = await ctx.phone.android.screenshot()
-            if not ok:
-                return ToolResult(False, f'Could not capture the phone screen: {path}', tool_name)
-            from ..integrations.vision_llava import llava_vision
-            q = args.get('question') or 'Describe what is on this phone screen — the app, UI elements, and any tappable buttons with their rough positions.'
-            analysis = await llava_vision.analyze_image(path, q)
-            return ToolResult(True, f'[Phone screen captured -> {path}]\n\n{analysis}', tool_name)
-        elif tool_name == 'phone_tap':
-            err = ctx.phone._need_android()
-            if err:
-                return ToolResult(False, err, tool_name)
-            try:
-                x, y = (int(args.get('x')), int(args.get('y')))
-            except (TypeError, ValueError):
-                return ToolResult(False, 'x and y must be integers.', tool_name)
-            ok, msg = await ctx.phone.android.tap(x, y)
-            return ToolResult(ok, msg, tool_name)
-        elif tool_name == 'phone_swipe':
-            err = ctx.phone._need_android()
-            if err:
-                return ToolResult(False, err, tool_name)
-            try:
-                x1, y1 = (int(args.get('x1')), int(args.get('y1')))
-                x2, y2 = (int(args.get('x2')), int(args.get('y2')))
-                dur = int(args.get('duration_ms', 300))
-            except (TypeError, ValueError):
-                return ToolResult(False, 'x1,y1,x2,y2 must be integers.', tool_name)
-            ok, msg = await ctx.phone.android.swipe(x1, y1, x2, y2, dur)
-            return ToolResult(ok, msg, tool_name)
-        elif tool_name == 'phone_text':
-            err = ctx.phone._need_android()
-            if err:
-                return ToolResult(False, err, tool_name)
-            ok, msg = await ctx.phone.android.text(args.get('text', ''))
-            return ToolResult(ok, msg, tool_name)
-        elif tool_name == 'phone_key':
-            err = ctx.phone._need_android()
-            if err:
-                return ToolResult(False, err, tool_name)
-            ok, msg = await ctx.phone.android.key(args.get('key', ''))
-            return ToolResult(ok, msg, tool_name)
-        elif tool_name == 'phone_open_app':
-            err = ctx.phone._need_android()
-            if err:
-                return ToolResult(False, err, tool_name)
-            pkg = args.get('package', '')
-            if not pkg:
-                return ToolResult(False, 'Missing package name.', tool_name)
-            ok, msg = await ctx.phone.android.open_app(pkg)
-            return ToolResult(ok, msg, tool_name)
-        elif tool_name == 'phone_shortcut':
-            name = args.get('name', '')
-            if not name:
-                return ToolResult(False, 'Missing shortcut name.', tool_name)
-            ok, msg = await ctx.phone.iphone.run_shortcut(name, args.get('input', ''))
-            return ToolResult(ok, msg, tool_name)
         else:
             return ToolResult(False, f'Unknown tool: {tool_name}', tool_name)
     except Exception as e:
