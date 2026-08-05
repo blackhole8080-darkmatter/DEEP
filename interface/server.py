@@ -687,11 +687,16 @@ async def _correlation_loop():
 
 async def shutdown_event():
     """Graceful shutdown: stop all modules then the event bus."""
-    # The intel layer keeps one pooled aiohttp session for all public-API
-    # traffic; without this it leaks its connector on every shutdown.
+    # Pooled aiohttp sessions. Neither of these was being closed, so every
+    # shutdown leaked a connector: the intel layer's public-API session, and
+    # the LLM client's (which /api/status opens via brain.health_check).
     try:
         from core.intel.http import shared_http
         await shared_http().close()
+    except Exception:
+        pass
+    try:
+        await ollama_client.close()
     except Exception:
         pass
     try:
@@ -1137,6 +1142,40 @@ async def _compose_briefing() -> str:
         parts.append("All systems nominal. Nothing needs your attention.")
     parts.append("I'm ready when you are.")
     return " ".join(parts)
+
+# The HUD polls this every 15s (see deep-app.pollStatus) to drive the system
+# health node, and core/api.ts exports a typed client for it — but no handler
+# ever existed, so every poll 404'd into the catch branch and the indicator sat
+# permanently on "warning". Only a live browser surfaces this; no test hit it.
+_STATUS_CACHE = {"t": 0.0, "brain": "unknown"}
+
+
+@app.get("/api/status")
+async def api_status():
+    """Cheap liveness summary for the HUD's system node."""
+    import time as _t
+
+    now = _t.time()
+    # health_check can reach out to the LLM backend; cache so a 15s poll from
+    # several tabs can't turn into a request storm against Ollama.
+    if now - _STATUS_CACHE["t"] > 30:
+        try:
+            health = await asyncio.wait_for(brain.health_check(), timeout=5)
+            status = getattr(health, "status", None)
+            _STATUS_CACHE["brain"] = "ok" if getattr(status, "value", status) in ("ok", "OK") else "degraded"
+        except Exception:
+            _STATUS_CACHE["brain"] = "degraded"
+        _STATUS_CACHE["t"] = now
+
+    now_dt = datetime.now()
+    return {
+        "deep": "online",
+        "brain": _STATUS_CACHE["brain"],
+        "model": settings.ollama_model,
+        "time": now_dt.strftime("%H:%M:%S"),
+        "date": now_dt.strftime("%Y-%m-%d"),
+    }
+
 
 _vitals_cache = {"t": 0.0, "sent": 0, "recv": 0}
 @app.get("/api/vitals")

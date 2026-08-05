@@ -45,3 +45,33 @@ def anon_client():
     from interface.server import app
 
     return TestClient(app)
+
+
+@pytest.fixture(scope="session", autouse=True)
+def _close_pooled_sessions():
+    """Close the pooled aiohttp sessions when the suite ends.
+
+    TestClient deliberately skips the app's lifespan (starting every scanner
+    and scheduler would make these tests slow and flaky), so the real
+    shutdown_event never runs here. Without this the suite exits with
+    "Unclosed client session" noise that masks genuine leaks.
+    """
+    yield
+
+    import asyncio
+
+    async def _close():
+        from core.intel.http import shared_http
+
+        await shared_http().close()
+        try:
+            from interface.server import ollama_client
+
+            await ollama_client.close()
+        except Exception:
+            pass
+
+    try:
+        asyncio.run(_close())
+    except Exception:
+        pass

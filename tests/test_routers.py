@@ -203,3 +203,31 @@ def test_no_endpoint_returns_a_server_error(client):
     failures = [(p, r.status_code) for p in paths
                 if (r := client.get(p)).status_code >= 500]
     assert not failures, f"endpoints returning 5xx: {failures}"
+
+
+def test_api_status_exists_and_matches_the_frontend_contract(client):
+    """Regression: the HUD polls /api/status every 15s but no handler existed.
+
+    Every poll 404'd into deep-app.pollStatus's catch branch, so the system
+    health node sat permanently on "warning". Only a real browser surfaced
+    this — no test touched it, because no route existed to enumerate.
+    """
+    response = client.get("/api/status")
+    assert response.status_code == 200
+    body = response.json()
+    # Shape declared by the Status interface in interface/web/src/core/api.ts.
+    assert set(body) >= {"deep", "brain", "model", "time", "date"}
+    assert body["deep"] == "online"
+    assert body["brain"] in ("ok", "degraded")
+
+
+def test_spa_shell_loads_no_third_party_assets(client):
+    """DEEP is local-first and must work air-gapped.
+
+    The shell used to pull Inter/JetBrains Mono/Rajdhani from
+    fonts.googleapis.com, which leaked a request to Google on every page load
+    and simply failed offline.
+    """
+    html = client.get("/").text
+    for host in ("fonts.googleapis.com/css", "fonts.gstatic.com", "cdn.jsdelivr.net", "unpkg.com"):
+        assert host not in html, f"SPA shell references third-party host: {host}"

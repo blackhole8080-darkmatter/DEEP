@@ -125,7 +125,9 @@ export class DeepConsole extends SignalWatcher(LitElement) {
 
     /* Focus surface — full tool view over the stage */
     .focus {
-      position: absolute; top: 24px; left: 24px; bottom: 24px; right: 24px; z-index: 5;
+      /* bottom clears the chat dock (bottom:104px) + tool dock beneath it;
+         without this the last rows of every tool sat behind them. */
+      position: absolute; top: 24px; left: 24px; bottom: 188px; right: 24px; z-index: 5;
       pointer-events: auto;
       background: rgba(6,11,20,0.82);
       backdrop-filter: blur(20px) saturate(140%);

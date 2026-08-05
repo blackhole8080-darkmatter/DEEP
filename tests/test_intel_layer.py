@@ -548,11 +548,16 @@ async def test_shared_http_session_closes_cleanly():
     assert http.stats()["cache_entries"] == 0
 
 
-def test_server_shutdown_closes_the_intel_session():
-    """Regression: the shared aiohttp session had no shutdown hook."""
+def test_server_shutdown_closes_pooled_http_sessions():
+    """Regression: neither pooled aiohttp session had a shutdown hook.
+
+    The intel layer's public-API session, and the LLM client's — which
+    /api/status opens on every poll via brain.health_check().
+    """
     import inspect
 
     from interface import server
 
     source = inspect.getsource(server.shutdown_event)
     assert "shared_http" in source and "close()" in source
+    assert "ollama_client.close()" in source
