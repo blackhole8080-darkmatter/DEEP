@@ -46,6 +46,13 @@ wishlist.
   you work with, so a fresh CVE disclosure for a tool in your own stack
   surfaces proactively instead of getting lost in a feed
 
+**The assistant can use all of it**
+- The OSINT layer is exposed to DEEP's reasoning brain as tools, so asking
+  "is 45.33.32.156 malicious?" or "how urgent is CVE-2021-44228 really?" in
+  chat produces a sourced answer from live feeds rather than a recollection
+  from training data. Every finding it repeats carries the API that produced
+  it, and unreachable sources are named.
+
 **Memory & reasoning**
 - A persistent knowledge graph plus a "world model" — a live, LLM-synthesized
   summary of your projects, priorities, and recent activity, injected into

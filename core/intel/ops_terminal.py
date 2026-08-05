@@ -511,21 +511,25 @@ class OpsTerminal:
 
     async def _cmd_devices(self, args: List[str]) -> CommandResult:
         scanner = getattr(self._services, "scanner", None) if self._services else None
-        if scanner is None:
+        if scanner is None or not hasattr(scanner, "get_devices"):
             return CommandResult(ok=False, command="devices",
                                  error="network scanner not available in this context")
-        devices = scanner.get_devices() if hasattr(scanner, "get_devices") else []
+        # NetworkScanner.get_devices is async and yields NetworkDevice dataclasses,
+        # not dicts — calling it synchronously returned a coroutine, and .get()
+        # on a dataclass would have raised.
+        devices = await scanner.get_devices()
         if "--unknown" in args:
-            devices = [d for d in devices if not d.get("known")]
+            devices = [d for d in devices if not getattr(d, "is_known", False)]
         rows = [
-            {"ip": d.get("ip"), "mac": d.get("mac"), "vendor": d.get("vendor"),
-             "hostname": d.get("hostname"), "known": d.get("known"),
-             "last_seen": d.get("last_seen")}
+            {"ip": d.ip, "mac": d.mac, "vendor": d.vendor, "hostname": d.hostname,
+             "known": d.is_known, "ports": d.open_ports, "os": d.os_guess,
+             "last_seen": d.last_seen}
             for d in devices
         ]
         if not rows:
-            return CommandResult(ok=True, command="devices",
-                                 text="No devices in the registry yet — the scanner may still be warming up.")
+            return CommandResult(
+                ok=True, command="devices",
+                text="No devices in the registry yet — the scanner may still be warming up.")
         return CommandResult(ok=True, command="devices",
                              text=f"{len(rows)} devices\n" + _render_rows(rows), rows=rows)
 
@@ -568,13 +572,23 @@ class OpsTerminal:
                 ),
             )
         scanner = getattr(self._services, "scanner", None) if self._services else None
-        if scanner is None or not hasattr(scanner, "deep_scan_device"):
+        # The real method is scan_target(); there is no deep_scan_device, so the
+        # old hasattr guard was always False and scan could never run.
+        if scanner is None or not hasattr(scanner, "scan_target"):
             return CommandResult(ok=False, command="scan",
                                  error="network scanner not available in this context")
-        result = await scanner.deep_scan_device(target)
-        return CommandResult(ok=True, command="scan",
-                             text=json.dumps(result, indent=2, default=str),
-                             data=result if isinstance(result, dict) else {"result": result})
+        device = await scanner.scan_target(target)
+        if device is None:
+            return CommandResult(ok=True, command="scan",
+                                 text=f"{target} did not respond to the scan.")
+        row = {
+            "ip": device.ip, "mac": device.mac, "hostname": device.hostname,
+            "vendor": device.vendor, "os": device.os_guess,
+            "open_ports": device.open_ports, "known": device.is_known,
+            "last_seen": device.last_seen,
+        }
+        return CommandResult(ok=True, command="scan", rows=[row],
+                             text=_render_rows([row]), data=row)
 
 
 # ── rendering helpers ────────────────────────────────────────────────────────

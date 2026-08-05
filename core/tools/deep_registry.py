@@ -35,7 +35,6 @@ class DeepToolRegistry(ToolExecutor):
         from core.integrations.phone_control import PhoneControl
 
         self.phone = PhoneControl()  # ADB (Android) + Shortcuts (iPhone) bridge
-        self.phone = PhoneControl()  # ADB (Android) + Shortcuts (iPhone) bridge
         self.world_model = None
         self.plugin_manager = None  # set by server after plugins start; bridges plugin tools
 

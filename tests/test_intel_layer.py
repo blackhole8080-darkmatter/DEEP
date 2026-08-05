@@ -561,3 +561,114 @@ def test_server_shutdown_closes_pooled_http_sessions():
     source = inspect.getsource(server.shutdown_event)
     assert "shared_http" in source and "close()" in source
     assert "ollama_client.close()" in source
+
+
+# ═══════════════════════════════════════════════════════════════════════════
+# Local-estate commands — pinned to the real NetworkScanner contract
+# ═══════════════════════════════════════════════════════════════════════════
+
+
+@pytest.mark.asyncio
+async def test_devices_reads_the_real_scanner_contract():
+    """get_devices() is async and yields NetworkDevice dataclasses, not dicts.
+
+    Regression: this was called synchronously and its results treated as
+    dicts, so the command returned a coroutine and would have raised on
+    .get(). Built here from the real class so the test breaks if it changes.
+    """
+    from types import SimpleNamespace
+
+    from network.scanner import NetworkDevice, NetworkScanner
+
+    devices = [
+        NetworkDevice(ip="192.168.1.5", mac="aa:bb:cc:dd:ee:01", hostname="nas",
+                      vendor="Synology", is_known=True, open_ports=[22, 5000],
+                      last_seen="2026-08-05T10:00:00Z"),
+        NetworkDevice(ip="192.168.1.99", mac="aa:bb:cc:dd:ee:02", hostname=None,
+                      vendor=None, is_known=False, last_seen="2026-08-05T10:01:00Z"),
+    ]
+
+    class FakeScanner:
+        async def get_devices(self):
+            return devices
+
+    assert callable(NetworkScanner.get_devices)
+
+    term = OpsTerminal(services=SimpleNamespace(scanner=FakeScanner()))
+
+    result = await term.execute("devices")
+    assert result.ok, result.error
+    assert len(result.rows) == 2
+    assert result.rows[0]["ip"] == "192.168.1.5"
+    assert result.rows[0]["known"] is True
+    assert "192.168.1.99" in result.text
+
+    only_unknown = await term.execute("devices --unknown")
+    assert [r["ip"] for r in only_unknown.rows] == ["192.168.1.99"]
+
+
+@pytest.mark.asyncio
+async def test_scan_uses_scan_target_not_a_method_that_never_existed():
+    """Regression: guarded on `deep_scan_device`, which NetworkScanner has no.
+
+    The guard was therefore always False and `scan` could never run, even with
+    a healthy scanner attached.
+    """
+    from types import SimpleNamespace
+
+    from network.scanner import NetworkDevice, NetworkScanner
+
+    assert not hasattr(NetworkScanner, "deep_scan_device")
+    assert callable(NetworkScanner.scan_target)
+
+    scanned = []
+
+    class FakeScanner:
+        async def scan_target(self, ip):
+            scanned.append(ip)
+            return NetworkDevice(ip=ip, mac="aa:bb:cc:dd:ee:03", hostname="printer",
+                                 vendor="HP", open_ports=[80, 631], os_guess="Linux 5.x")
+
+    term = OpsTerminal(services=SimpleNamespace(scanner=FakeScanner()))
+    result = await term.execute("scan 192.168.1.42")
+
+    assert result.ok, result.error
+    assert scanned == ["192.168.1.42"]
+    assert result.data["open_ports"] == [80, 631]
+    assert "printer" in result.text
+
+
+@pytest.mark.asyncio
+async def test_scan_reports_a_silent_host_rather_than_crashing():
+    from types import SimpleNamespace
+
+    class FakeScanner:
+        async def scan_target(self, ip):
+            return None
+
+    term = OpsTerminal(services=SimpleNamespace(scanner=FakeScanner()))
+    result = await term.execute("scan 192.168.1.250")
+    assert result.ok
+    assert "did not respond" in result.text
+
+
+@pytest.mark.asyncio
+async def test_timeline_reads_the_real_security_timeline_contract():
+    from types import SimpleNamespace
+
+    from core.security.security_timeline import SecurityTimeline
+
+    assert callable(SecurityTimeline.get_timeline)
+
+    class FakeTimeline:
+        def get_timeline(self, limit=50, min_severity=None):
+            return [
+                {"timestamp": "2026-08-05T10:00:00Z", "severity": "high",
+                 "kind": "port_scan", "summary": "Port scan from 192.168.1.99"},
+            ]
+
+    term = OpsTerminal(services=SimpleNamespace(security_timeline=FakeTimeline()))
+    result = await term.execute("timeline --severity high")
+    assert result.ok, result.error
+    assert result.rows[0]["severity"] == "high"
+    assert "port_scan" in result.text
