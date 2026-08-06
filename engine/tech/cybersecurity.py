@@ -16,7 +16,7 @@ from collections import Counter
 try:
     from cryptography.hazmat.primitives.ciphers.aead import AESGCM
     from cryptography.hazmat.primitives.asymmetric import rsa, padding
-    from cryptography.hazmat.primitives import hashes, serialization
+    from cryptography.hazmat.primitives import hashes
     CRYPTO = True
 except Exception:  # pragma: no cover
     CRYPTO = False

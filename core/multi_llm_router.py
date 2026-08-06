@@ -30,11 +30,10 @@ Usage:
 
 from __future__ import annotations
 
-import asyncio
 import json
 import logging
 import os
-from typing import Optional, Dict, List, Any, AsyncIterator, Callable
+from typing import Optional, Dict, List, Any, AsyncIterator
 from dataclasses import dataclass, field
 from enum import Enum
 from datetime import datetime

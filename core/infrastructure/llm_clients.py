@@ -12,7 +12,7 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
-from typing import AsyncIterator, Dict, Any, Optional
+from typing import AsyncIterator, Optional
 
 import aiohttp
 import requests
@@ -268,11 +268,6 @@ class OllamaClient(LLMClient):
                 latency_ms=0,
                 message=f"Error: {str(e)[:100]}"
             )
-    
-    async def close(self):
-        """Close the HTTP session."""
-        if self._session and not self._session.closed:
-            await self._session.close()
 
 
 class ClaudeClient(LLMClient):

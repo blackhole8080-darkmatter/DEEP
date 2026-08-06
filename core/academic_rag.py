@@ -7,7 +7,7 @@ import os
 import glob
 import fitz  # PyMuPDF
 import hashlib
-from typing import List, Dict, Any
+from typing import List
 from sentence_transformers import SentenceTransformer
 
 # Try to import chromadb, fallback if not available

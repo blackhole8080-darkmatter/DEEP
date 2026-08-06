@@ -6,7 +6,6 @@ Unit tests for the intent classifier retraining pipeline.
 
 from __future__ import annotations
 
-import asyncio
 import sys
 from dataclasses import dataclass, field
 from pathlib import Path

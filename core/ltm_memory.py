@@ -36,8 +36,8 @@ import os
 import json
 import uuid
 from datetime import datetime
-from typing import Optional, List, Dict, Any, Tuple
-from dataclasses import dataclass, field, asdict
+from typing import Optional, List, Dict, Any
+from dataclasses import dataclass, field
 from pathlib import Path
 
 # ChromaDB for vector storage

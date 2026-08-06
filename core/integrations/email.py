@@ -19,14 +19,12 @@ import email
 import imaplib
 import logging
 import os
-import re
 import smtplib
 import sqlite3
 from contextlib import closing
-from datetime import datetime, timedelta
+from datetime import datetime
 from email.header import decode_header
 from email.message import EmailMessage
-from email.utils import parsedate_to_datetime
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 

@@ -1,6 +1,6 @@
 """Network, Scanning, and Proximity endpoints."""
 from typing import Optional
-from fastapi import APIRouter
+from fastapi import APIRouter, Query
 from interface.deps import services
 
 router = APIRouter(tags=["network"])
@@ -231,10 +231,12 @@ async def network_proximity_known():
         return {"error": str(e)}
 
 @router.get("/api/investigate")
-async def api_investigate(target: str = ""):
-    """Build an intelligence dossier on an IP / MAC / hostname / domain."""
-    if not target:
-        return {"error": "missing target"}
+async def api_investigate(target: str = Query(..., min_length=1)):
+    """Build an intelligence dossier on an IP / MAC / hostname / domain.
+
+    Local-network oriented (vendor, reverse DNS, ARP). For public indicators
+    prefer /api/intel/investigate, which fans out across the public-API layer.
+    """
     import asyncio as _asyncio
     from network.investigator import investigate as _investigate
     try:

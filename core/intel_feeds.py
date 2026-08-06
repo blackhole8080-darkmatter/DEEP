@@ -12,7 +12,7 @@ import os
 import re
 import time
 from dataclasses import dataclass, field
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional
 
 try:
@@ -102,8 +102,8 @@ class IntelFeeds:
         results = await asyncio.gather(
             self.fetch_kev(),
             self.fetch_arxiv("cs.CR", days_back),
-            self.fetch_arxiv("cs.RO", days_back),
-            self.fetch_arxiv("physics", days_back),
+            self.fetch_ghsa("pip"),
+            self.fetch_ghsa("npm"),
             self.fetch_security_blogs(),
             self.fetch_reddit("netsec"),
             self.fetch_reddit("cybersecurity"),
@@ -205,16 +205,10 @@ class IntelFeeds:
                 summary = (summary_tag.text or "").strip()[:300].replace("\n", " ")
                 published = (published_tag.text or "")[:10]
 
-                # Map category to severity
+                sev = "INFO"
+                tags = ["research", "arXiv", category]
                 if category == "cs.CR":
-                    sev = "INFO"
-                    tags = ["security", "research", "arXiv", "cs.CR"]
-                elif category == "cs.RO":
-                    sev = "INFO"
-                    tags = ["robotics", "research", "arXiv", "cs.RO"]
-                else:
-                    sev = "INFO"
-                    tags = ["physics", "research", "arXiv", category]
+                    tags.insert(0, "security")
 
                 items.append(IntelItem(
                     source="arXiv",

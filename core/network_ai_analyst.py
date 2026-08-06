@@ -12,10 +12,9 @@ Uses the LLM router to generate insights about the network graph:
 from __future__ import annotations
 
 import asyncio
-import json
 import logging
 from datetime import datetime, timezone
-from typing import Any, Optional, Dict, List
+from typing import Any, Optional, Dict
 
 from core.network_topology_graph import NetworkTopologyGraph, get_network_graph
 

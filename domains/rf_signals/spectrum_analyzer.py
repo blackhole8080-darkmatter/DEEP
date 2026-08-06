@@ -6,11 +6,10 @@ Supports: live SDR (pyrtlsdr) or offline IQ binary files.
 from __future__ import annotations
 
 import asyncio
-import math
 import time
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any, List, Optional, Tuple
+from typing import Any, List, Optional
 
 try:
     import numpy as np

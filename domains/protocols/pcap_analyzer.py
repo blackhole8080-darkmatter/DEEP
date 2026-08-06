@@ -7,16 +7,10 @@ Uses: scapy (preferred) or dpkt (fallback).
 from __future__ import annotations
 
 import asyncio
-import binascii
-import collections
-import hashlib
-import math
-import os
 import struct
-import time
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Dict, List, Optional, Tuple
 
 try:
     from scapy.all import rdpcap, IP, IPv6, TCP, UDP, Raw, DNS, DNSQR, DNSRR

@@ -19,7 +19,7 @@ from unittest.mock import AsyncMock, MagicMock
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
 from core.event_bus import EventBus
-from core.audit_trail import AuditTrail, AuditEntry, EntryType, IntegrityReport
+from core.audit_trail import AuditTrail, EntryType
 from core.session_manager import SessionManager
 
 

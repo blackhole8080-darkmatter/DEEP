@@ -314,8 +314,6 @@ class ProactiveCore:
         self._recent_texts[scan_key] = time.time()
         
         try:
-            from core.tools.registry import TOOL_SPECS
-            import core.tools.deep_registry
             from core.integrations.cyber_sec import CyberSecurityIntegration
             
             # Temporary instantiation of cyber to run the scan

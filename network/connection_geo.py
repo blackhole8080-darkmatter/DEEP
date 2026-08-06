@@ -102,7 +102,6 @@ def check_geo_anomalies(data_dir: str = None) -> List[Dict[str, Any]]:
     (new country or ASN) discovered via scan_connections(). Includes a learning phase
     to prevent day-one alert storms.
     """
-    import os
     
     anomalies = []
     scan_res = scan_connections()

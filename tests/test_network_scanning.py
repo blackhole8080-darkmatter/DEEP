@@ -20,7 +20,7 @@ sys.path.insert(0, str(DEEP_ROOT))
 
 from core.event_bus import EventBus
 from network.scanner import NetworkScanner, NetworkDevice
-from network.threat_monitor import ThreatMonitor, Threat
+from network.threat_monitor import ThreatMonitor
 from network.evil_twin_detector import EvilTwinDetector
 from network.pihole_client import PiholeClient
 

@@ -12,10 +12,12 @@ Central configuration for DEEP.
 from __future__ import annotations
 
 import os
+import secrets
 import socket
 import sys
 from dataclasses import dataclass, field
-from typing import Optional
+from pathlib import Path
+from typing import Any, Optional
 
 from dotenv import load_dotenv
 
@@ -35,6 +37,53 @@ def _get_env_opt(name: str) -> Optional[str]:
     """Read an optional environment variable (returns None if missing/empty)."""
     value = os.getenv(name)
     return value if value is not None and value != "" else None
+
+
+# Where the auto-generated remote-access key is persisted when DEEP_API_KEY is
+# not supplied. Kept out of the repo by .gitignore's data/ rule.
+_API_KEY_FILE = Path(_get_env("DEEP_STATE_DIR", "data")) / ".deep_api_key"
+
+
+_api_key_cache: Optional[str] = None
+
+
+def _resolve_api_key() -> str:
+    """Return the remote-access key, generating a persistent one on first run.
+
+    DEEP's HTTP/WebSocket surfaces trust loopback unconditionally and require
+    this key for every non-loopback client. Shipping a fixed default would mean
+    every install on a LAN or Tailnet shares one publicly-known credential, so
+    there is deliberately no default: an unset DEEP_API_KEY mints a random key
+    and stores it at `data/.deep_api_key` (owner-readable only) for reuse
+    across restarts.
+    """
+    global _api_key_cache
+
+    from_env = _get_env_opt("DEEP_API_KEY")
+    if from_env:
+        return from_env
+    if _api_key_cache:
+        return _api_key_cache
+
+    try:
+        if _API_KEY_FILE.exists():
+            existing = _API_KEY_FILE.read_text(encoding="utf-8").strip()
+            if existing:
+                _api_key_cache = existing
+                return existing
+    except OSError:
+        pass
+
+    key = _api_key_cache = secrets.token_urlsafe(32)
+    try:
+        _API_KEY_FILE.parent.mkdir(parents=True, exist_ok=True)
+        _API_KEY_FILE.write_text(key, encoding="utf-8")
+        os.chmod(_API_KEY_FILE, 0o600)
+    except OSError:
+        # Read-only deployment: the key still works for this process's lifetime,
+        # it just won't survive a restart.
+        pass
+    return key
 
 
 @dataclass(frozen=True, slots=True)
@@ -144,9 +193,9 @@ class Settings:
     # ----------------------------
     # Security & Cybersecurity
     # ----------------------------
-    deep_password: str = _get_env("DEEP_PASSWORD", "deep2026")
-    deep_api_key: str = _get_env("DEEP_API_KEY", "nx-default-key")
-    deep_secret_key: str = _get_env("DEEP_SECRET_KEY", "deep-super-secret-12345")
+    # Remote-access credential. Never has a shipped default — see
+    # _resolve_api_key(). Set DEEP_API_KEY in .env to pin your own.
+    deep_api_key: str = field(default_factory=_resolve_api_key)
     cyber_scan_timeout: int = int(_get_env("CYBER_SCAN_TIMEOUT", "15"))
 
     # ----------------------------
@@ -251,46 +300,30 @@ class Settings:
     # ChromaDB path for the knowledge store
     knowledge_db_path: str = _get_env("KNOWLEDGE_DB_PATH", "data/chroma_research")
 
-    # Ingestion schedule and sources
+    # Ingestion schedule and sources.
+    # The ingester itself stays source-agnostic (PubMed/NASA ADS handlers are
+    # still there for anyone who wants them) but the shipped defaults track
+    # DEEP's actual mission: security research, not physics and biomedicine.
     ingest_interval_hours: int = int(_get_env("INGEST_INTERVAL_HOURS", "6"))
     ingest_domains: tuple[str, ...] = (
-        "ai_ml", "physics", "cybersecurity", "space", "robotics", "quantum",
+        "cybersecurity", "cryptography", "network_security",
+        "malware", "ai_security",
     )
     ingest_sources: dict[str, Any] = field(default_factory=lambda: {
         "arxiv": {
             "enabled": True,
             "feeds": [
-                "https://arxiv.org/rss/cs.AI",
-                "https://arxiv.org/rss/cs.LG",
-                "https://arxiv.org/rss/cs.RO",
-                "https://arxiv.org/rss/cs.CR",
-                "https://arxiv.org/rss/physics",
-                "https://arxiv.org/rss/quant-ph",
-                "https://arxiv.org/rss/math",
-                "https://arxiv.org/rss/astro-ph",
+                "https://arxiv.org/rss/cs.CR",  # cryptography & security
+                "https://arxiv.org/rss/cs.NI",  # networking & internet architecture
             ],
         },
-        "pubmed": {
-            "enabled": True,
-            "queries": [
-                "neural interface",
-                "CRISPR 2024",
-                "quantum computing",
-                "protein structure prediction",
-            ],
-        },
+        "pubmed": {"enabled": False, "queries": []},
         "nvd": {"enabled": True},
-        "nasa_ads": {
-            "enabled": False,  # requires API key
-            "queries": ["star formation"],
-        },
+        "nasa_ads": {"enabled": False, "queries": []},
     })
 
-    # PubMed default query terms
-    pubmed_queries: tuple[str, ...] = (
-        "neural interface", "CRISPR 2024", "quantum computing",
-        "protein structure prediction",
-    )
+    # PubMed default query terms (only used when the pubmed source is enabled)
+    pubmed_queries: tuple[str, ...] = ()
 
     # NASA ADS API key (optional)
     nasa_ads_key: Optional[str] = _get_env_opt("NASA_ADS_KEY")
@@ -300,10 +333,12 @@ class Settings:
         "first demonstration", "surpasses human", "world record",
         "breakthrough", "novel approach", "outperforms",
         "state-of-the-art", "exceeds", "first ever", "previously impossible",
+        "actively exploited", "zero-day", "unauthenticated rce",
+        "pre-auth", "full chain", "sandbox escape",
     )
     high_impact_sources: tuple[str, ...] = (
-        "Nature", "Science", "Cell", "NeurIPS", "ICML", "ICLR",
-        "CVPR", "ACL", "IEEE", "PNAS", "Physical Review Letters", "The Lancet",
+        "USENIX Security", "IEEE S&P", "ACM CCS", "NDSS", "Black Hat",
+        "DEF CON", "Google Project Zero", "CISA", "NIST", "MITRE", "IEEE",
     )
     breakthrough_threshold: float = float(_get_env("BREAKTHROUGH_THRESHOLD", "0.72"))
 

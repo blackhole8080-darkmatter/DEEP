@@ -5,14 +5,12 @@ Mounted via app.include_router() at server startup.
 """
 from __future__ import annotations
 
-import asyncio
-import json
 import sys
 import os
 from pathlib import Path
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict
 
-from fastapi import APIRouter, HTTPException, UploadFile, File, BackgroundTasks
+from fastapi import APIRouter, HTTPException, UploadFile, File
 from fastapi.responses import JSONResponse
 
 # Ensure DEEP root is on path
@@ -42,21 +40,18 @@ async def etis_status():
 
     # Cybersecurity
     try:
-        from domains.cybersec.cve_intel import CVEIntel
         domains["cybersec"] = {"available": True, "capabilities": ["cve_lookup", "cve_search", "kev_feed", "mitre", "osint", "exploits"]}
     except Exception as e:
         domains["cybersec"] = {"available": False, "error": str(e)}
 
     # RF Signals
     try:
-        from domains.rf_signals.protocol_id import ProtocolIdentifier
         domains["rf"] = {"available": True, "capabilities": ["wifi_scan", "ble_scan", "spectrum", "protocol_id"]}
     except Exception as e:
         domains["rf"] = {"available": False, "error": str(e)}
 
     # Protocols
     try:
-        from domains.protocols.binary_protocol import BinaryProtocolRE
         domains["protocols"] = {"available": True, "capabilities": ["pcap_analysis", "binary_re", "dissector_gen"]}
     except Exception as e:
         domains["protocols"] = {"available": False, "error": str(e)}
@@ -331,7 +326,6 @@ async def osint_recon(payload: dict):
     if not target:
         raise HTTPException(400, "target required")
     try:
-        from domains.cybersec.osint_engine import OSINTEngine
         engine = _make_osint_engine()
         # NOTE: was calling engine.recon(target) and reading fields
         # (ip_addresses/ssl_info/email_addresses/technology_stack/shodan_data)
@@ -488,7 +482,7 @@ async def rf_protocol_id(center_freq: float, bandwidth: float = 0):
 async def rf_list_protocols():
     """List all known RF protocols in the database."""
     try:
-        from domains.rf_signals.protocol_id import ProtocolIdentifier, _PROTOCOLS
+        from domains.rf_signals.protocol_id import _PROTOCOLS
         return _ok({"count": len(_PROTOCOLS), "protocols": _PROTOCOLS})
     except Exception as e:
         return _err(str(e))

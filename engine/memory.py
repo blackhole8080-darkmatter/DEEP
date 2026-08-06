@@ -4,7 +4,6 @@ Both backends are optional: if ChromaDB or sentence-transformers are missing,
 an in-process cosine-similarity store is used so memory still works."""
 from __future__ import annotations
 
-import json
 import os
 import sqlite3
 import time

@@ -25,8 +25,19 @@ wishlist.
 - Every anomaly/threat gets enriched automatically with matching
   [MITRE ATT&CK](https://attack.mitre.org/) techniques and related CVEs, then
   surfaced on one live, severity-scored security timeline
-- OSINT recon (DNS, cert transparency, geolocation) plus optional
-  Shodan / VirusTotal / AbuseIPDB / Mozilla HTTP Observatory lookups
+- **A unified OSINT investigator.** Give it any indicator — IP, domain, CVE,
+  ASN, file hash, MAC, or `pypi:requests` — and it infers the type, fans out
+  across every applicable public source concurrently, and returns one dossier
+  with a derived risk verdict. Every finding names the API that produced it,
+  so a verdict can be audited rather than trusted. A source that times out
+  lands in `degraded` and the rest of the report still renders; if *nothing*
+  answers, the verdict is `unknown`, never a fabricated all-clear.
+- **20 catalogued public APIs, 16 of which need no key at all** — CISA KEV,
+  FIRST EPSS, NVD, OSV.dev, GitHub Advisories, Shodan InternetDB, SANS ISC,
+  abuse.ch Feodo Tracker, the Tor exit list, RDAP, RIPEstat, Cloudflare DoH,
+  crt.sh, Have I Been Pwned's breach catalog and more. `GET /api/intel/sources`
+  shows exactly which are live and which are waiting on a key you haven't set.
+  Shodan/VirusTotal/AbuseIPDB/OTX slot in on top when you supply keys.
 - Live threat intel ingestion: CISA KEV, major security blogs (Krebs,
   The Hacker News, BleepingComputer, SANS ISC, Cisco Talos, Google Project
   Zero, Microsoft MSRC), r/netsec + r/cybersecurity, and — with a free API
@@ -34,6 +45,28 @@ wishlist.
 - Global threat signal gets cross-referenced against what DEEP already knows
   you work with, so a fresh CVE disclosure for a tool in your own stack
   surfaces proactively instead of getting lost in a feed
+
+**The assistant can use all of it**
+- DEEP can read its own observations, not just the internet: `security_events`
+  (the correlated local timeline, with matched ATT&CK techniques and CVEs),
+  `anomalies`, `threat_predictions`, `local_devices`, `wifi_environment`
+  (including evil-twin state), `dns_activity`, `stack_exposure` (live CVEs
+  matched against *your* stack) and `exploit_search`. Combined with the OSINT
+  tools this chains: a device that started beaconing at 03:00 → who it was
+  talking to → whether the CVE it's likely exploiting is in CISA KEV.
+- 61 tools reach the reasoning brain, every one of which actually runs — the
+  surface was audited by executing all of them, not by reading the list.
+  Off-mission groups (phone control, personal finance, email, XR) and tools
+  that referenced integrations the registry never built are gone.
+- Shell execution (`run_command`) is opt-in behind `DEEP_ENABLE_SHELL_TOOL`.
+  The other file tools are path-sandboxed to a workspace root; that command
+  is not — it sandboxes the working directory, not the command — so it isn't
+  handed to an LLM by default.
+- The OSINT layer is exposed to DEEP's reasoning brain as tools, so asking
+  "is 45.33.32.156 malicious?" or "how urgent is CVE-2021-44228 really?" in
+  chat produces a sourced answer from live feeds rather than a recollection
+  from training data. Every finding it repeats carries the API that produced
+  it, and unreachable sources are named.
 
 **Memory & reasoning**
 - A persistent knowledge graph plus a "world model" — a live, LLM-synthesized
@@ -43,12 +76,31 @@ wishlist.
 - Multi-provider LLM routing: Ollama locally, Claude/Gemini/Groq as optional
   cloud fallback for harder queries
 
+**Operations center**
+- **A read-only ops terminal** in the HUD: `investigate`, `whois`, `dns`,
+  `subdomains`, `exposure`, `cve`, `kev`, `epss`, `deps`, `threatmap`,
+  `stats`, `sources`, `devices`, `timeline`, `scan`. History, tab completion
+  and structured output. Nothing shells out — an unrecognised verb is an
+  error, not something handed to a shell — and `scan`, the only command that
+  emits a packet, refuses any target outside your own subnet.
+- **Live statistics board**: KEV velocity (added in 7/30/90 days, overdue
+  remediations, ransomware-linked), active botnet C2 population by family and
+  country, Tor exit count, and per-source health. A feed that is down renders
+  as "unavailable", never as zero.
+- **Intelligence map**: geolocated attacker and C2 nodes, each carrying the
+  classification the feed that listed it actually assigned. Click a node for a
+  full dossier.
+
 **Interface**
 - A FastAPI + WebSocket backend driving a Vite/Lit/TypeScript web HUD
 - Live, real-time visualizations (a global threat globe, a Matrix-style
   waterfall) driven by actual WebSocket telemetry — not decoration
 - Four selectable visual skins (calm / neon / etis / hacker)
-- Voice in and out (offline Whisper STT, Edge/Piper/ElevenLabs TTS)
+- Chat renders sanitized markdown and code blocks
+
+> **Voice is currently removed.** The `voice/` package was deleted and the
+> endpoints that fronted it (`/api/tts`, `/api/transcribe`) now return 503
+> rather than pretending to work.
 
 ---
 
@@ -87,7 +139,20 @@ npm install
 npm run build   # emits to interface/static/app-dist, which the backend serves
 ```
 
-Run the test suite with `make test` (or `pytest`).
+Run the test suite with `make test` (or `pytest`). The frontend typechecks as
+part of `npm run build`; `npm run typecheck` runs it alone.
+
+Once DEEP is up, open the **Terminal** tool in the HUD and try:
+
+```
+help                      # every command, grouped
+sources                   # which public APIs are live right now
+stats                     # global KEV velocity, botnet C2 count, feed health
+investigate 1.1.1.1       # full dossier — auto-detects the indicator type
+cve CVE-2021-44228        # CVSS + EPSS + KEV status + affected packages
+kev --vendor Microsoft    # actively-exploited vulns, filtered
+deps pypi:requests        # advisories for a package you depend on
+```
 
 ---
 
@@ -96,8 +161,17 @@ Run the test suite with `make test` (or `pytest`).
 Everything in `.env` is optional — DEEP degrades gracefully and tells you in
 the startup logs which pieces are inactive without a given key.
 
+DEEP's OSINT layer works fully on a fresh clone: 16 of its 20 catalogued
+sources need no signup. Keys below only add the four gated ones.
+
+**Remote access:** DEEP trusts loopback unconditionally. Any other client —
+LAN, Tailnet — needs a key. Leave `DEEP_API_KEY` unset and DEEP mints a random
+one on first boot, stores it in `data/.deep_api_key`, and prints it in the
+startup log.
+
 | Variable | Unlocks | Get one at |
 |---|---|---|
+| `DEEP_API_KEY` | remote (non-loopback) access; auto-generated if unset | — |
 | `OLLAMA_MODEL` / `OLLAMA_BASE_URL` | local LLM (default: `llama3.2`) | [ollama.com](https://ollama.com) |
 | `CLAUDE_API_KEY`, `GEMINI_API_KEY`, `GROQ_API_KEY` | cloud LLM fallback | respective provider consoles |
 | `SHODAN_API_KEY` | internet-exposure lookups | [shodan.io](https://account.shodan.io/register) |
@@ -116,7 +190,9 @@ See `.env.example` for the full list with inline notes.
 ```
 DEEP/
 ├── core/            # brain: LLM routing, memory, knowledge graph, event bus,
-│                     #   world model, audit trail, global threat watch
+│   │                 #   world model, audit trail, global threat watch
+│   └── intel/       # public-API layer: source catalog, shared HTTP transport,
+│                     #   OSINT investigator, live stats/map, ops terminal
 ├── ai/               # anomaly detection + threat classifier (PyTorch/sklearn)
 ├── domains/          # cybersecurity, RF signals, protocol analysis
 ├── network/          # scanner, evil-twin detection, proximity, remote access
@@ -129,6 +205,7 @@ DEEP/
 │       └── (builds to interface/static/app-dist, served by the backend)
 ├── mcp_server/       # MCP server exposing DEEP as tools to other agents
 ├── archive/          # retired subsystems, kept for history — not loaded
+│   └── web/          #   34 frontend modules that reached no entry point
 └── tests/            # pytest suite
 ```
 

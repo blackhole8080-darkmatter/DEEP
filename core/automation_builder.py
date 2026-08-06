@@ -54,8 +54,8 @@ import yaml
 import time
 import threading
 import schedule
-from typing import Optional, List, Dict, Any, Callable, Union
-from dataclasses import dataclass, field, asdict
+from typing import Optional, List, Dict, Any, Callable
+from dataclasses import dataclass, field
 from datetime import datetime, timedelta
 from pathlib import Path
 from enum import Enum

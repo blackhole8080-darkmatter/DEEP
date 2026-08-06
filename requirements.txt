@@ -53,6 +53,7 @@ elevenlabs      # Premium cloud TTS (optional, requires API key)
 flask
 fastapi
 uvicorn
+python-multipart  # REQUIRED: FastAPI Form/File params (/api/transcribe). Server won't import without it.
 websockets
 aiohttp         # Async HTTP for new infrastructure
 
@@ -65,10 +66,13 @@ lxml
 
 # --- System Control ---
 pyautogui
-pycaw           # Windows Core Audio API — import guarded with sys.platform
+# Windows-only. Environment markers keep `pip install -r requirements.txt`
+# working on Linux/macOS — without them pywin32 has no non-Windows wheel and
+# aborts the whole install.
+pycaw; sys_platform == "win32"           # Windows Core Audio API — import guarded with sys.platform
+comtypes; sys_platform == "win32"
+pywin32; sys_platform == "win32"
 screen-brightness-control
-comtypes
-pywin32
 pynput
 
 # --- Search & Notifications ---

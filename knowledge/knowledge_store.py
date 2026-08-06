@@ -13,7 +13,6 @@ Schema: id, title, authors, abstract, source, domain, published_date, url,
 from __future__ import annotations
 
 import logging
-import os
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta, timezone
 from pathlib import Path

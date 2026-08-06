@@ -4,12 +4,11 @@ Entropy analysis, field boundary detection, magic byte identification.
 """
 from __future__ import annotations
 
-import binascii
 import collections
 import math
 import struct
 from dataclasses import dataclass, field
-from typing import Any, Dict, List, Optional, Tuple
+from typing import List
 
 
 @dataclass

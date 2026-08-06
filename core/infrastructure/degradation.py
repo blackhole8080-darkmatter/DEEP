@@ -8,7 +8,7 @@ Ensures the system remains functional even with partial outages.
 from __future__ import annotations
 
 import logging
-from typing import Optional, Dict, Any, List
+from typing import Optional, Dict, List
 from dataclasses import dataclass
 from enum import Enum
 

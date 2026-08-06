@@ -18,7 +18,6 @@ Role in DEEP:
 
 from __future__ import annotations
 
-import asyncio
 from contextlib import closing
 import logging
 import os

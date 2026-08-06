@@ -20,7 +20,7 @@ billion-edge multi-GPU training — wrong tool for a personal memory graph. Fail
 from __future__ import annotations
 
 import logging
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List
 
 logger = logging.getLogger(__name__)
 
@@ -56,7 +56,6 @@ def run_gnn(entities: List[Dict[str, Any]],
     """Train a GraphSAGE link-predictor and return predicted links + clusters.
     Returns {} on any failure (caller keeps the NetworkX results)."""
     try:
-        import numpy as np
         import torch
         import torch.nn.functional as F
         from torch_geometric.nn import SAGEConv

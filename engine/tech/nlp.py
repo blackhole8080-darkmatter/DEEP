@@ -6,7 +6,6 @@ Note: the live DEEP server has its own LLM/RAG — this module is the bible's
 stand-alone NLP toolkit."""
 from __future__ import annotations
 
-import math
 import re
 from collections import Counter
 
@@ -130,7 +129,6 @@ class NLPEngine:
 
     def topic_cluster(self, documents, n_topics=3) -> dict:
         try:
-            import numpy as np
             from sklearn.cluster import KMeans
             vecs = self._embedder().encode(documents)
             k = min(n_topics, len(documents))

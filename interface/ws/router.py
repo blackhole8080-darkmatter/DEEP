@@ -8,6 +8,7 @@ from fastapi import APIRouter, WebSocket, WebSocketDisconnect
 from datetime import datetime
 import json
 import os
+import secrets
 import tempfile
 
 from interface.deps import services
@@ -19,12 +20,28 @@ settings = Settings()
 router = APIRouter()
 
 def _client_is_local(host: str) -> bool:
-    if not host: return False
-    if host in ("127.0.0.1", "::1", "localhost"): return True
-    if host.startswith("192.168.") or host.startswith("10.") or host.startswith("172."):
-        # Simplistic local check, proper logic should match original server.py
+    """Loopback-only, matching server.py's HTTP middleware.
+
+    The WebSocket carries the same telemetry, chat and control surface as the
+    REST API, so it must apply the same trust boundary. Treating the whole
+    RFC1918 range as local (as this used to) handed every device on the LAN or
+    Tailnet an unauthenticated channel while HTTP still demanded a key.
+    """
+    return host in ("127.0.0.1", "::1", "localhost")
+
+
+def _authorize(ws: WebSocket) -> bool:
+    """Return True if this socket may connect under the current auth policy."""
+    if not settings.require_remote_auth:
         return True
-    return False
+    if _client_is_local(ws.client.host if ws.client else None):
+        return True
+    key = (
+        ws.query_params.get("key")
+        or ws.headers.get("x-deep-key")
+        or ws.cookies.get("deep_key")
+    )
+    return bool(key) and secrets.compare_digest(key, settings.deep_api_key)
 
 @router.websocket("/ws/manas")
 async def websocket_legacy_manas(ws: WebSocket):
@@ -33,17 +50,10 @@ async def websocket_legacy_manas(ws: WebSocket):
 
 @router.websocket("/ws/deep")
 async def websocket(ws: WebSocket):
-    client_host = ws.client.host if ws.client else None
-    if settings.require_remote_auth and not _client_is_local(client_host):
-        key = (
-            ws.query_params.get("key")
-            or ws.headers.get("x-deep-key")
-            or ws.cookies.get("deep_key")
-        )
-        if not key or key != settings.deep_api_key:
-            await ws.close(code=4401)
-            return
-    
+    if not _authorize(ws):
+        await ws.close(code=4401)
+        return
+
     await manager.connect(ws)
     
     async def _agent_forward(event_name: str, payload: dict):
@@ -138,6 +148,9 @@ async def websocket(ws: WebSocket):
 @router.websocket("/ws/voice")
 async def websocket_voice(ws: WebSocket):
     """Lightweight WebSocket for the voice-status-orb frontend component."""
+    if not _authorize(ws):
+        await ws.close(code=4401)
+        return
     await ws.accept()
     try:
         async def _voice_forward(event_name: str, payload: dict):

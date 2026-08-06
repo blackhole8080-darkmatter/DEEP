@@ -7,6 +7,7 @@ sandboxed LocalSystem via `ctx.local_system` (the DeepToolRegistry instance).
 
 from __future__ import annotations
 
+import os
 from typing import Any, Dict
 
 from core.tools.registry import tool
@@ -73,10 +74,19 @@ async def search_code(ctx: Any, args: Dict[str, Any]) -> ToolResult:
     return ToolResult(not res.startswith("ERROR"), res, "search_code")
 
 
-@tool("run_command",
-      "Execute a terminal command on the local machine (e.g. python script.py). Use cautiously.",
-      {"command": "The terminal command to run"})
-async def run_command(ctx: Any, args: Dict[str, Any]) -> ToolResult:
-    res = await ctx.local_system.run_command(args.get("command", ""))
-    output = f"Exit code: {res['exit_code']}\nSTDOUT:\n{res['stdout']}\nSTDERR:\n{res['stderr']}"
-    return ToolResult(res["exit_code"] == 0, output, "run_command")
+# run_command is deliberately NOT registered by default.
+#
+# Every other tool in this module is path-sandboxed — LocalSystem._resolve()
+# raises WorkspaceSecurityError for anything outside the workspace root. That
+# guarantee does not extend to run_command: it sandboxes the working directory
+# but the command string itself is unrestricted, so it is arbitrary shell
+# execution under whatever account runs DEEP. Handing that to an LLM by default
+# is not a defensible posture for a security tool, so it is opt-in.
+if os.environ.get("DEEP_ENABLE_SHELL_TOOL", "").strip().lower() in {"1", "true", "yes", "on"}:
+    @tool("run_command",
+          "Execute a terminal command on the local machine (e.g. python script.py). Use cautiously.",
+          {"command": "The terminal command to run"})
+    async def run_command(ctx: Any, args: Dict[str, Any]) -> ToolResult:
+        res = await ctx.local_system.run_command(args.get("command", ""))
+        output = f"Exit code: {res['exit_code']}\nSTDOUT:\n{res['stdout']}\nSTDERR:\n{res['stderr']}"
+        return ToolResult(res["exit_code"] == 0, output, "run_command")
