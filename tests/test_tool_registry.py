@@ -22,7 +22,7 @@ from core.tools.registry import TOOL_SPECS
 
 def test_importing_the_package_registers_tools():
     """Regression: TOOL_SPECS was empty in the running server."""
-    assert len(TOOL_SPECS) > 50, f"only {len(TOOL_SPECS)} tools registered"
+    assert len(TOOL_SPECS) > 55, f"only {len(TOOL_SPECS)} tools registered"
 
 
 def test_the_server_advertises_tools_to_the_model():
@@ -193,16 +193,17 @@ def test_no_tool_references_a_registry_attribute_that_does_not_exist():
 
     from core.tools import legacy as legacy_mod
     from core.tools import files as files_mod
+    from core.tools import local_estate as estate_mod
     from core.tools.deep_registry import DeepToolRegistry
 
     registry = DeepToolRegistry()
     referenced = set()
-    for module in (legacy_mod, files_mod):
+    for module in (legacy_mod, files_mod, estate_mod):
         with open(module.__file__, encoding="utf-8") as fh:
             referenced |= set(re.findall(r"\bctx\.([a-z_][a-z0-9_]*)", fh.read()))
 
     # Attributes set per-call by the server, not in __init__.
-    runtime_supplied = {"world_model", "plugin_manager"}
+    runtime_supplied = {"world_model", "plugin_manager", "estate"}
     missing = {
         a for a in referenced
         if a not in runtime_supplied and not hasattr(registry, a) and not a.startswith("_")
@@ -272,9 +273,19 @@ def test_off_mission_tools_are_no_longer_advertised():
 
 
 def test_tool_description_payload_stays_bounded():
-    """This text is injected into every prompt; it was 17KB of mostly-dead
-    tools. Guard against silent regrowth."""
+    """This text is injected into every prompt, so its size is a real cost.
+
+    The original 17KB was mostly dead weight — 25 of 85 tools could not run at
+    all. What matters is therefore not the raw total but cost-per-working-tool:
+    growth because DEEP genuinely gained capability is fine, growth because
+    tools accumulated without being exercised is not. The companion guards are
+    test_no_tool_references_a_registry_attribute_that_does_not_exist and
+    test_every_legacy_tool_has_a_dispatch_branch, which together assert that
+    everything advertised can actually execute.
+    """
     from core.tools.deep_registry import DeepToolRegistry
 
     described = DeepToolRegistry().describe_tools()
-    assert len(described) < 13_000, f"tool description grew to {len(described)} chars"
+    per_tool = len(described) / len(TOOL_SPECS)
+    assert per_tool < 300, f"{per_tool:.0f} chars/tool — descriptions are bloating"
+    assert len(described) < 20_000, f"tool description grew to {len(described)} chars"

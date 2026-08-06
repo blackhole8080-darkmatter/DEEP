@@ -1540,7 +1540,7 @@ async def retraining_history():
 # ═══════════════════════════════════════════════════════════════════════════════
 # ROUTER REGISTRATION — extracted endpoint groups (see interface/routers/)
 # ═══════════════════════════════════════════════════════════════════════════════
-from interface.deps import register as _register_services
+from interface.deps import register as _register_services, services
 from interface.routers import ROUTERS as _DEEP_ROUTERS
 
 def _time_of_day():
@@ -1587,6 +1587,12 @@ _register_services(
     security_timeline=security_timeline,
     global_threat_watch=global_threat_watch,
 )
+# Give the LLM tool layer the same view of DEEP's own subsystems that the
+# routers and the ops terminal have. core/tools/local_estate.py reads these
+# through ctx.estate; without this the assistant can query public threat
+# intelligence but not a single thing DEEP has actually observed here.
+deep_tools.estate = services
+
 for _r in _DEEP_ROUTERS:
     app.include_router(_r)
 

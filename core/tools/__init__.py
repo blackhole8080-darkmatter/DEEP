@@ -26,6 +26,7 @@ from core.tools.registry import TOOL_SPECS, ToolSpec, tool  # noqa: F401
 from core.tools import builtin as _builtin  # noqa: F401,E402
 from core.tools import files as _files  # noqa: F401,E402
 from core.tools import intel as _intel  # noqa: F401,E402
+from core.tools import local_estate as _local_estate  # noqa: F401,E402
 from core.tools import ml as _ml  # noqa: F401,E402
 from core.tools import etis as _etis  # noqa: F401,E402
 

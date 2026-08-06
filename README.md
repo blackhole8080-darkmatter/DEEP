@@ -47,7 +47,14 @@ wishlist.
   surfaces proactively instead of getting lost in a feed
 
 **The assistant can use all of it**
-- 53 tools reach the reasoning brain, every one of which actually runs — the
+- DEEP can read its own observations, not just the internet: `security_events`
+  (the correlated local timeline, with matched ATT&CK techniques and CVEs),
+  `anomalies`, `threat_predictions`, `local_devices`, `wifi_environment`
+  (including evil-twin state), `dns_activity`, `stack_exposure` (live CVEs
+  matched against *your* stack) and `exploit_search`. Combined with the OSINT
+  tools this chains: a device that started beaconing at 03:00 → who it was
+  talking to → whether the CVE it's likely exploiting is in CISA KEV.
+- 61 tools reach the reasoning brain, every one of which actually runs — the
   surface was audited by executing all of them, not by reading the list.
   Off-mission groups (phone control, personal finance, email, XR) and tools
   that referenced integrations the registry never built are gone.
