@@ -18,6 +18,12 @@ build/
 
 # Data / models
 data/
+# Trained model artifacts are per-machine runtime output, not source. The
+# anomaly baselines in particular describe what "normal" looks like on ONE
+# host — committing them would hand a fresh clone someone else's baseline.
+# (*.pt was already ignored here; the .pkl sibling was tracked by accident,
+# so every server run dirtied the working tree with a 4MB binary diff.)
+ai/models/
 *.db
 *.sqlite
 *.bin
