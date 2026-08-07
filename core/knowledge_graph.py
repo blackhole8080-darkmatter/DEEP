@@ -41,6 +41,7 @@ import json
 import logging
 import re
 import time
+import uuid
 from collections import defaultdict, deque, Counter
 from dataclasses import dataclass, field
 from datetime import datetime
@@ -771,7 +772,10 @@ class KnowledgeGraph:
             return entity
 
         # Create new entity
-        entity_id = f"ent_{name_lower.replace(' ', '_')}_{int(time.time()*1000) % 10000}"
+        # Name-scoped, so this is already near-unique; the old
+        # `int(time.time()*1000) % 10000` suffix wrapped every 10 seconds and
+        # bought nothing the name didn't already provide.
+        entity_id = f"ent_{name_lower.replace(' ', '_')}_{uuid.uuid4().hex[:8]}"
         entity = Entity(
             id=entity_id,
             name=name,
@@ -813,8 +817,15 @@ class KnowledgeGraph:
                         rel.evidence = rel.evidence[-5:]
                 return rel
         
-        # Create new relationship
-        rel_id = f"rel_{int(time.time()*1000)}"
+        # Create new relationship.
+        #
+        # This used to be f"rel_{int(time.time()*1000)}". Extraction produces
+        # several relationships per ingest() call, well within one millisecond,
+        # so they all received the same id and each overwrote the last in
+        # self.relationships — one ingest of five relationships persisted one.
+        # uuid4 removes the collision entirely and stays stable across the
+        # SQLite round-trip.
+        rel_id = f"rel_{uuid.uuid4().hex[:16]}"
         rel = Relationship(
             id=rel_id,
             source=source_id_e,
