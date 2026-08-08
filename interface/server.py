@@ -58,6 +58,7 @@ from core.tools.deep_registry import DeepToolRegistry
 from core.ltm_memory import LongTermMemory
 # core.voice_web / core.local_stt imports removed (VoiceWeb/LocalSTT stubbed above)
 from core.security.network_monitor import NetworkMonitor
+from core.alert_dispatcher import AlertDispatcher
 from core.security.alert_correlator import AlertCorrelator
 from core.security.security_timeline import SecurityTimeline
 from core.predictive_engine import PredictiveEngine
@@ -246,6 +247,11 @@ alert_correlator = AlertCorrelator(event_bus=event_bus)
 # Merges security_alert + security_alert_correlated into one severity-scored
 # feed for the dashboard — see core/security/security_timeline.py
 security_timeline = SecurityTimeline(event_bus=event_bus)
+# Delivers the alerts that matter off the browser tab — desktop notification,
+# optional webhook — severity-gated, deduplicated and rate-limited, because a
+# console you have to be watching is a dashboard, not an alerting system.
+# See core/alert_dispatcher.py
+alert_dispatcher = AlertDispatcher(event_bus=event_bus)
 
 # ── Knowledge Intelligence Layer ────────────────────────────────────────
 knowledge_store = KnowledgeStore(event_bus=event_bus)
@@ -437,6 +443,15 @@ async def startup_event():
         print("[DEEP] GlobalThreatWatch started")
     except Exception as e:
         print(f"[DEEP] GlobalThreatWatch init error: {e}")
+
+    try:
+        await alert_dispatcher.start()
+        _live = ",".join(c["name"] for c in alert_dispatcher.status()["channels"]
+                         if c.get("available"))
+        print(f"[DEEP] AlertDispatcher started (floor="
+              f"{alert_dispatcher.min_severity}, channels={_live or 'none'})")
+    except Exception as e:
+        print(f"[DEEP] AlertDispatcher init error: {e}")
 
     try:
         await graph_orchestrator.start()
@@ -752,6 +767,10 @@ async def shutdown_event():
         pass
     try:
         await security_timeline.stop()
+    except Exception:
+        pass
+    try:
+        await alert_dispatcher.stop()
     except Exception:
         pass
     try:
@@ -1597,6 +1616,7 @@ _register_services(
     retraining_scheduler=retraining_scheduler,
     alert_correlator=alert_correlator,
     security_timeline=security_timeline,
+    alert_dispatcher=alert_dispatcher,
     global_threat_watch=global_threat_watch,
 )
 # Give the LLM tool layer the same view of DEEP's own subsystems that the

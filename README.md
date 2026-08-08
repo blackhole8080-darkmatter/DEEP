@@ -87,6 +87,18 @@ wishlist.
   remediations, ransomware-linked), active botnet C2 population by family and
   country, Tor exit count, and per-source health. A feed that is down renders
   as "unavailable", never as zero.
+- **Alerts that reach you when the HUD is closed.** The correlator and the
+  threat watch already detect well; until now their output existed only in a
+  browser tab you had to be looking at. A dispatcher now delivers the ones
+  worth interrupting for — native desktop notification, and an optional
+  webhook (Slack/Discord/ntfy). What makes it usable is what it *drops*: a
+  severity floor (default `high`), deduplication, a rate limit, and quiet hours
+  that `critical` deliberately overrides. Nothing is dropped silently — a
+  suppressed count rides along on the next alert and shows in
+  `GET /api/alerts/status`. `POST /api/alerts/test` proves the channels work
+  rather than leaving you to wonder whether nothing has happened yet.
+  The webhook is the only part of DEEP that sends observations off the machine,
+  so it stays inert until you set `DEEP_ALERT_WEBHOOK`.
 - **Intelligence map**: geolocated attacker and C2 nodes, each carrying the
   classification the feed that listed it actually assigned. Click a node for a
   full dossier.
