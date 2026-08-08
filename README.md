@@ -79,7 +79,8 @@ wishlist.
 **Operations center**
 - **A read-only ops terminal** in the HUD: `investigate`, `whois`, `dns`,
   `subdomains`, `exposure`, `cve`, `kev`, `epss`, `deps`, `threatmap`,
-  `stats`, `sources`, `cache`, `devices`, `timeline`, `scan`. History, tab completion
+  `stats`, `sources`, `playbook`, `cache`, `devices`, `timeline`, `scan`. History,
+  tab completion
   and structured output. Nothing shells out — an unrecognised verb is an
   error, not something handed to a shell — and `scan`, the only command that
   emits a packet, refuses any target outside your own subnet.
@@ -99,6 +100,21 @@ wishlist.
   rather than leaving you to wonder whether nothing has happened yet.
   The webhook is the only part of DEEP that sends observations off the machine,
   so it stays inert until you set `DEEP_ALERT_WEBHOOK`.
+- **Response playbooks, keyed to the techniques DEEP already matches.** The
+  correlator can tell you an anomaly looks like `T1071.001`; that is a
+  diagnosis with no next step. `playbook T1071.001` in the terminal (or
+  `GET /api/intel/playbooks?technique=…`) returns the procedures that cover it,
+  ranked so the playbook a technique is *about* comes before a broad survey
+  that merely mentions it, and matching across the sub-technique boundary in
+  both directions. The reasoning brain gets the same thing as
+  `playbook_lookup` / `playbook_search` / `playbook_read`, so "what do I do
+  about this?" is answered from a real procedure it can cite rather than
+  improvised. Run `make playbooks` to fetch a corpus —
+  [Anthropic-Cybersecurity-Skills](https://github.com/mukul975/Anthropic-Cybersecurity-Skills)
+  (Apache-2.0, 817 procedures mapped to ATT&CK, NIST CSF, ATLAS, D3FEND, AI RMF
+  and F3) is the default. Nothing is vendored; any directory in the same
+  Anthropic-Skills layout works, via `DEEP_PLAYBOOKS_DIR`. With none installed
+  every path says so instead of inventing steps.
 - **Intelligence map**: geolocated attacker and C2 nodes, each carrying the
   classification the feed that listed it actually assigned. Click a node for a
   full dossier.

@@ -18,6 +18,7 @@ from core.intel.live_stats import shared_live_intel
 from core.intel.ops_terminal import OpsTerminal, command_catalog
 from core.intel.osint_investigator import OSINTInvestigator
 from core.intel.refresher import shared_refresher
+from core.playbooks import INSTALL_HINT, shared_playbooks
 from interface.deps import services
 
 router = APIRouter(prefix="/api/intel", tags=["intel"])
@@ -82,6 +83,47 @@ async def intel_stats():
 async def intel_map(limit: int = Query(120, ge=1, le=500)):
     """Geolocated attacker and C2 nodes for the intelligence map."""
     return await shared_live_intel().threat_map(limit=limit)
+
+
+# ── response playbooks ───────────────────────────────────────────────────────
+
+
+@router.get("/playbooks")
+async def intel_playbooks(
+    technique: Optional[str] = Query(None, description="ATT&CK id, e.g. T1071.001"),
+    q: Optional[str] = Query(None, min_length=2, max_length=128,
+                             description="free-text topic search"),
+    limit: int = Query(10, ge=1, le=50),
+):
+    """Procedures covering a technique, or matching a topic."""
+    library = shared_playbooks()
+    if not library.installed:
+        raise HTTPException(status_code=503, detail=INSTALL_HINT)
+    if technique:
+        found = library.for_technique(technique, limit=limit)
+    elif q:
+        found = library.search(q, limit=limit)
+    else:
+        raise HTTPException(status_code=422, detail="pass either technique or q")
+    return {"count": len(found), "playbooks": [p.to_dict() for p in found]}
+
+
+@router.get("/playbooks/status")
+async def intel_playbooks_status():
+    """Is a corpus installed, how much of it, and mapped to which frameworks."""
+    return shared_playbooks().status()
+
+
+@router.get("/playbooks/{name}")
+async def intel_playbook(name: str):
+    """One playbook's full procedure."""
+    library = shared_playbooks()
+    if not library.installed:
+        raise HTTPException(status_code=503, detail=INSTALL_HINT)
+    playbook = library.get(name)
+    if playbook is None:
+        raise HTTPException(status_code=404, detail=f"no playbook named '{name}'")
+    return playbook.to_dict(include_body=True)
 
 
 # ── cache & pre-warming ──────────────────────────────────────────────────────

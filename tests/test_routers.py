@@ -191,18 +191,40 @@ def test_investigate_without_a_target_is_422(client):
     assert client.get("/api/investigate").status_code == 422
 
 
-def test_no_endpoint_returns_a_server_error(client):
-    """Sweep every parameterless GET; nothing may 5xx."""
+def test_no_endpoint_crashes_and_every_503_explains_itself(client):
+    """Sweep every parameterless GET.
+
+    A 500 is always a bug — an unhandled exception reaching the client. A 503
+    is not: DEEP has subsystems that are legitimately absent (voice is removed,
+    a playbook corpus is opt-in), and saying so with a status code is the whole
+    point of this codebase's move away from 200-carrying-an-error. What a 503
+    must never be is a crash wearing a nicer number, so each one has to carry a
+    `detail` a person can act on.
+    """
     from interface.server import app
 
     paths = [
         p for p, ops in app.openapi()["paths"].items()
         if "get" in ops and "{" not in p
-        and p not in ("/api/vision/screen", "/docs", "/redoc", "/openapi.json", "/api/tts")
+        and p not in ("/api/vision/screen", "/docs", "/redoc", "/openapi.json")
     ]
-    failures = [(p, r.status_code) for p in paths
-                if (r := client.get(p)).status_code >= 500]
-    assert not failures, f"endpoints returning 5xx: {failures}"
+
+    crashed, mute = [], []
+    for path in paths:
+        response = client.get(path)
+        if response.status_code == 500 or response.status_code > 503:
+            crashed.append((path, response.status_code))
+        elif response.status_code == 503:
+            detail = ""
+            try:
+                detail = str(response.json().get("detail") or "")
+            except ValueError:
+                pass
+            if len(detail) < 10:
+                mute.append((path, detail))
+
+    assert not crashed, f"endpoints returning an unhandled server error: {crashed}"
+    assert not mute, f"503s that don't say what is unavailable or why: {mute}"
 
 
 def test_api_status_exists_and_matches_the_frontend_contract(client):

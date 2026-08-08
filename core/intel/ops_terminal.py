@@ -153,6 +153,13 @@ COMMANDS: tuple[CommandSpec, ...] = (
         ("sources", "sources --category vulnerability"),
     ),
     CommandSpec(
+        "playbook",
+        "Response procedures for an ATT&CK technique, or by topic.",
+        "playbook <T1071 | topic | playbook-name>", "intel",
+        ("playbook T1071.001", "playbook ransomware",
+         "playbook performing-memory-forensics-with-volatility3"),
+    ),
+    CommandSpec(
         "cache", "Intel cache state and the feed pre-warm loop.",
         "cache [--refresh]", "intel",
         ("cache", "cache --refresh"),
@@ -495,6 +502,54 @@ class OpsTerminal:
             lines += ["", "DEGRADED"]
             lines += [f"  {k:<18} {v}" for k, v in sorted(stats["degraded"].items())]
         return CommandResult(ok=True, command="stats", text="\n".join(lines), data=stats)
+
+    async def _cmd_playbook(self, args: List[str]) -> CommandResult:
+        """Technique id, topic, or an exact name — one verb, because at 03:00
+        nobody wants to remember which of three subcommands they need."""
+        from core.playbooks import normalise_technique, shared_playbooks
+
+        if not args:
+            return _usage("playbook")
+        library = shared_playbooks()
+        if not library.installed:
+            from core.playbooks import INSTALL_HINT
+            return CommandResult(ok=False, command="playbook", error=INSTALL_HINT)
+
+        query = " ".join(args).strip()
+
+        exact = library.get(query)
+        if exact is not None:
+            sections = exact.sections()
+            lines = [exact.name, exact.description, ""]
+            for heading, content in sections.items():
+                lines += [f"## {heading}", content, ""]
+            if exact.frameworks:
+                lines.append("mapped to — " + ", ".join(
+                    f"{k}: {', '.join(v)}" for k, v in sorted(exact.frameworks.items())
+                ))
+            return CommandResult(ok=True, command="playbook", text="\n".join(lines),
+                                 data=exact.to_dict(include_body=True))
+
+        technique = normalise_technique(query)
+        if technique:
+            found = library.for_technique(technique, limit=8)
+            header = f"{len(found)} playbook(s) covering {technique}"
+        else:
+            found = library.search(query, limit=10)
+            header = f"{len(found)} playbook(s) matching '{query}'"
+
+        if not found:
+            return CommandResult(ok=True, command="playbook",
+                                 text=f"{header} — nothing indexed.")
+        rows = [
+            {"name": p.name,
+             "attack": ", ".join(p.techniques[:4]) or "-",
+             "summary": p.description[:80]}
+            for p in found
+        ]
+        return CommandResult(ok=True, command="playbook",
+                             text=header + "\n" + _render_rows(rows),
+                             rows=rows, data={"playbooks": [p.to_dict() for p in found]})
 
     async def _cmd_cache(self, args: List[str]) -> CommandResult:
         from core.intel.http import shared_http
