@@ -623,6 +623,13 @@ async def startup_event():
     asyncio.create_task(_world_model_loop())
     # Watch the personal-docs folder and ingest new/changed files
     asyncio.create_task(_docs_scan_loop())
+    # Keep the hot intelligence feeds warm so the console never opens onto a
+    # cold cache. Persistence means a restart usually costs no traffic at all.
+    try:
+        from core.intel.refresher import shared_refresher
+        await shared_refresher().start()
+    except Exception as exc:
+        print(f"[DEEP] intel refresher failed to start: {exc}")
 
 
 async def _briefing_loop():
@@ -690,6 +697,11 @@ async def shutdown_event():
     # Pooled aiohttp sessions. Neither of these was being closed, so every
     # shutdown leaked a connector: the intel layer's public-API session, and
     # the LLM client's (which /api/status opens via brain.health_check).
+    try:
+        from core.intel.refresher import shared_refresher
+        await shared_refresher().stop()
+    except Exception:
+        pass
     try:
         from core.intel.http import shared_http
         await shared_http().close()

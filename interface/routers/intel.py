@@ -13,9 +13,11 @@ from fastapi import APIRouter, HTTPException, Query
 from pydantic import BaseModel, Field
 
 from core.intel import public_apis
+from core.intel.http import shared_http
 from core.intel.live_stats import shared_live_intel
-from core.intel.osint_investigator import OSINTInvestigator
 from core.intel.ops_terminal import OpsTerminal, command_catalog
+from core.intel.osint_investigator import OSINTInvestigator
+from core.intel.refresher import shared_refresher
 from interface.deps import services
 
 router = APIRouter(prefix="/api/intel", tags=["intel"])
@@ -80,6 +82,31 @@ async def intel_stats():
 async def intel_map(limit: int = Query(120, ge=1, le=500)):
     """Geolocated attacker and C2 nodes for the intelligence map."""
     return await shared_live_intel().threat_map(limit=limit)
+
+
+# ── cache & pre-warming ──────────────────────────────────────────────────────
+
+
+@router.get("/cache")
+async def intel_cache():
+    """Both cache tiers plus the pre-warm loop — is the console warm or cold?"""
+    return {
+        "cache": await shared_http().cache_stats(),
+        "refresher": shared_refresher().status(),
+    }
+
+
+@router.post("/cache/refresh")
+async def intel_cache_refresh():
+    """Re-fetch every due hot feed now, bypassing both cache tiers."""
+    return await shared_refresher().refresh_once()
+
+
+@router.delete("/cache")
+async def intel_cache_clear():
+    """Drop everything cached, in memory and on disk."""
+    await shared_http().clear_persistent_cache()
+    return {"cleared": True}
 
 
 # ── operations terminal ──────────────────────────────────────────────────────

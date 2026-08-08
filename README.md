@@ -79,7 +79,7 @@ wishlist.
 **Operations center**
 - **A read-only ops terminal** in the HUD: `investigate`, `whois`, `dns`,
   `subdomains`, `exposure`, `cve`, `kev`, `epss`, `deps`, `threatmap`,
-  `stats`, `sources`, `devices`, `timeline`, `scan`. History, tab completion
+  `stats`, `sources`, `cache`, `devices`, `timeline`, `scan`. History, tab completion
   and structured output. Nothing shells out — an unrecognised verb is an
   error, not something handed to a shell — and `scan`, the only command that
   emits a packet, refuses any target outside your own subnet.
@@ -90,6 +90,15 @@ wishlist.
 - **Intelligence map**: geolocated attacker and C2 nodes, each carrying the
   classification the feed that listed it actually assigned. Click a node for a
   full dossier.
+- **A cache with a disk, and a loop that keeps it warm.** Upstream responses
+  persist to SQLite, so a restart doesn't re-download the multi-megabyte KEV
+  catalog it fetched a minute ago, and a background task re-fetches the five
+  hot feeds shortly before each expires — on cadences read from the source
+  catalog, so there's no second set of intervals to drift. The console opens
+  warm. When a source *is* unreachable, DEEP serves the last good answer rather
+  than a blank tile, labelled with its age (`STALE — 3h old`) in `stats` and in
+  the API's `stale` field; it is never passed off as current. `cache` in the
+  terminal (or `GET /api/intel/cache`) shows both tiers and every feed's state.
 
 **Interface**
 - A FastAPI + WebSocket backend driving a Vite/Lit/TypeScript web HUD
@@ -192,7 +201,8 @@ DEEP/
 ├── core/            # brain: LLM routing, memory, knowledge graph, event bus,
 │   │                 #   world model, audit trail, global threat watch
 │   └── intel/       # public-API layer: source catalog, shared HTTP transport,
-│                     #   OSINT investigator, live stats/map, ops terminal
+│                     #   persistent cache + pre-warmer, OSINT investigator,
+│                     #   live stats/map, ops terminal
 ├── ai/               # anomaly detection + threat classifier (PyTorch/sklearn)
 ├── domains/          # cybersecurity, RF signals, protocol analysis
 ├── network/          # scanner, evil-twin detection, proximity, remote access
