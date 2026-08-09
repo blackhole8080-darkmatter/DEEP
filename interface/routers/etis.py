@@ -5,12 +5,12 @@ Mounted via app.include_router() at server startup.
 """
 from __future__ import annotations
 
-import sys
 import os
+import sys
 from pathlib import Path
 from typing import Any, Dict
 
-from fastapi import APIRouter, HTTPException, UploadFile, File
+from fastapi import APIRouter, File, HTTPException, UploadFile
 from fastapi.responses import JSONResponse
 
 # Ensure DEEP root is on path

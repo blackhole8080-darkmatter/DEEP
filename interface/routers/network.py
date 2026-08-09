@@ -1,6 +1,8 @@
 """Network, Scanning, and Proximity endpoints."""
 from typing import Optional
+
 from fastapi import APIRouter, Query
+
 from interface.deps import services
 
 router = APIRouter(tags=["network"])
@@ -78,6 +80,7 @@ async def api_network_geo():
     connections, attribute each to its owning process, and resolve the egress
     origin. Delegates to network.connection_geo (shared with the brain tool)."""
     import asyncio as _asyncio
+
     from network.connection_geo import scan_connections
     try:
         return await _asyncio.to_thread(scan_connections)
@@ -238,6 +241,7 @@ async def api_investigate(target: str = Query(..., min_length=1)):
     prefer /api/intel/investigate, which fans out across the public-API layer.
     """
     import asyncio as _asyncio
+
     from network.investigator import investigate as _investigate
     try:
         return await _asyncio.to_thread(_investigate, target)

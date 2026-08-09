@@ -81,6 +81,7 @@ async def knowledge_inferences(limit: int = 8, connections: bool = True):
     (optionally) GNN/analytics-predicted connections — the JARVIS 'you usually…' layer."""
     try:
         import asyncio
+
         from core.graph_inference import infer, infer_connections
         kg = services.knowledge_graph
         items = infer(kg, max_items=limit)
