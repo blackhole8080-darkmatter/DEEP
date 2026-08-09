@@ -467,6 +467,16 @@ def test_the_lookup_endpoint_503s_without_a_corpus(client):
     assert "make playbooks" in r.json()["detail"]
 
 
+def test_a_malformed_technique_id_is_422_not_an_empty_result(client):
+    """`for_technique` returns [] for a bad id and for a valid-but-uncovered
+    one alike, so without a check "T1O71" (letter O) reads as "no procedure
+    exists for this" rather than "that is not a technique id"."""
+    response = client.get("/api/intel/playbooks?technique=T1O71")
+    assert response.status_code in (422, 503)
+    if response.status_code == 422:
+        assert "T1071" in response.json()["detail"]
+
+
 def test_the_lookup_endpoint_requires_a_query(client):
     r = client.get("/api/intel/playbooks")
     assert r.status_code in (422, 503)

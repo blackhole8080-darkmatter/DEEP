@@ -18,7 +18,7 @@ from core.intel.live_stats import shared_live_intel
 from core.intel.ops_terminal import OpsTerminal, command_catalog
 from core.intel.osint_investigator import OSINTInvestigator
 from core.intel.refresher import shared_refresher
-from core.playbooks import INSTALL_HINT, shared_playbooks
+from core.playbooks import INSTALL_HINT, normalise_technique, shared_playbooks
 from interface.deps import services
 
 router = APIRouter(prefix="/api/intel", tags=["intel"])
@@ -100,6 +100,16 @@ async def intel_playbooks(
     if not library.installed:
         raise HTTPException(status_code=503, detail=INSTALL_HINT)
     if technique:
+        # A malformed id and a valid id nothing covers are different answers.
+        # `for_technique` returns [] for both, so without this check "T1O71"
+        # (letter O) reads as "no procedure exists for this" rather than "that
+        # is not a technique id".
+        if not normalise_technique(technique):
+            raise HTTPException(
+                status_code=422,
+                detail=f"'{technique}' is not an ATT&CK technique id; "
+                       "expected TNNNN or TNNNN.NNN, e.g. T1071 or T1071.001",
+            )
         found = library.for_technique(technique, limit=limit)
     elif q:
         found = library.search(q, limit=limit)
