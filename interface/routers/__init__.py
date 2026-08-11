@@ -6,8 +6,21 @@ server.py mounts via `app.include_router(...)`.
 """
 
 from interface.routers import (
-    predictive, evolution, knowledge_graph, threat, workspace, security,
-    etis, knowledge, state, network, audit, anomaly, security_timeline, intel,
+    alerts,
+    anomaly,
+    audit,
+    etis,
+    evolution,
+    intel,
+    knowledge,
+    knowledge_graph,
+    network,
+    predictive,
+    security,
+    security_timeline,
+    state,
+    threat,
+    workspace,
 )
 
 ROUTERS = [
@@ -26,9 +39,11 @@ ROUTERS = [
     anomaly.router,
     security_timeline.router,
     intel.router,
+    alerts.router,
 ]
 
 from interface.ws import router as ws_router
+
 ROUTERS.append(ws_router.router)
 
 __all__ = ["ROUTERS"]

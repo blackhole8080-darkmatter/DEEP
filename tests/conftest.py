@@ -7,12 +7,22 @@ therefore authenticate the same way a real remote client would: with the key.
 """
 from __future__ import annotations
 
+import os
 import sys
+import tempfile
 from pathlib import Path
 
 import pytest
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+
+# The intel cache is durable by design. Point it somewhere disposable before
+# anything imports core.intel.http, so a test run never writes into the real
+# data/ directory or reads a developer's warm cache and calls it a fresh fetch.
+_TEST_CACHE_DB = Path(tempfile.gettempdir()) / "deep-test-intel-cache.db"
+os.environ.setdefault("DEEP_INTEL_CACHE_DB", str(_TEST_CACHE_DB))
+# Nothing in the suite should be pre-warming feeds in the background.
+os.environ.setdefault("DEEP_INTEL_REFRESH", "0")
 
 
 @pytest.fixture(scope="session")
@@ -75,3 +85,6 @@ def _close_pooled_sessions():
         asyncio.run(_close())
     except Exception:
         pass
+
+    for suffix in ("", "-wal", "-shm"):
+        Path(str(_TEST_CACHE_DB) + suffix).unlink(missing_ok=True)

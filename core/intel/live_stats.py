@@ -40,13 +40,15 @@ from core.intel.http import IntelHTTP, shared_http
 
 logger = logging.getLogger(__name__)
 
-_KEV_URL = "https://www.cisa.gov/sites/default/files/feeds/known_exploited_vulnerabilities.json"
-_ISC_TOP_SOURCES = "https://isc.sans.edu/api/sources/attacks/{limit}?json"
-_FEODO_URL = "https://feodotracker.abuse.ch/downloads/ipblocklist.json"
-_TOR_EXITS = "https://check.torproject.org/torbulkexitlist"
+# Public because ``core.intel.refresher`` pre-warms exactly these feeds; one
+# definition means the refresher can never warm a URL the console doesn't read.
+KEV_URL = "https://www.cisa.gov/sites/default/files/feeds/known_exploited_vulnerabilities.json"
+ISC_TOP_SOURCES = "https://isc.sans.edu/api/sources/attacks/{limit}?json"
+FEODO_URL = "https://feodotracker.abuse.ch/downloads/ipblocklist.json"
+TOR_EXITS = "https://check.torproject.org/torbulkexitlist"
 _GEO_BATCH = "http://ip-api.com/batch"  # see module docstring re: HTTP
 _GEO_BATCH_MAX = 100
-_EPSS_TOP = "https://api.first.org/data/v1/epss?order=!epss&limit={limit}"
+EPSS_TOP = "https://api.first.org/data/v1/epss?order=!epss&limit={limit}"
 
 
 @dataclass(slots=True)
@@ -96,10 +98,10 @@ class LiveIntel:
 
     async def cyber_stats(self) -> Dict[str, Any]:
         """Roll up the global threat picture plus source health."""
-        kev_task = self._http.get_json(_KEV_URL, ttl=3600)
-        epss_task = self._http.get_json(_EPSS_TOP.format(limit=20), ttl=3600)
-        feodo_task = self._http.get_json(_FEODO_URL, ttl=1800)
-        tor_task = self._http.get_text(_TOR_EXITS, ttl=3600)
+        kev_task = self._http.get_json(KEV_URL, ttl=3600)
+        epss_task = self._http.get_json(EPSS_TOP.format(limit=20), ttl=3600)
+        feodo_task = self._http.get_json(FEODO_URL, ttl=1800)
+        tor_task = self._http.get_text(TOR_EXITS, ttl=3600)
 
         kev, epss, feodo, tor = await asyncio.gather(
             kev_task, epss_task, feodo_task, tor_task, return_exceptions=True
@@ -115,6 +117,11 @@ class LiveIntel:
         stats["epss"] = self._epss_stats(epss, stats["degraded"])
         stats["botnet"] = self._botnet_stats(feodo, stats["degraded"])
         stats["anonymity"] = self._tor_stats(tor, stats["degraded"])
+        # A source that is down but has a recent cached answer is served from
+        # disk rather than blanked. That is only honest if the age is shown.
+        stats["stale"] = _stale_ages(
+            cisa_kev=kev, epss=epss, feodo=feodo, tor_exits=tor,
+        )
         stats["transport"] = self._http.stats()
         return stats
 
@@ -243,8 +250,8 @@ class LiveIntel:
 
     async def threat_map(self, limit: int = 120) -> Dict[str, Any]:
         """Geolocated attacker/C2 nodes, each attributed to the feed that listed it."""
-        isc_task = self._http.get_json(_ISC_TOP_SOURCES.format(limit=100), ttl=1800)
-        feodo_task = self._http.get_json(_FEODO_URL, ttl=1800)
+        isc_task = self._http.get_json(ISC_TOP_SOURCES.format(limit=100), ttl=1800)
+        feodo_task = self._http.get_json(FEODO_URL, ttl=1800)
         isc, feodo = await asyncio.gather(isc_task, feodo_task, return_exceptions=True)
 
         degraded: Dict[str, str] = {}
@@ -322,6 +329,7 @@ class LiveIntel:
             ],
             "by_classification": by_class,
             "degraded": degraded,
+            "stale": _stale_ages(sans_isc=isc, feodo=feodo),
         }
 
     async def _geolocate(
@@ -389,6 +397,15 @@ def _reason(result: Any) -> str:
     if isinstance(result, BaseException):
         return f"{type(result).__name__}: {result}"
     return getattr(result, "error", "") or "unavailable"
+
+
+def _stale_ages(**fetches: Any) -> Dict[str, int]:
+    """Age in seconds of every payload served past its TTL. Empty when all fresh."""
+    out: Dict[str, int] = {}
+    for source_id, fetch in fetches.items():
+        if getattr(fetch, "stale", False):
+            out[source_id] = int(getattr(fetch, "stale_age_s", 0) or 0)
+    return out
 
 
 def _parse_date(value: Any) -> Optional[datetime]:

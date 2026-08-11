@@ -15,6 +15,7 @@ requests
 psutil
 numpy
 scipy
+pyyaml         # frontmatter for response playbooks; core/automation_builder.py
 
 # --- Plugin Ecosystem ---
 watchdog         # File system monitoring for workspace plugin

@@ -153,6 +153,18 @@ COMMANDS: tuple[CommandSpec, ...] = (
         ("sources", "sources --category vulnerability"),
     ),
     CommandSpec(
+        "playbook",
+        "Response procedures for an ATT&CK technique, or by topic.",
+        "playbook <T1071 | topic | playbook-name>", "intel",
+        ("playbook T1071.001", "playbook ransomware",
+         "playbook performing-memory-forensics-with-volatility3"),
+    ),
+    CommandSpec(
+        "cache", "Intel cache state and the feed pre-warm loop.",
+        "cache [--refresh]", "intel",
+        ("cache", "cache --refresh"),
+    ),
+    CommandSpec(
         "devices", "Devices DEEP has discovered on the local network.",
         "devices [--unknown]", "local",
         ("devices", "devices --unknown"),
@@ -481,10 +493,114 @@ class OpsTerminal:
                   f"  available now      {src.get('available_now')}/{src.get('total')}",
                   f"  keyless            {src.get('keyless')}",
                   f"  key configured     {src.get('key_configured')}/{src.get('key_required')}"]
+        if stats.get("stale"):
+            # Served from the durable cache because the source is unreachable.
+            # Shown, never quietly presented as current.
+            lines += ["", "STALE (source down — showing last known good)"]
+            lines += [f"  {k:<18} {_age(v)} old" for k, v in sorted(stats["stale"].items())]
         if stats.get("degraded"):
             lines += ["", "DEGRADED"]
             lines += [f"  {k:<18} {v}" for k, v in sorted(stats["degraded"].items())]
         return CommandResult(ok=True, command="stats", text="\n".join(lines), data=stats)
+
+    async def _cmd_playbook(self, args: List[str]) -> CommandResult:
+        """Technique id, topic, or an exact name — one verb, because at 03:00
+        nobody wants to remember which of three subcommands they need."""
+        from core.playbooks import normalise_technique, shared_playbooks
+
+        if not args:
+            return _usage("playbook")
+        library = shared_playbooks()
+        if not library.installed:
+            from core.playbooks import INSTALL_HINT
+            return CommandResult(ok=False, command="playbook", error=INSTALL_HINT)
+
+        query = " ".join(args).strip()
+
+        exact = library.get(query)
+        if exact is not None:
+            sections = exact.sections()
+            lines = [exact.name, exact.description, ""]
+            for heading, content in sections.items():
+                lines += [f"## {heading}", content, ""]
+            if exact.frameworks:
+                lines.append("mapped to — " + ", ".join(
+                    f"{k}: {', '.join(v)}" for k, v in sorted(exact.frameworks.items())
+                ))
+            return CommandResult(ok=True, command="playbook", text="\n".join(lines),
+                                 data=exact.to_dict(include_body=True))
+
+        technique = normalise_technique(query)
+        if technique:
+            found = library.for_technique(technique, limit=8)
+            header = f"{len(found)} playbook(s) covering {technique}"
+        else:
+            found = library.search(query, limit=10)
+            header = f"{len(found)} playbook(s) matching '{query}'"
+
+        if not found:
+            return CommandResult(ok=True, command="playbook",
+                                 text=f"{header} — nothing indexed.")
+        rows = [
+            {"name": p.name,
+             "attack": ", ".join(p.techniques[:4]) or "-",
+             "summary": p.description[:80]}
+            for p in found
+        ]
+        return CommandResult(ok=True, command="playbook",
+                             text=header + "\n" + _render_rows(rows),
+                             rows=rows, data={"playbooks": [p.to_dict() for p in found]})
+
+    async def _cmd_cache(self, args: List[str]) -> CommandResult:
+        from core.intel.http import shared_http
+        from core.intel.refresher import shared_refresher
+
+        flags = _flags(args)
+        refresher = shared_refresher()
+        if "refresh" in flags:
+            await refresher.refresh_once()
+
+        cache = await shared_http().cache_stats()
+        mem, disk = cache["memory"], cache["disk"]
+        status = refresher.status()
+
+        lines = [
+            "MEMORY",
+            f"  entries            {mem.get('cache_entries', 0)}",
+            f"  hits / disk hits   {mem.get('cache_hits', 0)} / {mem.get('disk_hits', 0)}",
+            f"  requests / errors  {mem.get('requests', 0)} / {mem.get('errors', 0)}",
+            f"  stale served       {mem.get('stale_served', 0)}",
+            "",
+            "DISK",
+        ]
+        if not disk.get("enabled"):
+            lines.append("  persistence off (DEEP_INTEL_CACHE=0)")
+        else:
+            lines += [
+                f"  entries (fresh)    {disk.get('entries', 0)} ({disk.get('fresh', 0)})",
+                f"  size               {disk.get('bytes', 0) / 1024 / 1024:.1f} MB",
+                f"  oldest entry       {_age(disk.get('oldest_age_s', 0))}",
+                f"  writes / errors    {disk.get('writes', 0)} / {disk.get('errors', 0)}",
+            ]
+
+        lines += ["", f"PRE-WARM  ({'running' if status['running'] else 'stopped'}, "
+                      f"{status['passes']} passes)"]
+        rows = []
+        for feed in status["feeds"]:
+            last = feed.get("last") or {}
+            state = "never run"
+            if last:
+                state = "ok" if last.get("ok") else f"failing ({last.get('error', '')})"
+            rows.append({
+                "feed": feed["label"],
+                "state": state,
+                "due_in": _age(feed["due_in_s"]),
+                "fails": feed["consecutive_failures"],
+            })
+            lines.append(f"  {feed['label']:<28} {state:<24} next in {_age(feed['due_in_s'])}")
+
+        return CommandResult(ok=True, command="cache", text="\n".join(lines),
+                             rows=rows, data={"cache": cache, "refresher": status})
 
     async def _cmd_sources(self, args: List[str]) -> CommandResult:
         flags = _flags(args)
@@ -622,6 +738,21 @@ def _flags(args: List[str]) -> Dict[str, str]:
             out[key] = "true"
         i += 1
     return out
+
+
+def _age(seconds: Any) -> str:
+    """Compact duration — '4m', '3h', '2d'. Ages are read at a glance, not parsed."""
+    try:
+        s = int(seconds or 0)
+    except (TypeError, ValueError):
+        return "?"
+    if s < 60:
+        return f"{s}s"
+    if s < 3600:
+        return f"{s // 60}m"
+    if s < 86400:
+        return f"{s // 3600}h"
+    return f"{s // 86400}d"
 
 
 def _int_flag(flags: Dict[str, str], key: str, default: int) -> int:

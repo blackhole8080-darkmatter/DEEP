@@ -1,8 +1,8 @@
 """Self-evaluation / evolution endpoints."""
 
-from fastapi import APIRouter
+from fastapi import APIRouter, HTTPException, Query
 
-from interface.deps import services
+from interface.deps import require
 
 router = APIRouter(prefix="/api/evolution", tags=["evolution"])
 
@@ -10,55 +10,43 @@ router = APIRouter(prefix="/api/evolution", tags=["evolution"])
 @router.get("/stats")
 async def evolution_stats():
     """Get self-evaluation engine statistics."""
-    try:
-        return services.self_eval.get_stats()
-    except Exception as e:
-        return {"error": str(e)}
+    return require("self_eval").get_stats()
 
 
 @router.get("/history")
-async def evolution_history(limit: int = 20):
+async def evolution_history(limit: int = Query(20, ge=1, le=200)):
     """Get evolution event history."""
-    try:
-        return {"events": services.self_eval.get_evolution_history(limit)}
-    except Exception as e:
-        return {"error": str(e)}
+    return {"events": require("self_eval").get_evolution_history(limit)}
 
 
 @router.get("/lessons")
 async def evolution_lessons():
     """Get lessons learned."""
-    try:
-        return {"lessons": services.self_eval.get_lessons()}
-    except Exception as e:
-        return {"error": str(e)}
+    return {"lessons": require("self_eval").get_lessons()}
 
 
 @router.get("/prompts")
 async def evolution_prompts():
     """Get all prompt variants."""
-    try:
-        return {"prompts": services.self_eval.get_prompt_variants()}
-    except Exception as e:
-        return {"error": str(e)}
+    return {"prompts": require("self_eval").get_prompt_variants()}
 
 
 @router.get("/current-prompt")
 async def current_prompt():
     """Get the current active system prompt."""
-    try:
-        return {"prompt": services.self_eval.get_current_prompt()}
-    except Exception as e:
-        return {"error": str(e)}
+    return {"prompt": require("self_eval").get_current_prompt()}
 
 
 @router.post("/evaluate")
 async def force_evolution():
     """Force an evaluation and potential evolution."""
-    try:
-        result = services.self_eval.evaluate_and_evolve()
-        if result:
-            return {"success": True, "result": result}
-        return {"success": False, "message": "Not enough data to evaluate"}
-    except Exception as e:
-        return {"error": str(e)}
+    result = require("self_eval").evaluate_and_evolve()
+    if not result:
+        # Too little history to evaluate is a fact about the request, not a
+        # server fault — and not a success either, which is how the old
+        # {"success": false} at 200 read to anything checking the status.
+        raise HTTPException(
+            status_code=409,
+            detail="not enough interaction history to evaluate yet",
+        )
+    return {"success": True, "result": result}

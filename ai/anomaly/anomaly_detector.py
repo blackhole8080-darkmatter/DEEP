@@ -88,6 +88,9 @@ class AnomalyDetector:
         self.settings = Settings()
 
         self._db_path = Path(getattr(self.settings, "anomaly_db_path", "logs/anomaly/deep_anomaly.db"))
+        # Baseline tables this detector has already reported as absent, so the
+        # warning isn't repeated for all 24 hour buckets on every training pass.
+        self._missing_tables: set[str] = set()
         self._model_path = Path(getattr(self.settings, "anomaly_model_path", "ai/models/anomaly_models.pkl"))
         self._check_interval = int(getattr(self.settings, "anomaly_check_interval_s", 60))
         self._model_refresh_days = int(getattr(self.settings, "anomaly_model_refresh_days", 7))
@@ -186,7 +189,11 @@ class AnomalyDetector:
 
         if trained_any:
             self._models_ready = True
-            self._hours_covered = len(self._system_models)
+            # Union, not just the system models: a host with network baselines
+            # but no system ones (or vice versa) trained fine but reported
+            # "0 hours covered" while claiming to be ready, which reads as a
+            # contradiction in the status and in the HUD.
+            self._hours_covered = len(set(self._system_models) | set(self._network_models))
             if JOBLIB_AVAILABLE:
                 joblib.dump(
                     {"system": self._system_models, "network": self._network_models},
@@ -197,26 +204,56 @@ class AnomalyDetector:
             })
             logger.info(f"[AnomalyDetector] Models trained for {self._hours_covered} hours")
 
-    async def _get_system_snapshots_for_hour(self, hour: int) -> List[SystemSnapshot]:
+    def _snapshot_rows(self, table: str, hour: int) -> List[sqlite3.Row]:
+        """Read one hour of baseline snapshots, tolerating an absent table.
+
+        The snapshot tables are owned by SystemBaseline and NetworkBaseline,
+        not by this class — it only reads them. If a baseline failed to start
+        (no psutil, unwritable path, DB removed underneath us) its table won't
+        exist, and server.py logs that failure and carries on to start this
+        detector anyway. Letting the missing table raise here meant a baseline
+        problem took anomaly detection down with it, silently: the server
+        caught the second failure too, so everything still looked healthy while
+        nothing was being detected.
+
+        No snapshots is the honest answer in that case. Detection stays dark
+        until data exists, which is what happens on a fresh install regardless.
+        """
         cutoff = (datetime.now(timezone.utc) - timedelta(days=30)).isoformat()
-        with closing(sqlite3.connect(str(self._db_path))) as conn, conn:
-            conn.row_factory = sqlite3.Row
-            rows = conn.execute(
-                "SELECT * FROM system_snapshots WHERE timestamp >= ? AND hour = ?",
-                (cutoff, hour),
-            ).fetchall()
+        try:
+            with closing(sqlite3.connect(str(self._db_path))) as conn, conn:
+                conn.row_factory = sqlite3.Row
+                rows = conn.execute(
+                    f"SELECT * FROM {table} WHERE timestamp >= ? AND hour = ?",  # noqa: S608 - fixed literals, never user input
+                    (cutoff, hour),
+                ).fetchall()
+            # Only clear the marker once the read actually succeeded — clearing
+            # it first meant every call re-armed the warning and logged again.
+            self._missing_tables.discard(table)
+            return rows
+        except sqlite3.OperationalError as exc:
+            if "no such table" not in str(exc).lower():
+                raise
+            # Training walks all 24 hour buckets, so warn once per table rather
+            # than 24 times per pass. Cleared again below once the table shows
+            # up, so a later disappearance is still reported.
+            if table not in self._missing_tables:
+                self._missing_tables.add(table)
+                logger.warning(
+                    "[AnomalyDetector] '%s' does not exist yet — its baseline has not "
+                    "started or has failed. Treating as no snapshots.", table,
+                )
+            return []
+
+    async def _get_system_snapshots_for_hour(self, hour: int) -> List[SystemSnapshot]:
+        rows = self._snapshot_rows("system_snapshots", hour)
         _fields = SystemSnapshot.__dataclass_fields__
         return [SystemSnapshot(**{k: r[k] for k in r.keys() if k in _fields}) for r in rows]
 
     async def _get_network_snapshots_for_hour(self, hour: int) -> List[NetworkFlowSnapshot]:
-        cutoff = (datetime.now(timezone.utc) - timedelta(days=30)).isoformat()
-        with closing(sqlite3.connect(str(self._db_path))) as conn, conn:
-            conn.row_factory = sqlite3.Row
-            rows = conn.execute(
-                "SELECT * FROM network_baseline WHERE timestamp >= ? AND hour = ?",
-                (cutoff, hour),
-            ).fetchall()
-        return [NetworkFlowSnapshot(**{k: r[k] for k in r.keys() if k in NetworkFlowSnapshot.__dataclass_fields__}) for r in rows]
+        rows = self._snapshot_rows("network_baseline", hour)
+        _fields = NetworkFlowSnapshot.__dataclass_fields__
+        return [NetworkFlowSnapshot(**{k: r[k] for k in r.keys() if k in _fields}) for r in rows]
 
     def _extract_system_features(self, snapshots: List[SystemSnapshot]) -> Any:
         if not NUMPY_AVAILABLE:

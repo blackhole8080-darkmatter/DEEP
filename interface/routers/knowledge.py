@@ -1,5 +1,6 @@
 """Knowledge and Science Briefing endpoints."""
 from fastapi import APIRouter
+
 from interface.deps import services
 
 router = APIRouter(prefix="/knowledge", tags=["knowledge"])
@@ -80,8 +81,11 @@ async def knowledge_connect(body: dict):
 
 
 import hashlib
-from fastapi import UploadFile, File
 from typing import Dict
+
+from fastapi import File, UploadFile
+
+
 def _chunk_text(text: str, size: int = 900, overlap: int = 150):
     """Split text into overlapping chunks for embedding."""
     text = " ".join(text.split())  # normalise whitespace
@@ -104,7 +108,9 @@ def _extract_text(filename: str, raw: bytes) -> str:
             raise RuntimeError(f"PDF parse failed ({type(e).__name__})")
     if name.endswith(".docx"):
         try:
-            import io, zipfile, re as _re
+            import io
+            import re as _re
+            import zipfile
             with zipfile.ZipFile(io.BytesIO(raw)) as z:
                 xml = z.read("word/document.xml").decode("utf-8", "ignore")
             return _re.sub(r"<[^>]+>", "", xml.replace("</w:p>", "\n"))
