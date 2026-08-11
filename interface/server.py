@@ -1600,6 +1600,8 @@ _register_services(
     concept_linker=concept_linker,
     redis_state=redis_state,
     scanner=scanner,
+    net_graph=net_graph,
+    net_ai_analyst=net_ai_analyst,
     evil_twin=evil_twin,
     pihole=pihole,
     proximity=proximity,

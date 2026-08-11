@@ -211,3 +211,64 @@ def test_converted_routers_reach_services_through_require(module_name):
     }
     assert not reached, \
         f"{module_name} reaches services.{{{', '.join(sorted(reached))}}}"
+
+
+# ═══════════════════════════════════════════════════════════════════════════
+# Nothing served to the console may be invented
+# ═══════════════════════════════════════════════════════════════════════════
+
+
+def test_no_router_imports_a_module_that_does_not_exist():
+    """`/api/network/analyse` imported `network.ai_analyst`, which was never
+    written. The blanket catch turned that ModuleNotFoundError into a 200
+    carrying the import error, so the endpoint looked merely empty rather than
+    absent — and had in fact never worked once."""
+    import ast
+    import importlib.util
+    import pkgutil
+
+    import interface.routers
+
+    missing = []
+    for module_info in pkgutil.iter_modules(interface.routers.__path__):
+        tree = _parse(module_info.name)
+        for node in ast.walk(tree):
+            names = []
+            if isinstance(node, ast.ImportFrom) and node.module and node.level == 0:
+                names = [node.module]
+            elif isinstance(node, ast.Import):
+                names = [a.name for a in node.names]
+            for name in names:
+                root = name.split(".")[0]
+                if root not in ("core", "network", "ai", "domains", "knowledge", "engine"):
+                    continue          # third-party / stdlib
+                if importlib.util.find_spec(name) is None:
+                    missing.append(f"{module_info.name} -> {name}")
+    assert not missing, f"routers import modules that do not exist: {missing}"
+
+
+def test_the_network_graph_is_observed_not_simulated(client):
+    """`network/graph.py` fabricated its entire topology at import time with
+    `random` — 45 invented devices and 20 "Threat IP a.b.c.d" nodes marked
+    risk=high with an edge relation of literally "attack" — and the HUD's
+    network command centre was served straight from it.
+
+    A security console that invents attackers is worse than one showing
+    nothing. The real SQLite-backed graph existed the whole time.
+
+    Takes `client` so the registry is populated by this test rather than by
+    whichever test happened to import the server first.
+    """
+    from core.network_topology_graph import NetworkTopologyGraph
+    from interface.deps import services
+
+    graph = getattr(services, "net_graph", None)
+    assert graph is not None, "net_graph must be registered for the routers to reach it"
+    assert isinstance(graph, NetworkTopologyGraph)
+
+
+def test_the_simulated_graph_is_not_importable_from_the_live_tree():
+    import importlib.util
+
+    assert importlib.util.find_spec("network.graph") is None, \
+        "the simulated graph is back on the import path"
