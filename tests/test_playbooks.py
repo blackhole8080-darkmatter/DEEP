@@ -197,6 +197,40 @@ def test_a_skill_with_no_frontmatter_is_skipped_and_recorded(tmp_path):
     assert any("bare" in e for e in library.status()["parse_errors"])
 
 
+def test_a_present_but_unparseable_block_is_not_reported_as_no_frontmatter(tmp_path):
+    """A file that HAS a --- block but bad YAML must not be blamed for missing
+    frontmatter — that misdiagnosis sends you hunting a formatting problem that
+    isn't there. It hid the real cause (PyYAML absent) behind 816 wrong errors."""
+    _write(tmp_path, "good-playbook", techniques=["T1001"])
+    broken = tmp_path / "skills" / "broken-yaml"
+    broken.mkdir(parents=True)
+    (broken / "SKILL.md").write_text("---\nname: [unclosed\n  bracket: yes\n---\nbody")
+
+    library = PlaybookLibrary(tmp_path)
+    library.load()
+    errors = library.status()["parse_errors"]
+    broken_errors = [e for e in errors if "broken-yaml" in e]
+    assert broken_errors, "the malformed file should be recorded"
+    assert "no frontmatter" not in broken_errors[0]
+    assert "present but did not parse" in broken_errors[0]
+
+
+def test_missing_pyyaml_gives_one_clear_error_not_one_per_skill(tmp_path, monkeypatch):
+    """When PyYAML is unavailable the corpus can't load, but the diagnosis must
+    be a single actionable message, not one misleading error per skill."""
+    import core.playbooks as pb
+
+    _write(tmp_path, "a", techniques=["T1001"])
+    _write(tmp_path, "b", techniques=["T1002"])
+    monkeypatch.setattr(pb, "_yaml_available", lambda: False)
+
+    library = PlaybookLibrary(tmp_path)
+    assert library.load() == 0
+    errors = library.status()["parse_errors"]
+    assert len(errors) == 1
+    assert "PyYAML" in errors[0]
+
+
 # ═══════════════════════════════════════════════════════════════════════════
 # Technique lookup — the reason this exists
 # ═══════════════════════════════════════════════════════════════════════════

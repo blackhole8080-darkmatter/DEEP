@@ -171,6 +171,21 @@ class PlaybookLibrary:
         if skills is None:
             return 0
 
+        # PyYAML is a declared dependency (requirements.txt / pyproject.toml),
+        # but if it is somehow absent every file fails frontmatter parsing with
+        # an identical, misleading "no frontmatter" error. Detect that once and
+        # say what is actually wrong, rather than emitting 800 wrong diagnoses.
+        if not _yaml_available():
+            self._errors.append(
+                "PyYAML is not installed — no frontmatter can be parsed. "
+                "Install it with: pip install pyyaml"
+            )
+            logger.warning(
+                "playbook corpus present at %s but PyYAML is missing; "
+                "0 playbooks will load. Run: pip install pyyaml", skills,
+            )
+            return 0
+
         for skill_file in sorted(skills.glob("*/SKILL.md")):
             playbook = self._parse(skill_file)
             if playbook is None:
@@ -184,12 +199,22 @@ class PlaybookLibrary:
 
     def _parse(self, path: Path) -> Optional[Playbook]:
         try:
-            head = _read_frontmatter(path)
+            text = path.read_text(encoding="utf-8", errors="replace")
         except OSError as exc:
             self._errors.append(f"{path.name}: {exc}")
             return None
+        head = _frontmatter_from_text(text)
         if not head:
-            self._errors.append(f"{path.parent.name}: no frontmatter")
+            # Distinguish a file with no `---` block from one whose block is
+            # present but would not parse. The old code reported both as "no
+            # frontmatter", which sends you hunting for a formatting problem
+            # that isn't there when the real cause is a malformed YAML body.
+            if _frontmatter_block(text):
+                self._errors.append(
+                    f"{path.parent.name}: frontmatter block present but did not parse"
+                )
+            else:
+                self._errors.append(f"{path.parent.name}: no frontmatter")
             return None
 
         name = str(head.get("name") or path.parent.name).strip()
@@ -381,9 +406,18 @@ def _flatten_framework(value: Any) -> tuple[List[str], List[str]]:
     return [str(v).strip() for v in items if str(v).strip()], []
 
 
-def _read_frontmatter(path: Path) -> Dict[str, Any]:
-    """Parse the leading `---` YAML block. Never raises on bad YAML."""
-    text = path.read_text(encoding="utf-8", errors="replace")
+def _yaml_available() -> bool:
+    """Whether PyYAML can be imported. Used to give one clear error instead of
+    one misleading error per skill when the dependency is missing."""
+    try:
+        import yaml  # noqa: F401
+    except Exception:
+        return False
+    return True
+
+
+def _frontmatter_from_text(text: str) -> Dict[str, Any]:
+    """Parse the leading `---` YAML block from already-read text. Never raises."""
     block = _frontmatter_block(text)
     if not block:
         return {}
@@ -392,9 +426,14 @@ def _read_frontmatter(path: Path) -> Dict[str, Any]:
 
         data = yaml.safe_load(block)
     except Exception as exc:  # noqa: BLE001 - one malformed skill must not stop the index
-        logger.debug("frontmatter unparseable in %s: %s", path, exc)
+        logger.debug("frontmatter unparseable: %s", exc)
         return {}
     return data if isinstance(data, dict) else {}
+
+
+def _read_frontmatter(path: Path) -> Dict[str, Any]:
+    """Parse the leading `---` YAML block. Never raises on bad YAML."""
+    return _frontmatter_from_text(path.read_text(encoding="utf-8", errors="replace"))
 
 
 def _frontmatter_block(text: str) -> str:
