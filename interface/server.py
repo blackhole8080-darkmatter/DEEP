@@ -1655,8 +1655,13 @@ async def api_live_servers():
     return await get_live_public_servers()
 
 if __name__ == "__main__":
+    import os
     import uvicorn
+    # DEEP_PORT is the single source of truth for the API port. mcp_server/
+    # deep_mcp.py reads the same variable, so the two cannot drift apart —
+    # they did, and every MCP tool failed silently as a result.
+    port = int(os.environ.get("DEEP_PORT", "5174"))
     print(f"[DEEP] AI Server starting...")
     print(f"   Model: {settings.ollama_model}")
-    print(f"   URL: http://127.0.0.1:5174/ai")
-    uvicorn.run(app, host="127.0.0.1", port=5174, log_level="info")
+    print(f"   URL: http://127.0.0.1:{port}/ai")
+    uvicorn.run(app, host="127.0.0.1", port=port, log_level="info")

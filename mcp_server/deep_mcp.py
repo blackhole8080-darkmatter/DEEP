@@ -20,7 +20,11 @@ import os
 import httpx
 from mcp.server.fastmcp import FastMCP
 
-BASE = os.environ.get("DEEP_BASE_URL", "http://localhost:7768").rstrip("/")
+# The port must match interface/server.py, which reads the same DEEP_PORT
+# variable. This default was 7768 while the server bound 5174, so every tool
+# below failed with a connection error unless DEEP_BASE_URL happened to be set.
+DEFAULT_PORT = os.environ.get("DEEP_PORT", "5174")
+BASE = os.environ.get("DEEP_BASE_URL", f"http://localhost:{DEFAULT_PORT}").rstrip("/")
 mcp = FastMCP("DEEP")
 
 
@@ -110,19 +114,55 @@ async def deep_remember(fact: str) -> str:
 
 
 @mcp.tool()
-async def deep_research(unread_only: bool = False) -> str:
-    """Recent research findings DEEP has ingested (papers, articles, feeds),
-    with titles and sources. Set unread_only to focus on what's new."""
+async def deep_intel_feed(
+    days_back: int = 7, priority_only: bool = False, limit: int = 15
+) -> str:
+    """Recent security intelligence DEEP has ingested — advisories, vendor
+    blogs, CISA KEV entries and OSINT feeds — newest and most severe first.
+
+    Set priority_only to return just KEV-listed or high-severity items.
+    Summaries are trimmed; use the url to read any item in full.
+    """
     try:
-        data = await _get("/api/research/findings")
-        finds = data.get("findings", [])
-        if unread_only:
-            finds = [f for f in finds if f.get("read") in (False, None)]
-        out = [{"title": f.get("title"), "source": f.get("source"),
-                "type": f.get("source_type")} for f in finds[:15]]
-        return _fmt({"count": len(out), "findings": out})
+        payload = await _get("/api/etis/intel/feed", {"days_back": days_back})
+        items = (payload.get("data") or {}).get("items", [])
     except Exception as e:
-        return f"Research fetch failed: {e}"
+        return f"Intel feed fetch failed: {e}"
+
+    if priority_only:
+        items = [
+            i for i in items
+            if i.get("is_kev") or str(i.get("severity", "")).lower() in ("high", "critical")
+        ]
+
+    def rank(i):
+        sev = {"critical": 0, "high": 1, "medium": 2, "low": 3}
+        return (0 if i.get("is_kev") else 1,
+                sev.get(str(i.get("severity", "")).lower(), 4),
+                -(i.get("cvss_score") or 0))
+
+    # The raw feed is ~35 KB for 50 items, most of it long `summary` bodies.
+    # Trim the summary and drop id/tags: the model needs enough to decide what
+    # matters and a url to follow, not the whole article.
+    shaped = [
+        {
+            "title": i.get("title"),
+            "source": i.get("source"),
+            "published": i.get("published"),
+            "severity": i.get("severity"),
+            "kev": bool(i.get("is_kev")),
+            "cvss": i.get("cvss_score"),
+            "url": i.get("url"),
+            "summary": (i.get("summary") or "")[:200],
+        }
+        for i in sorted(items, key=rank)[:limit]
+    ]
+    return _fmt({
+        "window_days": days_back,
+        "returned": len(shaped),
+        "total_available": len(items),
+        "items": shaped,
+    })
 
 
 @mcp.tool()
