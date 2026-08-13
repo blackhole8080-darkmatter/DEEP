@@ -8,7 +8,7 @@ Model Context Protocol tools, so Claude Desktop / Cursor / any MCP client can
 use DEEP as an intelligence *backend* — not just an app.
 
 It is a thin, decoupled proxy over DEEP's running HTTP API (default
-http://localhost:7768), so DEEP must be running. Set DEEP_BASE_URL to override.
+http://localhost:5174), so DEEP must be running. Set DEEP_BASE_URL to override.
 
 Run (stdio):  python mcp_server/deep_mcp.py
 """

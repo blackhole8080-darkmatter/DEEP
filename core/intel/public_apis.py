@@ -339,6 +339,25 @@ CATALOG: tuple[PublicAPI, ...] = (
     ),
     # ── Certificates ────────────────────────────────────────────────────────
     PublicAPI(
+        id="urlscan",
+        name="urlscan.io",
+        category=Category.REPUTATION,
+        auth=Auth.NONE,
+        base_url="https://urlscan.io/api/v1/search/",
+        docs_url="https://urlscan.io/docs/api/",
+        description=(
+            "The historical scan corpus: what a page actually did when it was loaded — "
+            "redirect chain, resources fetched, servers contacted — plus apex-domain age "
+            "and Umbrella popularity rank. Search is keyless. Verdicts are NOT returned "
+            "by search on the free tier, so a missing verdict here means no data, never "
+            "'clean'."
+        ),
+        indicators=(Indicator.DOMAIN, Indicator.IP, Indicator.HASH),
+        env_var="URLSCAN_API_KEY",
+        rate_limit="unauthenticated search is generous; a free key raises it",
+        ttl_seconds=3600,
+    ),
+    PublicAPI(
         id="crtsh",
         name="crt.sh certificate transparency",
         category=Category.CERTIFICATE,

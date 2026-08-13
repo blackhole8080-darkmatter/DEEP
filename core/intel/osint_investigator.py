@@ -29,7 +29,10 @@ from dataclasses import asdict, dataclass, field
 from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional, Tuple
 
+from urllib.parse import quote
+
 from core.intel import public_apis
+from core.intel import urlscan as urlscan_lib
 from core.intel.http import Fetch, IntelHTTP, shared_http
 from core.intel.public_apis import Indicator
 
@@ -197,6 +200,7 @@ class OSINTInvestigator:
             "feodo": self._fetch("feodo", "https://feodotracker.abuse.ch/downloads/ipblocklist.json"),
         }
         results = await self._gather(tasks, d)
+        await self._urlscan("ip", ip, d)
 
         exposure = results.get("shodan_internetdb")
         if isinstance(exposure, dict):
@@ -292,6 +296,7 @@ class OSINTInvestigator:
             ),
         }
         results = await self._gather(tasks, d)
+        await self._urlscan("domain", domain, d)
 
         a_records = _doh_answers(results.get("dns_doh_a"))
         if a_records:
@@ -546,12 +551,103 @@ class OSINTInvestigator:
                     d.signals.append("known_vulns")
             else:
                 d.degraded["virustotal"] = fetch.error or "no result"
+        elif len(digest) == 64:
+            d.findings.append(
+                Finding("local", "note",
+                        "File-hash *reputation* needs VIRUSTOTAL_API_KEY. urlscan covers "
+                        "resource hashes keylessly — which pages served this file — but "
+                        "that is provenance, not a malware verdict.")
+            )
         else:
             d.findings.append(
                 Finding("local", "note",
-                        "File-hash reputation needs VIRUSTOTAL_API_KEY; no keyless source "
-                        "covers hashes.")
+                        "File-hash reputation needs VIRUSTOTAL_API_KEY; urlscan's keyless "
+                        "resource-hash pivot is SHA-256 only.")
             )
+
+        # urlscan indexes the SHA-256 of every resource it fetched, so a known-bad
+        # file pivots to every page observed serving it. Keyless, and something no
+        # other catalogued source offers.
+        if len(digest) == 64:
+            await self._urlscan("hash", digest, d)
+
+    async def _urlscan(self, kind: str, value: str, d: Dossier) -> None:
+        """Add urlscan.io's behavioural history for a domain, IP or hash.
+
+        Runs after the other collectors rather than inside the gather, because
+        its findings depend on partitioning the hits — see core/intel/urlscan.py
+        for why reputation may only be read off scans that actually landed.
+        """
+        try:
+            query = urlscan_lib.search_query(kind, value)
+        except ValueError:
+            return
+        url = f"{urlscan_lib.SEARCH_URL}?q={quote(query)}&size=100"
+
+        api = public_apis.get("urlscan")
+        fetch = await self._http.get_json(url, ttl=api.ttl_seconds if api else 3600)
+        if "urlscan" not in d.sources_queried:
+            d.sources_queried.append("urlscan")
+        if not fetch.ok or not isinstance(fetch.data, dict):
+            d.degraded["urlscan"] = fetch.error or "no result"
+            return
+        if "urlscan" not in d.sources_answered:
+            d.sources_answered.append("urlscan")
+
+        hits = [h for h in (fetch.data.get("results") or []) if isinstance(h, dict)]
+        if not hits:
+            # Distinct from "nothing bad found": the corpus simply has no
+            # record of this indicator, which is itself worth stating.
+            d.findings.append(
+                Finding("urlscan", "scans_found", 0,
+                        "info")
+            )
+            return
+
+        summary = urlscan_lib.summarise(hits, kind, value)
+        d.findings.append(Finding("urlscan", "scans_found", summary["scans_found"]))
+        if summary["scans_redirected_away"]:
+            d.findings.append(
+                Finding("urlscan", "redirects_away_to",
+                        summary["redirect_destinations"], "medium")
+            )
+        if summary["min_apex_domain_age_days"] is not None:
+            age = summary["min_apex_domain_age_days"]
+            d.findings.append(
+                Finding("urlscan", "apex_domain_age_days", age,
+                        "high" if age < 30 else "medium" if age < 180 else "info")
+            )
+            if age < 30:
+                d.signals.append("very_young_domain")
+        if summary["reputation_attributable"] and not summary["ranked_in_umbrella"]:
+            d.findings.append(
+                Finding("urlscan", "umbrella_ranked", False, "low")
+            )
+        elif summary["best_umbrella_rank"] is not None:
+            d.findings.append(
+                Finding("urlscan", "umbrella_rank", summary["best_umbrella_rank"])
+            )
+        if summary["tags"]:
+            malicious_tag = next(
+                (t for t in summary["tags"]
+                 if any(m in t for m in ("phishing", "malicious", "malware", "scam"))),
+                None,
+            )
+            d.findings.append(
+                Finding("urlscan", "submitter_tags", summary["tags"],
+                        "high" if malicious_tag else "info")
+            )
+            if malicious_tag:
+                d.signals.append("urlscan_tagged_malicious")
+        for signal in urlscan_lib.risk_signals(summary):
+            d.findings.append(Finding("urlscan", "observation", signal, "medium"))
+
+        # Said out loud so neither an operator nor the model reads the absence
+        # of a malicious verdict as a clean one.
+        d.findings.append(
+            Finding("urlscan", "verdicts_available", False,
+                    "info")
+        )
 
     # ── fetch plumbing ───────────────────────────────────────────────────────
 

@@ -1,0 +1,15 @@
+{
+  "_comment": [
+    "Copy to data/mcp_servers.json to give DEEP tools from external MCP servers.",
+    "Same shape Claude Desktop and Cursor use, so a server you already run there",
+    "can be pasted straight across. Tools arrive namespaced as <server>__<tool>.",
+    "Delete this file and DEEP behaves exactly as before."
+  ],
+  "mcpServers": {
+    "urlscan": {
+      "command": "python",
+      "args": ["-m", "urlscan_mcp.server"],
+      "env": { "URLSCAN_API_KEY": "" }
+    }
+  }
+}

@@ -16,6 +16,7 @@ psutil
 numpy
 scipy
 pyyaml         # frontmatter for response playbooks; core/automation_builder.py
+mcp>=1.2,<2    # mcp_server/deep_mcp.py + core/mcp_client.py; 2.0 dropped fastmcp
 
 # --- Plugin Ecosystem ---
 watchdog         # File system monitoring for workspace plugin

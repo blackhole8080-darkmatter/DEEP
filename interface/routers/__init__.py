@@ -6,7 +6,7 @@ server.py mounts via `app.include_router(...)`.
 """
 
 from interface.routers import (
-    alerts,
+    alerts, mcp,
     anomaly,
     audit,
     etis,
@@ -40,6 +40,7 @@ ROUTERS = [
     security_timeline.router,
     intel.router,
     alerts.router,
+    mcp.router,
 ]
 
 from interface.ws import router as ws_router

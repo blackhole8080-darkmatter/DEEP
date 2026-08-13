@@ -646,6 +646,18 @@ async def startup_event():
     except Exception as exc:
         print(f"[DEEP] intel refresher failed to start: {exc}")
 
+    # Connect any external MCP servers the operator configured, and register
+    # their tools alongside DEEP's own. Optional: no config file, no change.
+    try:
+        from core.mcp_client import shared_mcp_hub
+        _hub = shared_mcp_hub()
+        _added = await _hub.start()
+        if _added:
+            _up = [s["name"] for s in _hub.status()["servers"] if s["connected"]]
+            print(f"[DEEP] MCP client: {_added} tool(s) from {', '.join(_up)}")
+    except Exception as exc:
+        print(f"[DEEP] MCP client failed to start: {exc}")
+
 
 async def _briefing_loop():
     """Speak a morning briefing once per day at DEEP_BRIEFING_HOUR (local). Off if unset/<0."""
@@ -712,6 +724,11 @@ async def shutdown_event():
     # Pooled aiohttp sessions. Neither of these was being closed, so every
     # shutdown leaked a connector: the intel layer's public-API session, and
     # the LLM client's (which /api/status opens via brain.health_check).
+    try:
+        from core.mcp_client import shared_mcp_hub
+        await shared_mcp_hub().stop()
+    except Exception:
+        pass
     try:
         from core.intel.refresher import shared_refresher
         await shared_refresher().stop()

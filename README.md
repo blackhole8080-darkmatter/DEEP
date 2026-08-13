@@ -32,11 +32,12 @@ wishlist.
   so a verdict can be audited rather than trusted. A source that times out
   lands in `degraded` and the rest of the report still renders; if *nothing*
   answers, the verdict is `unknown`, never a fabricated all-clear.
-- **20 catalogued public APIs, 16 of which need no key at all** — CISA KEV,
+- **21 catalogued public APIs, 17 of which need no key at all** — CISA KEV,
   FIRST EPSS, NVD, OSV.dev, GitHub Advisories, Shodan InternetDB, SANS ISC,
   abuse.ch Feodo Tracker, the Tor exit list, RDAP, RIPEstat, Cloudflare DoH,
-  crt.sh, Have I Been Pwned's breach catalog and more. `GET /api/intel/sources`
-  shows exactly which are live and which are waiting on a key you haven't set.
+  crt.sh, urlscan.io, Have I Been Pwned's breach catalog and more.
+  `GET /api/intel/sources` shows exactly which are live and which are waiting
+  on a key you haven't set.
   Shodan/VirusTotal/AbuseIPDB/OTX slot in on top when you supply keys.
 - Live threat intel ingestion: CISA KEV, major security blogs (Krebs,
   The Hacker News, BleepingComputer, SANS ISC, Cisco Talos, Google Project
@@ -79,9 +80,8 @@ wishlist.
 **Operations center**
 - **A read-only ops terminal** in the HUD: `investigate`, `whois`, `dns`,
   `subdomains`, `exposure`, `cve`, `kev`, `epss`, `deps`, `threatmap`,
-  `stats`, `sources`, `playbook`, `cache`, `devices`, `timeline`, `scan`. History,
-  tab completion
-  and structured output. Nothing shells out — an unrecognised verb is an
+  `stats`, `sources`, `playbook`, `cache`, `devices`, `timeline`, `scan`.
+  History, tab completion and structured output. Nothing shells out — an unrecognised verb is an
   error, not something handed to a shell — and `scan`, the only command that
   emits a packet, refuses any target outside your own subnet.
 - **Live statistics board**: KEV velocity (added in 7/30/90 days, overdue
@@ -100,6 +100,17 @@ wishlist.
   rather than leaving you to wonder whether nothing has happened yet.
   The webhook is the only part of DEEP that sends observations off the machine,
   so it stays inert until you set `DEEP_ALERT_WEBHOOK`.
+- **DEEP can borrow other people's tools.** `mcp_server/` has always let
+  Claude Desktop use DEEP as a backend; `core/mcp_client.py` is the other
+  direction. Point `data/mcp_servers.json` at any Model Context Protocol server
+  — same config shape Claude Desktop and Cursor use, so one you already run can
+  be pasted across — and its tools are discovered at startup and registered
+  into the same registry the reasoning brain reads. No adapter per server, no
+  code change to add one. Tools arrive namespaced `<server>__<tool>` so a
+  stranger's `search` can never shadow DEEP's, a collision is refused rather
+  than overwritten, and a server that fails to launch is reported by name with
+  its reason at `GET /api/mcp/status` instead of just going missing. With no
+  config file, nothing changes.
 - **Response playbooks, keyed to the techniques DEEP already matches.** The
   correlator can tell you an anomaly looks like `T1071.001`; that is a
   diagnosis with no next step. `playbook T1071.001` in the terminal (or
@@ -216,6 +227,7 @@ startup log.
 | `ABUSEIPDB_API_KEY` | IP abuse reputation | [abuseipdb.com](https://www.abuseipdb.com/register) |
 | `OTX_API_KEY` | AlienVault threat-intel pulses | [otx.alienvault.com](https://otx.alienvault.com/api) |
 | `ABUSECH_AUTH_KEY` | URLhaus + ThreatFox malware/IOC feeds | [auth.abuse.ch](https://auth.abuse.ch/) |
+| `URLSCAN_API_KEY` | urlscan scan *submission* (search is keyless) | [urlscan.io](https://urlscan.io/user/signup) |
 | `NEWSAPI_KEY` | broader news briefings | [newsapi.org](https://newsapi.org) |
 
 See `.env.example` for the full list with inline notes.

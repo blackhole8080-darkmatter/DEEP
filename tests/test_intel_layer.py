@@ -527,14 +527,19 @@ def test_keyless_sources_are_always_configured():
             assert api.configured is True
 
 
-def test_every_indicator_type_has_a_keyless_source_except_hash():
-    """A fresh clone with no keys must still answer for everything but file hashes."""
+def test_every_indicator_type_has_a_keyless_source():
+    """A fresh clone with no keys must answer for every indicator type.
+
+    Hashes were the one gap until urlscan.io was catalogued. Note what it
+    actually provides: urlscan indexes the SHA-256 of every resource it
+    fetched, so a hash pivots to the pages observed serving that file. That is
+    *provenance*, not a malware verdict — reputation still needs VirusTotal, and
+    `_collect_hash` says so rather than letting a keyless answer imply more
+    than it covers.
+    """
     for kind in public_apis.Indicator:
         keyless = public_apis.for_indicator(kind, keyless_only=True)
-        if kind is public_apis.Indicator.HASH:
-            assert keyless == []
-        else:
-            assert keyless, f"no keyless source covers {kind.value}"
+        assert keyless, f"no keyless source covers {kind.value}"
 
 
 @pytest.mark.asyncio

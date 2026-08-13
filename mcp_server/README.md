@@ -16,7 +16,7 @@ Exposes DEEP's local intelligence to any **Model Context Protocol** client
 | `deep_security_status` | Network device counts, suspicious activity, audit-chain integrity |
 
 ## How it works
-A thin, decoupled proxy over DEEP's HTTP API (default `http://localhost:7768`).
+A thin, decoupled proxy over DEEP's HTTP API (default `http://localhost:5174`).
 **DEEP must be running** (it auto-starts at login). Override the target with the
 `DEEP_BASE_URL` env var.
 
