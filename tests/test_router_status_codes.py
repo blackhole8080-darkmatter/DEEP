@@ -146,8 +146,13 @@ def test_a_missing_training_report_is_404(client):
 
 CONVERTED = (
     "state", "anomaly", "threat", "predictive", "evolution", "security_timeline",
-    "intel", "alerts",
+    "intel", "alerts", "network", "audit", "security", "mcp",
+    "knowledge_graph",
 )
+
+
+#: Package roots that belong to DEEP; anything else is third-party or stdlib.
+_FIRST_PARTY = ("core", "network", "ai", "domains", "knowledge", "engine")
 
 
 def _parse(module_name: str):
@@ -240,7 +245,7 @@ def test_no_router_imports_a_module_that_does_not_exist():
                 names = [a.name for a in node.names]
             for name in names:
                 root = name.split(".")[0]
-                if root not in ("core", "network", "ai", "domains", "knowledge", "engine"):
+                if root not in _FIRST_PARTY:
                     continue          # third-party / stdlib
                 if importlib.util.find_spec(name) is None:
                     missing.append(f"{module_info.name} -> {name}")
