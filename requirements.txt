@@ -114,6 +114,9 @@ matplotlib         # Plot generation (physics, RF spectrum, firmware entropy)
 
 # --- Cybersecurity / OSINT ---
 # aiohttp already included above
+urlscan-mcp       # urlscan.io: URL/page-level intelligence, and the MCP server
+                  #   DEEP bridges. Search needs no key; set URLSCAN_API_KEY to
+                  #   submit live scans. Pulls in `mcp`, which core/mcp/ needs.
 pypdf              # PDF metadata extraction (OSINT)
 # dnspython is optional — fallback uses socket
 dnspython          # DNS query library for OSINT passive recon

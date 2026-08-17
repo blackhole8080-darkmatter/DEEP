@@ -521,20 +521,35 @@ def test_catalog_ids_are_unique():
     assert len(ids) == len(set(ids))
 
 
-def test_keyless_sources_are_always_configured():
+def test_keyless_sources_are_configured_unless_a_package_is_missing():
+    """No keyless source may need a credential.
+
+    One kind of unavailability survives: a source whose reader lives in an
+    optional package. That is reported through `unavailable_reason` rather than
+    by claiming the source is live and failing when something calls it.
+    """
     for api in public_apis.CATALOG:
-        if api.auth is public_apis.Auth.NONE:
+        if api.auth is not public_apis.Auth.NONE:
+            continue
+        if api.package_installed:
             assert api.configured is True
+        else:
+            assert api.configured is False
+            assert api.requires_package in (api.unavailable_reason or "")
 
 
-def test_every_indicator_type_has_a_keyless_source_except_hash():
-    """A fresh clone with no keys must still answer for everything but file hashes."""
+def test_every_indicator_type_has_a_keyless_source():
+    """A fresh clone with no keys must still answer for every indicator type.
+
+    Hashes were the exception until urlscan.io joined the catalog: it indexes
+    the SHA-256 of every resource a scanned page loaded, so a hash pivots to
+    the pages serving it without a key. That is page-level evidence, not file
+    reputation — VirusTotal is still the only source that scores the file —
+    but it is no longer nothing.
+    """
     for kind in public_apis.Indicator:
         keyless = public_apis.for_indicator(kind, keyless_only=True)
-        if kind is public_apis.Indicator.HASH:
-            assert keyless == []
-        else:
-            assert keyless, f"no keyless source covers {kind.value}"
+        assert keyless, f"no keyless source covers {kind.value}"
 
 
 @pytest.mark.asyncio
