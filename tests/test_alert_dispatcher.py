@@ -449,3 +449,218 @@ def test_the_test_endpoint_reports_per_channel_results(client):
     body = r.json()
     assert body["sent"]["title"] == "probe"
     assert body["channels"]["log"] is True
+
+
+# ═══════════════════════════════════════════════════════════════════════════
+# Approval requests
+#
+# An approval is not a threat, and the differences matter. It exists because
+# the user asked for something, so the gates that stop DEEP interrupting
+# unprompted must not hold it. And it names the exact thing awaiting
+# confirmation — for a urlscan submission, a URL that may carry a session
+# token, which is the whole reason it needs confirming — so it must never
+# reach a channel that leaves the machine.
+# ═══════════════════════════════════════════════════════════════════════════
+
+
+class OffDeviceChannel(RecordingChannel):
+    name = "off-device"
+    leaves_device = True
+
+
+def _approval_payload(**overrides):
+    payload = {
+        "id": "9f2a11c0",
+        "tool": "url_scan_submit",
+        "label": "Publish a public urlscan.io scan of https://evil.test/login?session=SECRET",
+        "detail": "A public scan is permanently visible, and the site owner can see it.",
+        "pending": 1,
+    }
+    payload.update(overrides)
+    return payload
+
+
+def test_an_approval_request_becomes_a_high_solicited_local_alert():
+    alert = AlertDispatcher.normalise("approval_pending", _approval_payload())
+
+    assert alert is not None
+    assert alert.kind == "approval_request"
+    assert alert.severity == "high"
+    assert alert.solicited is True
+    assert alert.local_only is True
+    assert alert.context["action_id"] == "9f2a11c0"
+
+
+def test_the_approval_alert_says_what_to_do_and_that_nothing_has_run():
+    alert = AlertDispatcher.normalise("approval_pending", _approval_payload())
+
+    assert "Approvals panel" in alert.body
+    assert "nothing runs until you decide" in alert.body
+    assert "expires in 15 minutes" in alert.body
+
+
+def test_an_approval_without_an_id_or_label_produces_nothing():
+    assert AlertDispatcher.normalise("approval_pending", {}) is None
+    assert AlertDispatcher.normalise("approval_pending", _approval_payload(label="")) is None
+    assert AlertDispatcher.normalise("approval_pending", _approval_payload(id="")) is None
+
+
+def test_retrying_the_same_action_notifies_once():
+    """A model in a retry loop must not produce five notifications."""
+    first = AlertDispatcher.normalise("approval_pending", _approval_payload(id="aaa"))
+    again = AlertDispatcher.normalise("approval_pending", _approval_payload(id="bbb"))
+
+    assert first.dedupe_key == again.dedupe_key, "same action, fresh id — one alert"
+
+
+def test_a_different_url_is_a_different_alert():
+    other = AlertDispatcher.normalise(
+        "approval_pending", _approval_payload(label="Publish a scan of https://other.test/")
+    )
+    first = AlertDispatcher.normalise("approval_pending", _approval_payload())
+
+    assert first.dedupe_key != other.dedupe_key
+
+
+@pytest.mark.asyncio
+async def test_quiet_hours_do_not_hold_a_request_the_user_is_waiting_on(dispatcher, channel):
+    """23:01 is not a reason to strand a reply someone just asked for."""
+    dispatcher._in_quiet_hours = lambda: True  # type: ignore[method-assign]
+    alert = AlertDispatcher.normalise("approval_pending", _approval_payload())
+
+    assert await dispatcher.consider(alert) is True
+    assert len(channel.sent) == 1
+
+
+@pytest.mark.asyncio
+async def test_the_rate_limit_does_not_hold_an_approval(dispatcher, channel):
+    _open_the_gates(dispatcher)
+    await dispatcher.consider(_alert("high", key="unrelated"))
+    assert len(channel.sent) == 1
+
+    # A threat arriving now would be rate-limited; the approval must not be.
+    alert = AlertDispatcher.normalise("approval_pending", _approval_payload())
+    assert await dispatcher.consider(alert) is True
+    assert len(channel.sent) == 2
+
+
+@pytest.mark.asyncio
+async def test_a_solicited_alert_is_still_deduplicated(dispatcher, channel):
+    """Solicited skips the timing gates, not the ones about the alert's worth."""
+    _open_the_gates(dispatcher)
+    first = AlertDispatcher.normalise("approval_pending", _approval_payload(id="aaa"))
+    again = AlertDispatcher.normalise("approval_pending", _approval_payload(id="bbb"))
+
+    assert await dispatcher.consider(first) is True
+    assert await dispatcher.consider(again) is False
+    assert len(channel.sent) == 1
+
+
+@pytest.mark.asyncio
+async def test_a_solicited_alert_still_obeys_the_severity_floor(tmp_path):
+    recording = RecordingChannel()
+    strict = AlertDispatcher(channels=[recording], min_severity="critical", data_dir=tmp_path)
+    _open_the_gates(strict)
+
+    alert = AlertDispatcher.normalise("approval_pending", _approval_payload())
+    assert await strict.consider(alert) is False
+    assert recording.sent == []
+
+
+@pytest.mark.asyncio
+async def test_the_url_being_confirmed_never_reaches_an_off_device_channel(tmp_path):
+    """The gate exists because the URL may be private. Leaking it to a webhook
+    before the user decides — and even if they decline — defeats the point."""
+    local, remote = RecordingChannel(), OffDeviceChannel()
+    dispatcher = AlertDispatcher(
+        channels=[local, remote], min_severity="high", data_dir=tmp_path
+    )
+    _open_the_gates(dispatcher)
+
+    alert = AlertDispatcher.normalise("approval_pending", _approval_payload())
+    assert await dispatcher.consider(alert) is True
+
+    assert len(local.sent) == 1
+    assert remote.sent == [], "an approval must never leave the machine"
+
+
+@pytest.mark.asyncio
+async def test_withholding_from_a_channel_is_recorded_not_silent(tmp_path):
+    local, remote = RecordingChannel(), OffDeviceChannel()
+    dispatcher = AlertDispatcher(
+        channels=[local, remote], min_severity="high", data_dir=tmp_path
+    )
+    _open_the_gates(dispatcher)
+    await dispatcher.consider(AlertDispatcher.normalise("approval_pending", _approval_payload()))
+
+    record = dispatcher.recent(1)[0]
+    assert record["withheld_from"] == ["off-device"]
+    assert record["channels"] == ["recording"]
+
+
+@pytest.mark.asyncio
+async def test_an_ordinary_threat_still_reaches_an_off_device_channel(tmp_path):
+    """local_only is a property of the alert, not a blanket webhook shutdown."""
+    local, remote = RecordingChannel(), OffDeviceChannel()
+    dispatcher = AlertDispatcher(
+        channels=[local, remote], min_severity="high", data_dir=tmp_path
+    )
+    _open_the_gates(dispatcher)
+    await dispatcher.consider(_alert("high"))
+
+    assert len(remote.sent) == 1
+    assert "withheld_from" not in dispatcher.recent(1)[0]
+
+
+def test_the_real_webhook_channel_declares_that_it_leaves_the_device():
+    assert WebhookChannel("https://hooks.example/x").leaves_device is True
+    assert LogChannel().leaves_device is False
+    assert DesktopChannel().leaves_device is False
+
+
+@pytest.mark.asyncio
+async def test_resolving_an_approval_notifies_nobody(dispatcher, channel):
+    """Only the request is worth an interruption; the outcome is not."""
+    assert AlertDispatcher.normalise("approval_resolved", {"id": "x", "tool": "t"}) is None
+    assert "approval_resolved" not in AlertDispatcher.SUBSCRIBED
+
+
+@pytest.mark.asyncio
+async def test_a_parked_action_reaches_a_channel_through_the_real_bus(tmp_path):
+    """The production chain: enqueue → notifier → bus → dispatcher → channel."""
+    import asyncio
+
+    from core import pending_actions
+
+    bus = EventBus()
+    await bus.start()
+    recording = RecordingChannel()
+    dispatcher = AlertDispatcher(
+        event_bus=bus, channels=[recording], min_severity="high", data_dir=tmp_path
+    )
+    await dispatcher.start()
+
+    def notify(event: str, payload: Dict[str, Any]) -> None:
+        asyncio.get_running_loop().create_task(bus.publish(event, payload))
+
+    pending_actions.clear()
+    pending_actions.set_notifier(notify)
+    try:
+        pending_actions.enqueue(
+            "url_scan_submit",
+            {"url": "https://evil.test/x"},
+            label="Publish a public urlscan.io scan of https://evil.test/x",
+            detail="A public scan is permanently visible.",
+        )
+        for _ in range(20):
+            await asyncio.sleep(0.02)
+            if recording.sent:
+                break
+    finally:
+        pending_actions.set_notifier(None)
+        pending_actions.clear()
+        await dispatcher.stop()
+        await bus.stop()
+
+    assert len(recording.sent) == 1
+    assert recording.sent[0].kind == "approval_request"

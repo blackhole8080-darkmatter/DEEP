@@ -70,6 +70,21 @@ class Alert:
     context: Dict[str, Any] = field(default_factory=dict)
     #: How many alerts were dropped by the gates since the last delivery.
     suppressed: int = 0
+    #: True when this alert exists because the user just asked for something,
+    #: rather than because DEEP noticed something. Quiet hours and rate limits
+    #: exist to stop DEEP interrupting a person who did not ask to be
+    #: interrupted; applying them to a reply the user is actively waiting for
+    #: turns a gate against the person it protects. Solicited alerts therefore
+    #: skip those two gates — never the severity floor or deduplication, which
+    #: are about the alert's own worth rather than about timing.
+    solicited: bool = False
+    #: True when this alert's contents must not leave the machine, whatever
+    #: channels are configured. An approval request names the exact thing being
+    #: confirmed — for a urlscan submission, a URL that may carry a token or a
+    #: session id, which is the very reason it needs confirming. Shipping that
+    #: to a third-party webhook before the user has decided (and even if they
+    #: then decline) would leak precisely what the gate exists to protect.
+    local_only: bool = False
 
     def to_dict(self) -> Dict[str, Any]:
         return {
@@ -83,6 +98,8 @@ class Alert:
             "timestamp": self.timestamp,
             "context": self.context,
             "suppressed": self.suppressed,
+            "solicited": self.solicited,
+            "local_only": self.local_only,
         }
 
     def render(self) -> str:
@@ -102,6 +119,11 @@ class Channel:
     """A place an alert can be delivered. Never raises out of ``send``."""
 
     name = "channel"
+
+    #: True when delivering here sends the alert's contents off this machine.
+    #: The dispatcher skips these for ``local_only`` alerts, so a channel must
+    #: declare this honestly rather than the dispatcher guessing from its name.
+    leaves_device = False
 
     @property
     def available(self) -> bool:
@@ -178,6 +200,7 @@ class WebhookChannel(Channel):
     """
 
     name = "webhook"
+    leaves_device = True
 
     def __init__(self, url: str, timeout_s: float = 10.0) -> None:
         self._url = url
@@ -234,7 +257,14 @@ class AlertDispatcher:
     """Turns alert events into notifications a person actually receives."""
 
     #: Events carrying something worth delivering, and how to read them.
-    SUBSCRIBED = ("security_alert_correlated", "world_threat_match", "security_alert")
+    SUBSCRIBED = (
+        "security_alert_correlated", "world_threat_match", "security_alert",
+        # Not a threat — a request. DEEP parked an action it will not take
+        # without a yes, and that yes has a 15-minute life. The HUD badge only
+        # helps someone looking at the HUD; this is the path for someone who
+        # asked DEEP to do something and then switched windows.
+        "approval_pending",
+    )
 
     MIN_GAP_SECONDS = 120
     MAX_PER_DAY = 30
@@ -308,6 +338,45 @@ class AlertDispatcher:
     @staticmethod
     def normalise(event_name: str, payload: Dict[str, Any]) -> Optional[Alert]:
         """Map one bus event onto an Alert, or None if it carries nothing."""
+        if event_name == "approval_pending":
+            label = str(payload.get("label") or "").strip()
+            action_id = str(payload.get("id") or "").strip()
+            if not label or not action_id:
+                return None
+            tool = str(payload.get("tool") or "an action")
+            detail = str(payload.get("detail") or "").strip()
+            return Alert(
+                id=f"alert_approval_{action_id}",
+                kind="approval_request",
+                # High rather than critical. It needs an answer inside fifteen
+                # minutes, which is what separates it from an FYI — but it is
+                # a question, and a question does not get to override the
+                # judgement that critical is reserved for.
+                severity="high",
+                title=f"DEEP needs your OK: {label}"[:96],
+                body="\n".join(filter(None, [
+                    label,
+                    detail,
+                    "Approve or reject it in DEEP's Approvals panel. "
+                    "It expires in 15 minutes, and nothing runs until you decide.",
+                ])),
+                source="approvals",
+                # Keyed on what is being confirmed, not on the action id, which
+                # is fresh every time. A model retrying the same submission
+                # produces one notification, not five — while a different URL
+                # produces a different label and rightly notifies again.
+                dedupe_key=f"approval:{tool}:{label.lower()}",
+                # The queue only fills when a tool runs, and DEEP's tools run
+                # in response to a user turn. Revisit this if an autonomous
+                # path ever enqueues an action nobody asked for.
+                solicited=True,
+                # The label names the exact thing awaiting confirmation — for a
+                # urlscan submission, a URL that may carry a token. See
+                # Alert.local_only.
+                local_only=True,
+                context={"action_id": action_id, "tool": tool},
+            )
+
         if event_name == "world_threat_match":
             cve = str(payload.get("cve_id") or "").strip()
             entity = str(payload.get("matched_entity") or "").strip()
@@ -411,6 +480,14 @@ class AlertDispatcher:
         if rank(alert.severity) >= rank("critical"):
             return ""
 
+        # So does a solicited alert, for the opposite reason: the remaining
+        # gates all answer "is DEEP interrupting too much?", and an alert the
+        # user's own request produced is not an interruption. Holding one back
+        # at 23:01 because it is technically quiet hours would strand a request
+        # the user is sitting there waiting on.
+        if alert.solicited:
+            return ""
+
         if self._in_quiet_hours():
             return "quiet_hours"
         if self._delivered_today >= self.MAX_PER_DAY:
@@ -438,13 +515,26 @@ class AlertDispatcher:
         self._suppressed = 0
         self._counts["delivered"] += 1
 
+        # A local-only alert never reaches a channel that would carry it off
+        # the machine, regardless of what is configured.
+        targets = [
+            c for c in self.channels
+            if not (alert.local_only and c.leaves_device)
+        ]
+        withheld = [c.name for c in self.channels if c not in targets]
+
         results = await asyncio.gather(
-            *(self._send_one(channel, alert) for channel in self.channels),
+            *(self._send_one(channel, alert) for channel in targets),
             return_exceptions=False,
         )
-        delivered_to = [c.name for c, ok in zip(self.channels, results) if ok]
+        delivered_to = [c.name for c, ok in zip(targets, results) if ok]
 
         record = {**alert.to_dict(), "channels": delivered_to}
+        if withheld:
+            # Recorded, not silent: a channel the user configured did not fire,
+            # and they should be able to see that it was withheld by policy
+            # rather than broken.
+            record["withheld_from"] = withheld
         self._recent.append(record)
         self._recent = self._recent[-50:]
         self._save()
