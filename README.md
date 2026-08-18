@@ -71,6 +71,16 @@ wishlist.
   surface was audited by executing all of them, not by reading the list.
   Off-mission groups (phone control, personal finance, email, XR) and tools
   that referenced integrations the registry never built are gone.
+- **Outward-facing actions need your yes.** Publishing a URL to urlscan.io
+  makes a permanent public record and tells the site owner the link was
+  scanned, so `url_scan_submit` parks the request instead of running it: it
+  lands in `GET /api/actions/pending` with the exact URL and visibility named,
+  and only `POST /api/actions/{id}/approve` re-runs the tool for real. Consent
+  expires after 15 minutes, rejecting is one call, and the model cannot
+  self-approve — the approval flag is stripped on the way in. The same gate has
+  guarded `block_device` and `vpn_control` for a while; until now nothing
+  listed the queue or ran anything out of it, so those actions were parked
+  forever behind a message promising an Approvals panel that did not exist.
 - Shell execution (`run_command`) is opt-in behind `DEEP_ENABLE_SHELL_TOOL`.
   The other file tools are path-sandboxed to a workspace root; that command
   is not — it sandboxes the working directory, not the command — so it isn't

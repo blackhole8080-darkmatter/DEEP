@@ -201,6 +201,10 @@ async def urlscan_submit(body: ScanRequest):
     POST rather than GET because this has a side effect a user would care
     about: a public scan is permanently visible on urlscan.io, and the site
     owner can see it was scanned.
+
+    No approval gate here, unlike the ``url_scan_submit`` tool: this endpoint
+    *is* the human acting. The gate exists to stop the model publishing on the
+    user's behalf, not to make the user confirm their own click.
     """
     if not body.url.lower().startswith(("http://", "https://")):
         raise HTTPException(status_code=422, detail="Expected an http:// or https:// URL.")

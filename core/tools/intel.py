@@ -26,7 +26,8 @@ from core.domain.models import ToolResult
 from core.intel import public_apis
 from core.intel.live_stats import shared_live_intel
 from core.intel.osint_investigator import Dossier, OSINTInvestigator
-from core.intel.urlscan import shared_urlscan
+from core.intel.urlscan import has_api_key as urlscan_has_key, shared_urlscan
+from core.pending_actions import enqueue
 from core.tools.registry import tool
 
 _investigator = OSINTInvestigator()
@@ -262,10 +263,12 @@ async def url_lookup(ctx: Any, args: Dict[str, Any]) -> ToolResult:
     "url_scan_submit",
     "Submit a URL to urlscan.io for a LIVE scan, for a link nobody has scanned "
     "before. Prefer url_lookup first — it reads the existing corpus for free and "
-    "usually answers the question. This one needs URLSCAN_API_KEY, takes 10-30 "
-    "seconds to produce a result, and a public submission is permanently visible "
-    "on urlscan.io along with the fact that it was scanned. Do not submit URLs "
-    "containing tokens, session ids or anything else private.",
+    "usually answers the question. This one needs URLSCAN_API_KEY and takes 10-30 "
+    "seconds. It does NOT run on your say-so: it parks the request for the user "
+    "to confirm, because a public submission is permanently visible on "
+    "urlscan.io and tells the site owner the link was scanned. Tell the user you "
+    "have asked for confirmation rather than reporting the scan as done, and "
+    "never submit URLs containing tokens, session ids or anything else private.",
     {"url": "Full URL to scan",
      "visibility": "'public' (default, and all a free key allows) or 'unlisted'"},
 )
@@ -275,7 +278,49 @@ async def url_scan_submit(ctx: Any, args: Dict[str, Any]) -> ToolResult:
         return ToolResult(False, "Expected a full URL starting http:// or https://.",
                           "url_scan_submit")
 
-    visibility = str(args.get("visibility", "public")).strip().lower() or "public"
+    visibility = str(args.get("visibility", "public")).strip().lower()
+    if visibility not in ("public", "unlisted"):
+        visibility = "public"
+
+    # The confirmation gate. Submitting publishes: the scan is permanently
+    # visible on urlscan.io, and the referring scan discloses to the site owner
+    # that someone looked. That is not a call the model gets to make on the
+    # user's behalf, however well-intentioned the reasoning — so the request is
+    # parked and the user approves it in the Approvals panel, which re-runs this
+    # tool with _approved set.
+    #
+    # Checking the key *first* matters: parking a request that would fail for
+    # want of a credential asks the user to authorise something that cannot
+    # happen, and the refusal would arrive only after they said yes.
+    if not args.get("_approved"):
+        if not urlscan_has_key():
+            return ToolResult(
+                False,
+                "Submitting a scan needs a urlscan.io API key. Set URLSCAN_API_KEY "
+                "(free at https://urlscan.io/user/signup). Searching the existing "
+                "corpus with url_lookup works without one.",
+                "url_scan_submit",
+            )
+        action_id = enqueue(
+            "url_scan_submit",
+            {"url": url, "visibility": visibility},
+            label=f"Publish a {visibility} urlscan.io scan of {url}",
+            detail=(
+                "urlscan.io will fetch this URL and publish the result. A public "
+                "scan is permanently visible to anyone, and the site owner can see "
+                "the link was scanned. Approve only if the URL contains nothing "
+                "private — no tokens, session ids or personal identifiers."
+            ),
+        )
+        return ToolResult(
+            True,
+            f"⏳ Submitting {url} would publish a {visibility} scan on urlscan.io, so "
+            f"it needs the user's confirmation. Queued as action {action_id} in the "
+            "Approvals panel — nothing has been submitted yet. Say so plainly and "
+            "wait; do not describe the scan as running or done.",
+            "url_scan_submit",
+        )
+
     result = await shared_urlscan().submit(url, visibility=visibility)
     if "error" in result:
         return ToolResult(False, result["error"], "url_scan_submit")
