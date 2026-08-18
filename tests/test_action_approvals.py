@@ -232,3 +232,36 @@ def test_an_unreachable_tool_registry_does_not_burn_the_approval(monkeypatch):
     aid = pending_actions.enqueue("url_scan_submit", {"url": "https://x.test"}, "Publish")
     assert bare.post(f"/api/actions/{aid}/approve").status_code == 503
     assert pending_actions.get(aid) is not None, "the approval must still be actionable"
+
+
+# ── the HUD notifier ─────────────────────────────────────────────────────────
+
+
+def test_the_queue_announces_changes_so_the_hud_need_not_wait_for_a_poll():
+    seen: list[tuple[str, dict]] = []
+    pending_actions.set_notifier(lambda event, payload: seen.append((event, payload)))
+    try:
+        aid = pending_actions.enqueue("url_scan_submit", {"url": "https://x.test"}, "Publish")
+        assert seen[0][0] == "approval_pending"
+        assert seen[0][1]["id"] == aid
+        assert seen[0][1]["pending"] == 1
+
+        pending_actions.pop(aid)
+        assert seen[1][0] == "approval_resolved"
+        assert seen[1][1]["pending"] == 0
+    finally:
+        pending_actions.set_notifier(None)
+
+
+def test_a_broken_notifier_does_not_break_the_gate():
+    """The queue reports to the HUD; it must not depend on the HUD."""
+    def boom(event, payload):
+        raise RuntimeError("no listener")
+
+    pending_actions.set_notifier(boom)
+    try:
+        aid = pending_actions.enqueue("t", {}, "label")
+        assert pending_actions.get(aid) is not None
+        assert pending_actions.pop(aid) is not None
+    finally:
+        pending_actions.set_notifier(None)

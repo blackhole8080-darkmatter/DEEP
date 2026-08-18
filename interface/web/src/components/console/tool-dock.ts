@@ -8,12 +8,15 @@
 // this dock updates automatically, with subtle separators between groups.
 import { LitElement, html, css } from "lit";
 import { customElement, property, state } from "lit/decorators.js";
+import { SignalWatcher } from "@lit-labs/signals";
 import { TOOL_REGISTRY, type ToolDef } from "../../core/tool-registry";
 
 const GROUP_ORDER = ["intelligence", "system", "personal", "core"] as const;
 
+// SignalWatcher so a tool's badge() — which reads a signal — re-renders the
+// dock when the underlying count changes, without the dock polling anything.
 @customElement("tool-dock")
-export class ToolDock extends LitElement {
+export class ToolDock extends SignalWatcher(LitElement) {
   @property() selected = "";
   @state() private _hover = -1;
 
@@ -158,8 +161,33 @@ export class ToolDock extends LitElement {
       border: 5px solid transparent; border-top-color: var(--ds-border-accent);
     }
 
+    /* Count badge — for tools that are waiting on the user rather than
+       merely available. Sits outside the icon so magnification does not
+       distort the number. */
+    .badge {
+      position: absolute;
+      top: -3px; right: -3px;
+      min-width: 16px; height: 16px;
+      padding: 0 4px;
+      box-sizing: border-box;
+      display: grid; place-items: center;
+      border-radius: var(--ds-radius-pill, 999px);
+      background: var(--ds-warning);
+      color: #12100a;
+      font-family: var(--ds-font-mono, monospace);
+      font-size: 10px; font-weight: 700; line-height: 1;
+      box-shadow: 0 0 10px var(--ds-warning);
+      animation: badge-pulse 2.4s ease-in-out infinite;
+      pointer-events: none;
+    }
+    @keyframes badge-pulse {
+      0%, 100% { box-shadow: 0 0 8px var(--ds-warning); }
+      50%      { box-shadow: 0 0 16px var(--ds-warning); }
+    }
+
     @media (prefers-reduced-motion: reduce) {
       .pill { transition: background 0.16s ease, border-color 0.16s ease; transform: none !important; }
+      .badge { animation: none; }
     }
   `;
 
@@ -196,6 +224,7 @@ export class ToolDock extends LitElement {
         ${ordered.map((t, i) => {
           const prev = ordered[i - 1];
           const sep = prev && prev.group !== t.group ? html`<div class="sep"></div>` : null;
+          const count = t.badge?.() ?? 0;
           return html`
             ${sep}
             <button
@@ -203,9 +232,10 @@ export class ToolDock extends LitElement {
               style="--s:${this._scale(i)}; --ty:${this._lift(i)}px"
               @pointerenter=${() => (this._hover = i)}
               @click=${() => this._select(t)}
-              aria-label=${t.label}
+              aria-label=${count > 0 ? `${t.label}, ${count} waiting` : t.label}
             >
               <span class="icon">${t.icon}</span>
+              ${count > 0 ? html`<span class="badge">${count > 99 ? "99+" : count}</span>` : ""}
               <span class="tip">${t.label}</span>
             </button>
           `;

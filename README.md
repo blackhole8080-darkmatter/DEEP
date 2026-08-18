@@ -74,8 +74,11 @@ wishlist.
 - **Outward-facing actions need your yes.** Publishing a URL to urlscan.io
   makes a permanent public record and tells the site owner the link was
   scanned, so `url_scan_submit` parks the request instead of running it: it
-  lands in `GET /api/actions/pending` with the exact URL and visibility named,
-  and only `POST /api/actions/{id}/approve` re-runs the tool for real. Consent
+  lands in the HUD's **Approvals** panel — and in `GET /api/actions/pending` —
+  with the exact URL and visibility named, alongside what publishing actually
+  costs. Approve and Reject carry equal weight there on purpose; the panel
+  exists to make a no as easy as a yes. The dock pill badges the waiting count,
+  because an approval nobody notices expires unnoticed. Consent
   expires after 15 minutes, rejecting is one call, and the model cannot
   self-approve — the approval flag is stripped on the way in. The same gate has
   guarded `block_device` and `vpn_control` for a while; until now nothing

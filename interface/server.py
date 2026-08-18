@@ -54,6 +54,7 @@ from core.metrics import metrics
 from core.event_bus import EventBus
 from core.infrastructure.async_brain import AsyncBrain
 from core.multi_llm_router import OllamaClient, ProviderConfig, LLMProvider
+from core import pending_actions
 from core.tools.deep_registry import DeepToolRegistry
 from core.ltm_memory import LongTermMemory
 # core.voice_web / core.local_stt imports removed (VoiceWeb/LocalSTT stubbed above)
@@ -644,6 +645,19 @@ async def startup_event():
                 pass
 
     event_bus.subscribe("*", _ws_broadcast)
+
+    # Approvals reach the HUD the moment a tool parks one. The queue is a
+    # plain module with no bus dependency, so it exposes a hook instead; the
+    # wildcard subscriber above forwards whatever we publish straight to the
+    # WebSocket. Fire-and-forget: a tool must not fail because a browser is
+    # not listening.
+    def _approval_notify(event_name: str, payload: dict) -> None:
+        try:
+            asyncio.get_running_loop().create_task(event_bus.publish(event_name, payload))
+        except RuntimeError:
+            pass  # enqueued outside the loop (a test, a script) — poll picks it up
+
+    pending_actions.set_notifier(_approval_notify)
 
     # Start the proactive layer (ProactiveCore: real rate-limiting/quiet-hours,
     # emits `proactive_suggestion` -> HUD alert cards). Replaces the old

@@ -21,9 +21,12 @@ so three properties matter:
 """
 from __future__ import annotations
 
+import logging
 import time
 import uuid
-from typing import Any, Dict, List, Optional
+from typing import Any, Callable, Dict, List, Optional
+
+logger = logging.getLogger(__name__)
 
 #: An approval is consent to act now, not a standing permission.
 DEFAULT_TTL_S = 15 * 60
@@ -32,6 +35,30 @@ DEFAULT_TTL_S = 15 * 60
 MAX_PENDING = 50
 
 _pending: Dict[str, Dict[str, Any]] = {}
+
+#: Called when the queue changes, as ``notifier(event, payload)``. The HUD
+#: needs to hear about a parked action now, not on its next poll — an approval
+#: expires in 15 minutes and the user is usually still reading the reply that
+#: triggered it. Kept as a hook rather than an event-bus import so this module
+#: stays dependency-free and testable on its own; ``interface/server.py`` wires
+#: it to the bus, whose wildcard subscriber forwards to the WebSocket.
+_notifier: Optional[Callable[[str, Dict[str, Any]], None]] = None
+
+
+def set_notifier(fn: Optional[Callable[[str, Dict[str, Any]], None]]) -> None:
+    """Register the queue-change hook. Pass None to detach."""
+    global _notifier
+    _notifier = fn
+
+
+def _notify(event: str, payload: Dict[str, Any]) -> None:
+    """Best-effort. A broken notifier must not break the gate it reports on."""
+    if _notifier is None:
+        return
+    try:
+        _notifier(event, payload)
+    except Exception:  # noqa: BLE001 - the notifier is someone else's code
+        logger.warning("[approvals] notifier failed for %s", event, exc_info=True)
 
 
 def enqueue(
@@ -61,6 +88,10 @@ def enqueue(
         "created": now,
         "expires_at": now + ttl_s,
     }
+    _notify("approval_pending", {
+        "id": aid, "tool": tool, "label": label, "detail": detail,
+        "pending": len(_pending),
+    })
     return aid
 
 
@@ -90,7 +121,14 @@ def get(aid: str) -> Optional[Dict[str, Any]]:
 def pop(aid: str) -> Optional[Dict[str, Any]]:
     """Remove and return one entry. None if unknown or already expired."""
     _sweep()
-    return _pending.pop(aid, None)
+    entry = _pending.pop(aid, None)
+    if entry is not None:
+        # Fired for approvals and rejections alike: a second browser tab needs
+        # to drop the entry from its list either way.
+        _notify("approval_resolved", {
+            "id": aid, "tool": entry["tool"], "pending": len(_pending),
+        })
+    return entry
 
 
 def approved_args(entry: Dict[str, Any]) -> Dict[str, Any]:
