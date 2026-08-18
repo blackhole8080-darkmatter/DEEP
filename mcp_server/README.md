@@ -9,6 +9,7 @@ Exposes DEEP's local intelligence to any **Model Context Protocol** client
 |---|---|
 | `deep_status` | Live system status (online state, active model, time) |
 | `deep_investigate(target)` | Dossier on an IP / MAC / host / domain (vendor, geo, ISP/ASN, reverse-DNS, risk) |
+| `deep_investigate_url(url)` | Dossier on a full URL: urlscan.io redirect chain, final destination, scan history and domain age, plus DNS/cert/registration for the host |
 | `deep_scan_surroundings` | Nearby Wi-Fi APs + Bluetooth devices DEEP senses (incl. tracker detection) |
 | `deep_search_memory(query)` | Search DEEP's persistent knowledge graph |
 | `deep_remember(fact)` | Teach DEEP a new fact (persists across sessions) |
@@ -45,3 +46,11 @@ python mcp_server/deep_mcp.py
 
 ## Requires
 `pip install "mcp[cli]" httpx` (already installed).
+
+## The other direction
+
+DEEP is also an MCP *host*. `core/mcp/` runs external MCP servers as
+subprocesses and registers their tools in DEEP's own registry, so the reasoning
+brain can drive them — [urlscan-mcp](https://github.com/blackhole8080-darkmatter/urlscan-mcp)
+ships wired up. Add your own in `data/mcp_servers.json`; `GET /api/intel/mcp`
+reports what is running and why anything is not.

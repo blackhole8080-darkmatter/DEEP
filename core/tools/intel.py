@@ -26,6 +26,7 @@ from core.domain.models import ToolResult
 from core.intel import public_apis
 from core.intel.live_stats import shared_live_intel
 from core.intel.osint_investigator import Dossier, OSINTInvestigator
+from core.intel.urlscan import shared_urlscan
 from core.tools.registry import tool
 
 _investigator = OSINTInvestigator()
@@ -69,12 +70,12 @@ def _render(d: Dossier) -> str:
     "threat_lookup",
     "Look up any security indicator against live public intelligence sources and "
     "return an attributed dossier with a risk verdict. Auto-detects the type — IP, "
-    "domain, CVE id, ASN, file hash, MAC, or ecosystem package (pypi:requests). "
+    "domain, URL, CVE id, ASN, file hash, MAC, or ecosystem package (pypi:requests). "
     "Use this for ANY question about whether something is malicious, exposed, "
     "vulnerable or suspicious. Always prefer it over answering from memory: CVE, "
     "exploitation and reputation data change daily and training data is stale.",
-    {"target": "IP, domain, CVE-YYYY-NNNNN, ASN (AS15169), file hash, MAC, or "
-               "ecosystem:package such as pypi:requests"},
+    {"target": "IP, domain, URL (https://…), CVE-YYYY-NNNNN, ASN (AS15169), file "
+               "hash, MAC, or ecosystem:package such as pypi:requests"},
 )
 async def threat_lookup(ctx: Any, args: Dict[str, Any]) -> ToolResult:
     target = str(args.get("target", "")).strip()
@@ -200,7 +201,7 @@ async def threat_landscape(ctx: Any, args: Dict[str, Any]) -> ToolResult:
     "and which are waiting on an API key the user hasn't configured. Use when asked "
     "what DEEP can look up, or why a lookup came back empty.",
     {"category": "Optional filter: vulnerability, reputation, exposure, network, "
-                 "certificate, breach, geo"},
+                 "certificate, breach, geo, web"},
 )
 async def intel_sources(ctx: Any, args: Dict[str, Any]) -> ToolResult:
     summary = public_apis.summary()
@@ -222,6 +223,67 @@ async def intel_sources(ctx: Any, args: Dict[str, Any]) -> ToolResult:
         f"{summary['key_configured']}/{summary['key_required']} keyed ones configured)."
     ]
     for r in rows:
-        state = "live" if r["configured"] else f"needs {r['env_var']}"
+        state = "live" if r["configured"] else (
+            r.get("unavailable_reason") or f"needs {r['env_var']}"
+        )
         lines.append(f"  {r['name']} [{r['category']}] — {state}: {r['description']}")
     return ToolResult(True, "\n".join(lines), "intel_sources")
+
+
+@tool(
+    "url_lookup",
+    "Investigate a full URL — not just the host behind it. Returns what a browser "
+    "actually saw when urlscan.io loaded the page: redirect chain, final "
+    "destination, how often it has been scanned, whether any scan was flagged "
+    "malicious, how old the apex domain is, and what submitters tagged it — then "
+    "investigates the hostname underneath for DNS, certificate and registration "
+    "detail. Use for any link a user pastes, forwards or asks about, especially "
+    "from an email or a message. A host being reputable says nothing about the "
+    "page: shared hosting serves phishing kits from decade-old domains every day.",
+    {"url": "Full URL including scheme, e.g. https://example.com/login"},
+)
+async def url_lookup(ctx: Any, args: Dict[str, Any]) -> ToolResult:
+    url = str(args.get("url", "")).strip()
+    if not url:
+        return ToolResult(False, "Missing url.", "url_lookup")
+
+    dossier = await _investigator.investigate(url)
+    if dossier.indicator == "unknown":
+        return ToolResult(
+            False,
+            f"{url!r} is not a URL DEEP can investigate. Expected http:// or "
+            "https:// with a resolvable host.",
+            "url_lookup",
+        )
+    return ToolResult(True, _render(dossier), "url_lookup")
+
+
+@tool(
+    "url_scan_submit",
+    "Submit a URL to urlscan.io for a LIVE scan, for a link nobody has scanned "
+    "before. Prefer url_lookup first — it reads the existing corpus for free and "
+    "usually answers the question. This one needs URLSCAN_API_KEY, takes 10-30 "
+    "seconds to produce a result, and a public submission is permanently visible "
+    "on urlscan.io along with the fact that it was scanned. Do not submit URLs "
+    "containing tokens, session ids or anything else private.",
+    {"url": "Full URL to scan",
+     "visibility": "'public' (default, and all a free key allows) or 'unlisted'"},
+)
+async def url_scan_submit(ctx: Any, args: Dict[str, Any]) -> ToolResult:
+    url = str(args.get("url", "")).strip()
+    if not url.lower().startswith(("http://", "https://")):
+        return ToolResult(False, "Expected a full URL starting http:// or https://.",
+                          "url_scan_submit")
+
+    visibility = str(args.get("visibility", "public")).strip().lower() or "public"
+    result = await shared_urlscan().submit(url, visibility=visibility)
+    if "error" in result:
+        return ToolResult(False, result["error"], "url_scan_submit")
+    return ToolResult(
+        True,
+        f"Submitted {url} to urlscan.io ({result['visibility']} scan).\n"
+        f"  uuid: {result['uuid']}\n"
+        f"  report: {result['report_url']}\n"
+        f"  {result['note']}",
+        "url_scan_submit",
+    )

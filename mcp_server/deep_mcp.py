@@ -66,6 +66,24 @@ async def deep_investigate(target: str) -> str:
 
 
 @mcp.tool()
+async def deep_investigate_url(url: str) -> str:
+    """Investigate a full URL — a link from an email, a message, a report.
+
+    Returns what a browser actually saw when urlscan.io loaded the page:
+    redirect chain, final destination, scan history, whether any scan was
+    flagged malicious, apex-domain age and submitter tags — plus DNS,
+    certificate and registration detail for the host underneath.
+
+    The host's reputation is not the page's: shared hosting serves phishing
+    kits from decade-old domains daily. No verdict data means no data, never
+    'clean'."""
+    try:
+        return _fmt(await _get("/api/intel/investigate", {"target": url}))
+    except Exception as e:
+        return f"URL investigation failed: {e}"
+
+
+@mcp.tool()
 async def deep_scan_surroundings() -> str:
     """What's physically near you right now — nearby Wi-Fi access points and
     Bluetooth devices DEEP senses (counts, plus the strongest named ones with

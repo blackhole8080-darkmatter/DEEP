@@ -359,6 +359,24 @@ async def startup_event():
     except Exception as e:
         print(f"[DEEP] Agent factory init error: {e}")
 
+    # Bridge external MCP servers into the brain's tool registry. Servers that
+    # cannot start contribute nothing and say why — a missing capability, not a
+    # failed boot — so this never guards the assistant coming up.
+    try:
+        from core.mcp import shared_bridge
+
+        mcp_report = await shared_bridge().start()
+        if mcp_report["tools_registered"]:
+            print(f"[DEEP] MCP bridge: {mcp_report['tools_registered']} tool(s) from "
+                  f"{len([s for s in mcp_report['servers'] if s.get('tools')])} server(s)")
+        for entry in mcp_report["servers"]:
+            if entry.get("skipped"):
+                print(f"[DEEP] MCP {entry['id']} unavailable: {entry['skipped']}")
+            elif entry.get("error"):
+                print(f"[DEEP] MCP {entry['id']} failed to start: {entry['error']}")
+    except Exception as e:
+        print(f"[DEEP] MCP bridge init error: {e}")
+
     # Initialize Plugin Manager
     try:
         discovered = await plugin_manager.discover_plugins()
@@ -720,6 +738,12 @@ async def shutdown_event():
     try:
         from core.intel.http import shared_http
         await shared_http().close()
+    except Exception:
+        pass
+    try:
+        # Stops every bridged MCP subprocess and unregisters its tools.
+        from core.mcp import shared_bridge
+        await shared_bridge().aclose()
     except Exception:
         pass
     try:
