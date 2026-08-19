@@ -67,9 +67,18 @@ def enqueue(
     label: str,
     detail: str = "",
     *,
+    speech: str = "",
     ttl_s: float = DEFAULT_TTL_S,
 ) -> str:
-    """Park a tool call for confirmation. Returns the id to approve it by."""
+    """Park a tool call for confirmation. Returns the id to approve it by.
+
+    ``speech`` is how the request should be said out loud, when a voice channel
+    is delivering it. It is not the label: a label names the exact thing being
+    confirmed, and the exact thing is often a URL carrying a session token —
+    unusable read aloud, and announcing it into a room is its own disclosure.
+    Only the caller knows which part is safe to say, so only the caller can
+    write this. Omitted, the alert falls back to its title.
+    """
     _sweep()
     if len(_pending) >= MAX_PENDING:
         oldest = min(_pending.values(), key=lambda a: a["created"])
@@ -90,7 +99,7 @@ def enqueue(
     }
     _notify("approval_pending", {
         "id": aid, "tool": tool, "label": label, "detail": detail,
-        "pending": len(_pending),
+        "speech": speech, "pending": len(_pending),
     })
     return aid
 

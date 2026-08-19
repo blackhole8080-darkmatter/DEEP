@@ -4,6 +4,7 @@
 import { signal, computed } from "@lit-labs/signals";
 import { socket } from "./ws";
 import { fetchPendingActions, type PendingAction } from "./api";
+import { initSpeech } from "./speech";
 import type { ServerMessage, ReasoningStep } from "./events";
 
 // ── Chat ────────────────────────────────────────────────────────────────────
@@ -180,6 +181,8 @@ export function initStore(): void {
   if (wired) return;
   wired = true;
   socket.on((m) => reduce(m as ServerMessage));
+  // `tts_speak` had no consumer at all until this; see core/speech.ts.
+  initSpeech();
   socket.connect();
   void refreshApprovals();
   // Backstop for the WebSocket: entries also leave the queue by expiring,

@@ -85,7 +85,18 @@ wishlist.
   reply you are waiting on; and it is *local-only*, so the URL awaiting
   confirmation never reaches the webhook channel — leaking it before you decide
   would defeat the gate. Neither exemption touches the severity floor or
-  deduplication, so a retry loop still produces one notification. Consent
+  deduplication, so a retry loop still produces one notification.
+- **DEEP speaks again.** `tts_speak` was published from ten places — the boot
+  announcement, morning briefings, anomaly warnings, threat classifications,
+  Tailscale events — and consumed by nobody: the server-side voice package was
+  removed and the HUD never grew a replacement, so every announcement travelled
+  over the WebSocket and fell on the floor. The HUD now synthesises them
+  (`core/speech.ts`), and the alert dispatcher has a voice channel, so anything
+  that survives the gates is said as well as shown. What gets *said* is not the
+  string that gets shown: an approval names its URL in full on screen, but reads
+  only the host aloud, because a link carrying a session token should not be
+  announced into a room. ⌘K → "Voice" mutes it, and the mute persists;
+  `DEEP_ALERT_VOICE=0` turns the channel off server-side. Consent
   expires after 15 minutes, rejecting is one call, and the model cannot
   self-approve — the approval flag is stripped on the way in. The same gate has
   guarded `block_device` and `vpn_control` for a while; until now nothing
@@ -255,6 +266,7 @@ startup log.
 | `OLLAMA_MODEL` / `OLLAMA_BASE_URL` | local LLM (default: `llama3.2`) | [ollama.com](https://ollama.com) |
 | `CLAUDE_API_KEY`, `GEMINI_API_KEY`, `GROQ_API_KEY` | cloud LLM fallback | respective provider consoles |
 | `URLSCAN_API_KEY` | submitting live urlscan.io scans (searching the corpus needs no key) | [urlscan.io](https://urlscan.io/user/signup) |
+| `DEEP_ALERT_VOICE` | set `0` to stop DEEP speaking alerts (on by default; ⌘K → "Voice" mutes per-browser) | — |
 | `SHODAN_API_KEY` | internet-exposure lookups | [shodan.io](https://account.shodan.io/register) |
 | `VIRUSTOTAL_API_KEY` | file/URL/IP reputation | [virustotal.com](https://www.virustotal.com/gui/join-us) |
 | `ABUSEIPDB_API_KEY` | IP abuse reputation | [abuseipdb.com](https://www.abuseipdb.com/register) |

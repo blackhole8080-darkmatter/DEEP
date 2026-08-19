@@ -664,3 +664,144 @@ async def test_a_parked_action_reaches_a_channel_through_the_real_bus(tmp_path):
 
     assert len(recording.sent) == 1
     assert recording.sent[0].kind == "approval_request"
+
+
+# ═══════════════════════════════════════════════════════════════════════════
+# Voice
+#
+# `tts_speak` was published from ten places in DEEP and consumed by nobody —
+# the server-side voice package was deleted and the HUD never grew one. These
+# cover the channel that now publishes it, and the rule that matters most:
+# what gets said aloud is not the same string as what gets shown.
+# ═══════════════════════════════════════════════════════════════════════════
+
+
+class RecordingBus:
+    """Captures published events without a real event loop's machinery."""
+
+    def __init__(self, fail: bool = False):
+        self.published: List[tuple] = []
+        self._fail = fail
+
+    async def publish(self, name: str, payload: Dict[str, Any]) -> None:
+        if self._fail:
+            raise RuntimeError("bus down")
+        self.published.append((name, payload))
+
+
+@pytest.mark.asyncio
+async def test_the_voice_channel_publishes_a_speak_intent():
+    from core.alert_dispatcher import VoiceChannel
+
+    bus = RecordingBus()
+    alert = AlertDispatcher.normalise("approval_pending", _approval_payload(speech="Say this."))
+    assert await VoiceChannel(bus).send(alert) is True
+
+    name, payload = bus.published[0]
+    assert name == "tts_speak"
+    assert payload["text"] == "Say this."
+    assert payload["priority"] == "normal"
+
+
+@pytest.mark.asyncio
+async def test_a_critical_alert_interrupts_whatever_is_being_said():
+    from core.alert_dispatcher import VoiceChannel
+
+    bus = RecordingBus()
+    await VoiceChannel(bus).send(_alert("critical"))
+    assert bus.published[0][1]["priority"] == "urgent"
+
+
+@pytest.mark.asyncio
+async def test_a_dead_bus_does_not_take_the_other_channels_with_it():
+    from core.alert_dispatcher import VoiceChannel
+
+    assert await VoiceChannel(RecordingBus(fail=True)).send(_alert()) is False
+    assert VoiceChannel(None).available is False
+
+
+def test_what_is_said_is_not_what_is_shown():
+    """A URL carrying a session token must not be announced into a room."""
+    alert = AlertDispatcher.normalise("approval_pending", _approval_payload(
+        speech="DEEP needs your approval to publish a public scan of evil.test."
+    ))
+
+    assert "SECRET" in alert.title, "the panel and the toast still name it in full"
+    assert "SECRET" not in alert.spoken()
+    assert "evil.test" in alert.spoken()
+
+
+def test_speech_falls_back_to_something_true_rather_than_nothing():
+    alert = AlertDispatcher.normalise("approval_pending", _approval_payload(speech=""))
+    assert "approval" in alert.spoken().lower()
+    assert "SECRET" not in alert.spoken()
+
+    bare = _alert(title="Botnet C2 contact")
+    assert bare.spoken() == "Botnet C2 contact"
+
+
+def test_the_voice_channel_stays_on_this_machine():
+    from core.alert_dispatcher import VoiceChannel
+
+    # Speaking is local by definition, so a local_only alert may still be said.
+    assert VoiceChannel(RecordingBus()).leaves_device is False
+
+
+@pytest.mark.asyncio
+async def test_an_approval_is_spoken_as_well_as_shown(tmp_path):
+    from core.alert_dispatcher import VoiceChannel
+
+    bus = RecordingBus()
+    recording = RecordingChannel()
+    dispatcher = AlertDispatcher(
+        channels=[recording, VoiceChannel(bus)], min_severity="high", data_dir=tmp_path
+    )
+    _open_the_gates(dispatcher)
+    await dispatcher.consider(AlertDispatcher.normalise("approval_pending", _approval_payload()))
+
+    assert len(recording.sent) == 1
+    assert bus.published[0][0] == "tts_speak"
+
+
+def test_voice_is_a_default_channel_but_can_be_switched_off(monkeypatch):
+    from core.alert_dispatcher import _default_channels
+
+    monkeypatch.delenv("DEEP_ALERT_VOICE", raising=False)
+    assert "voice" in [c.name for c in _default_channels(RecordingBus())]
+
+    monkeypatch.setenv("DEEP_ALERT_VOICE", "0")
+    assert "voice" not in [c.name for c in _default_channels(RecordingBus())]
+
+
+def test_without_a_bus_there_is_no_voice_channel(monkeypatch):
+    from core.alert_dispatcher import _default_channels
+
+    monkeypatch.delenv("DEEP_ALERT_VOICE", raising=False)
+    assert "voice" not in [c.name for c in _default_channels(None)]
+
+
+# ── notification headline ────────────────────────────────────────────────────
+
+
+def test_the_notification_does_not_say_deep_twice():
+    alert = AlertDispatcher.normalise("approval_pending", _approval_payload())
+    headline = DesktopChannel.headline(alert)
+
+    assert headline.count("DEEP") == 1, headline
+    assert headline.startswith("[HIGH]")
+
+
+def test_an_ordinary_alert_still_gets_the_app_prefix():
+    assert DesktopChannel.headline(_alert("critical", title="Botnet C2")) == (
+        "DEEP [CRITICAL] Botnet C2"
+    )
+
+
+def test_a_long_title_is_cut_at_a_word_not_mid_token():
+    """A URL truncated mid-token reads as a different address than it is."""
+    alert = AlertDispatcher.normalise("approval_pending", _approval_payload())
+    headline = DesktopChannel.headline(alert)
+
+    assert len(headline) <= DesktopChannel.TITLE_BUDGET
+    assert headline.endswith("…")
+    assert not headline.rstrip("…").endswith(" ")

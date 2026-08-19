@@ -305,6 +305,14 @@ async def url_scan_submit(ctx: Any, args: Dict[str, Any]) -> ToolResult:
             "url_scan_submit",
             {"url": url, "visibility": visibility},
             label=f"Publish a {visibility} urlscan.io scan of {url}",
+            # Spoken aloud, the host is the useful part and the rest is a
+            # liability: a path and query can carry the very session token this
+            # confirmation exists to protect, and saying it into a room leaks it
+            # to everyone present. The panel still shows the whole URL.
+            speech=(
+                f"DEEP needs your approval to publish a {visibility} scan of "
+                f"{_url_host_for_speech(url)}. Nothing runs until you decide."
+            ),
             detail=(
                 "urlscan.io will fetch this URL and publish the result. A public "
                 "scan is permanently visible to anyone, and the site owner can see "
@@ -332,3 +340,13 @@ async def url_scan_submit(ctx: Any, args: Dict[str, Any]) -> ToolResult:
         f"  {result['note']}",
         "url_scan_submit",
     )
+
+
+def _url_host_for_speech(url: str) -> str:
+    """Just the hostname, for reading out loud. See url_scan_submit."""
+    from urllib.parse import urlsplit
+
+    try:
+        return (urlsplit(url).hostname or url)[:80]
+    except ValueError:
+        return "a URL"

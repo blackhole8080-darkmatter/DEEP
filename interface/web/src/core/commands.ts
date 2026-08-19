@@ -95,3 +95,27 @@ registerCommand({
     } catch { toast("Screen read failed", "danger"); }
   },
 });
+
+// ── Speech ──────────────────────────────────────────────────────────────────
+// DEEP speaks alerts and announcements through core/speech.ts. This is the off
+// switch, and it needs to be findable: a voice you cannot silence from the
+// interface is one people disable at the source, taking the alerts with it.
+//
+// One command, not two. A separate "is the voice on?" entry scored *above* the
+// toggle when you typed "voice" — the palette ranks earlier matches first — so
+// the useful command hid behind the one you can answer by listening. The label
+// leads with the word someone searching for this will actually type.
+import { toggleMuted, speechAvailable } from "./speech";
+
+registerCommand({
+  id: "speech.toggle",
+  label: "Voice: toggle DEEP speaking alerts aloud",
+  hint: "voice",
+  run: () => {
+    if (!speechAvailable.get()) {
+      toast("This browser has no speech synthesis.");
+      return;
+    }
+    toast(toggleMuted() ? "DEEP's voice muted." : "DEEP's voice on.");
+  },
+});

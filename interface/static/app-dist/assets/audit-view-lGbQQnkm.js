@@ -1,4 +1,4 @@
-import{i as v,b as r,a as p,r as c,t as g}from"./index-Dadyro_p.js";import"./ds-panel-ClgPOpfB.js";var f=Object.defineProperty,h=Object.getOwnPropertyDescriptor,l=(s,t,e,i)=>{for(var a=i>1?void 0:i?h(t,e):t,n=s.length-1,o;n>=0;n--)(o=s[n])&&(a=(i?o(t,e,a):o(a))||a);return i&&a&&f(t,e,a),a};let d=class extends v{constructor(){super(...arguments),this.stats=null,this.entries=[]}connectedCallback(){super.connectedCallback(),this.refresh(),this.timer=setInterval(()=>void this.refresh(),8e3)}disconnectedCallback(){super.disconnectedCallback(),clearInterval(this.timer)}async refresh(){fetch("/audit/stats").then(s=>s.json()).then(s=>this.stats=s).catch(()=>{}),fetch("/audit/log?limit=40").then(s=>s.json()).then(s=>this.entries=s.entries??[]).catch(()=>{})}render(){const s=this.stats;return r`
+import{i as v,b as r,a as p,r as c,t as g}from"./index-CBQjtX3d.js";import"./ds-panel-CZBUV-lc.js";var f=Object.defineProperty,h=Object.getOwnPropertyDescriptor,l=(s,t,e,i)=>{for(var a=i>1?void 0:i?h(t,e):t,n=s.length-1,o;n>=0;n--)(o=s[n])&&(a=(i?o(t,e,a):o(a))||a);return i&&a&&f(t,e,a),a};let d=class extends v{constructor(){super(...arguments),this.stats=null,this.entries=[]}connectedCallback(){super.connectedCallback(),this.refresh(),this.timer=setInterval(()=>void this.refresh(),8e3)}disconnectedCallback(){super.disconnectedCallback(),clearInterval(this.timer)}async refresh(){fetch("/audit/stats").then(s=>s.json()).then(s=>this.stats=s).catch(()=>{}),fetch("/audit/log?limit=40").then(s=>s.json()).then(s=>this.entries=s.entries??[]).catch(()=>{})}render(){const s=this.stats;return r`
       ${s?r`
         <div class="integrity ${s.chain_intact?"ok":"bad"}">
           <span class="seal">${s.chain_intact?"🔒":"⚠"}</span>
@@ -54,4 +54,4 @@ import{i as v,b as r,a as p,r as c,t as g}from"./index-Dadyro_p.js";import"./ds-
     .t { color: var(--ds-text-faint); }
     .muted { color: var(--ds-text-muted); font-size: var(--ds-text-sm); }
   `;l([c()],d.prototype,"stats",2);l([c()],d.prototype,"entries",2);d=l([g("audit-view")],d);export{d as AuditView};
-//# sourceMappingURL=audit-view-xBk-e4h2.js.map
+//# sourceMappingURL=audit-view-lGbQQnkm.js.map

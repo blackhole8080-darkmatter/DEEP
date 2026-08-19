@@ -78,6 +78,13 @@ class Alert:
     #: skip those two gates — never the severity floor or deduplication, which
     #: are about the alert's own worth rather than about timing.
     solicited: bool = False
+    #: How this alert should be *said*, when a voice channel is delivering it.
+    #: Speech is not a shorter title: reading a URL aloud is both unusable and
+    #: its own disclosure — a link carrying a session token should not be
+    #: announced into a room. Whoever raises the alert supplies this, because
+    #: only they know which part is safe and useful to say. Falls back to the
+    #: title, which is at least always true.
+    speech: str = ""
     #: True when this alert's contents must not leave the machine, whatever
     #: channels are configured. An approval request names the exact thing being
     #: confirmed — for a urlscan submission, a URL that may carry a token or a
@@ -98,9 +105,14 @@ class Alert:
             "timestamp": self.timestamp,
             "context": self.context,
             "suppressed": self.suppressed,
+            "speech": self.speech,
             "solicited": self.solicited,
             "local_only": self.local_only,
         }
+
+    def spoken(self) -> str:
+        """One sentence a voice channel can read out."""
+        return (self.speech or self.title).strip()
 
     def render(self) -> str:
         """Body as a channel should show it, including any suppression note."""
@@ -171,13 +183,35 @@ class DesktopChannel(Channel):
     def available(self) -> bool:
         return self._notify is not None
 
+    #: Notification daemons truncate hard, and an approval's title carries the
+    #: decision itself, so the budget is spent on the title rather than on
+    #: repeating what the app_name field already says.
+    TITLE_BUDGET = 64
+
+    @classmethod
+    def headline(cls, alert: Alert) -> str:
+        """Notification title: no doubled app name, no cut mid-word."""
+        title = alert.title.strip()
+        # "DEEP needs your OK: …" under app_name="DEEP" read as "DEEP DEEP".
+        prefix = "" if title.upper().startswith("DEEP") else "DEEP "
+        text = f"{prefix}[{alert.severity.upper()}] {title}"
+        if len(text) <= cls.TITLE_BUDGET:
+            return text
+        # Back off to the last space so a truncated URL does not end mid-token,
+        # which reads as a different address than it is.
+        cut = text[: cls.TITLE_BUDGET - 1]
+        space = cut.rfind(" ")
+        if space > cls.TITLE_BUDGET // 2:
+            cut = cut[:space]
+        return cut.rstrip(" ,.:;-") + "…"
+
     async def send(self, alert: Alert) -> bool:
         if self._notify is None:
             return False
         try:
             await asyncio.to_thread(
                 self._notify.notify,
-                title=f"DEEP [{alert.severity.upper()}] {alert.title}"[:64],
+                title=self.headline(alert),
                 message=alert.render()[:256],
                 app_name="DEEP",
                 timeout=15,
@@ -248,6 +282,51 @@ class WebhookChannel(Channel):
                 "configured": bool(self._url), "detail": self._reason}
 
 
+class VoiceChannel(Channel):
+    """Say the alert out loud, by publishing ``tts_speak`` on the event bus.
+
+    DEEP has no server-side synthesiser — the voice package was removed — so
+    this states an intent and the HUD performs it (``interface/web/src/core/
+    speech.ts``). That split is deliberate: speech belongs where the speakers
+    are, and a headless DEEP on a server should not try to talk.
+
+    It follows that this channel reaches only a machine with the HUD open. It
+    is not a replacement for the desktop notification, which survives a closed
+    tab; it is for someone sitting at the machine who is not looking at it.
+
+    ``send`` reports success when the intent was published, which is the only
+    thing this side can actually observe. Whether a browser was listening, and
+    whether the user has muted it, are not knowable from here — so the delivery
+    record means "DEEP asked for this to be said", not "the user heard it".
+    """
+
+    name = "voice"
+
+    def __init__(self, event_bus: Any = None) -> None:
+        self.bus = event_bus
+
+    @property
+    def available(self) -> bool:
+        return self.bus is not None
+
+    async def send(self, alert: Alert) -> bool:
+        if self.bus is None:
+            return False
+        try:
+            await self.bus.publish("tts_speak", {
+                "text": alert.spoken(),
+                # Critical interrupts whatever is being said; everything else
+                # waits its turn rather than talking over it.
+                "priority": "urgent" if rank(alert.severity) >= rank("critical") else "normal",
+                "source": "alert_dispatcher",
+                "alert_id": alert.id,
+            })
+            return True
+        except Exception as exc:  # noqa: BLE001 - a bus failure is not fatal
+            logger.debug("voice channel publish failed: %s", exc)
+            return False
+
+
 # ═══════════════════════════════════════════════════════════════════════════
 # The dispatcher
 # ═══════════════════════════════════════════════════════════════════════════
@@ -285,7 +364,7 @@ class AlertDispatcher:
             min_severity or os.environ.get("DEEP_ALERT_MIN_SEVERITY") or "high"
         ).strip().lower()
         self.channels: List[Channel] = (
-            channels if channels is not None else _default_channels()
+            channels if channels is not None else _default_channels(event_bus)
         )
 
         self.data_dir = Path(data_dir) if data_dir else (
@@ -366,6 +445,13 @@ class AlertDispatcher:
                 # produces one notification, not five — while a different URL
                 # produces a different label and rightly notifies again.
                 dedupe_key=f"approval:{tool}:{label.lower()}",
+                # Supplied by whoever parked the action; see
+                # pending_actions.enqueue. The fallback is the title, which
+                # names the URL — fine on a screen, wrong in a room, which is
+                # exactly why the caller is asked to phrase this.
+                speech=str(payload.get("speech") or "").strip()
+                or f"DEEP needs your approval before it can continue. "
+                   f"Check the approvals panel.",
                 # The queue only fills when a tool runs, and DEEP's tools run
                 # in response to a user turn. Revisit this if an autonomous
                 # path ever enqueues an action nobody asked for.
@@ -612,8 +698,8 @@ class AlertDispatcher:
         return list(reversed(self._recent[-limit:]))
 
 
-def _default_channels() -> List[Channel]:
-    """Log always; desktop when plyer works; webhook only when configured."""
+def _default_channels(event_bus: Any = None) -> List[Channel]:
+    """Log always; desktop when plyer works; voice with a bus; webhook when set."""
     channels: List[Channel] = [LogChannel()]
     if os.environ.get("DEEP_ALERT_DESKTOP", "1").strip().lower() not in {
         "0", "false", "off", "no",
@@ -621,6 +707,16 @@ def _default_channels() -> List[Channel]:
         desktop = DesktopChannel()
         if desktop.available:
             channels.append(desktop)
+    # On by default: an alert that survived the floor, the dedupe and the rate
+    # limit is, by construction, one of the few things a day worth saying out
+    # loud. DEEP_ALERT_VOICE=0 turns it off server-side, and the HUD has its own
+    # mute — one switch at each end, because whoever is annoyed by it may not be
+    # whoever can edit the environment.
+    if event_bus is not None and os.environ.get("DEEP_ALERT_VOICE", "1").strip().lower() not in {
+        "0", "false", "off", "no",
+    }:
+        channels.append(VoiceChannel(event_bus))
+
     webhook_url = (os.environ.get("DEEP_ALERT_WEBHOOK") or "").strip()
     if webhook_url:
         channels.append(WebhookChannel(webhook_url))
