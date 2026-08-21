@@ -244,7 +244,15 @@ def _blocks_to_text(raw: Any) -> str:
             continue
         kind = getattr(block, "type", type(block).__name__)
         mime = getattr(block, "mimeType", "") or ""
-        parts.append(f"[{kind} content omitted{f' ({mime})' if mime else ''}]")
+        # Say why, not just that. DEEP's tool channel is text — ToolResult
+        # carries a str — so a model handed a bare "[image omitted]" cannot
+        # tell whether the tool failed, the page was blank, or the transport
+        # dropped it, and will guess. Naming the limit lets it route around.
+        parts.append(
+            f"[{kind} content{f' ({mime})' if mime else ''} could not be included: "
+            "DEEP's tools return text, so images from an MCP server are dropped "
+            "here. This says nothing about what the image showed.]"
+        )
     return "\n".join(parts)
 
 

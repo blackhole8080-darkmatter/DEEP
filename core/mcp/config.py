@@ -159,6 +159,15 @@ BUILTIN_SERVERS: tuple[MCPServerConfig, ...] = (
         # attributed. Bridging them again would give the model two paths to the
         # same evidence with different failure modes, so the bridge exposes
         # only what the native path cannot do.
+        #
+        # analyze_screenshot is absent for a different reason: DEEP's tool
+        # channel is text (ToolResult.content is a str), so the image it exists
+        # to deliver would arrive as "[image content omitted]" — a tool whose
+        # entire point silently does not happen. Per this module's own rule, a
+        # capability listed as present but broken is worse than one honestly
+        # absent. Use it from an MCP client whose model is multimodal (Claude
+        # Desktop, Claude Code, Cursor); giving DEEP eyes needs the tool result
+        # to carry images, which is a change to DEEP, not to this list.
         allow_tools=(
             "scan_url", "scan_and_wait", "get_scan_result", "get_page_dom",
             "get_screenshot_url", "search_scans", "get_quotas",
@@ -176,7 +185,8 @@ BUILTIN_SERVERS: tuple[MCPServerConfig, ...] = (
         # on purpose: caching one would hand back a scan id for a scan that
         # never ran. get_quotas is absent because a stale quota is worse than
         # no quota, and get_page_dom because a cached megabyte per uuid is a
-        # memory leak wearing a hat.
+        # memory leak wearing a hat — which is also why analyze_screenshot is
+        # absent: one cached screenshot would evict the whole working set.
         cache_tools=(
             "search_scans", "get_scan_result", "get_screenshot_url",
             "list_available_countries", "server_capabilities",

@@ -269,9 +269,18 @@ def test_structured_content_wins_over_text():
 
 
 def test_binary_content_is_described_not_inlined():
+    """And says *why*, so a model does not read a dropped image as a finding."""
     out = render_result(_Result([_Block(kind="image", mime="image/png")]))
-    assert "image content omitted" in out
+    assert "could not be included" in out
     assert "image/png" in out
+    assert "says nothing about what the image showed" in out
+
+
+def test_the_screenshot_tool_is_not_advertised_to_a_text_only_brain():
+    """Its whole point is an image DEEP's tool channel cannot carry."""
+    urlscan = next(s for s in configured_servers() if s.id == "urlscan")
+    assert "analyze_screenshot" not in urlscan.allow_tools
+    assert "get_screenshot_url" in urlscan.allow_tools  # links still useful
 
 
 def test_an_error_result_says_so():

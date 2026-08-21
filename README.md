@@ -112,7 +112,13 @@ wishlist.
   DEEP's own registry, prefixed by server. A capability someone already built
   and tested does not have to be reimplemented inside DEEP to be usable by it.
   [urlscan-mcp](https://github.com/blackhole8080-darkmatter/urlscan-mcp) ships
-  wired up; add your own in `data/mcp_servers.json`. Results are bounded before
+  wired up; add your own in `data/mcp_servers.json`. What a bridged server
+  offers is filtered rather than forwarded wholesale: tools the native path
+  already covers are withheld to avoid two routes to the same evidence, and so
+  is urlscan's `analyze_screenshot` — it returns the page as an image, and
+  DEEP's tool results are text, so bridging it would advertise a capability
+  that silently does not happen. Use that one from an MCP client whose model is
+  multimodal. Results are bounded before
   they reach the model's context and truncation is stated rather than silent, a
   server that will not start costs one log line instead of the boot, and
   `GET /api/intel/mcp` says which servers are running and why any are not.
