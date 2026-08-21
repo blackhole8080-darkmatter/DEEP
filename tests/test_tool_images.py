@@ -225,10 +225,8 @@ def test_routing_says_it_can_see_when_the_local_model_can():
     assert _routing(ollama_model="llava").supports_images is True
 
 
-def test_a_gemini_only_setup_reports_no_vision():
-    """Its streamer flattens content to {"text": ...}, so a block list would be
-    serialised as a Python repr and shown to the model as characters."""
-    assert _routing(gemini_api_key="k" * 20, chat_provider_order="gemini").supports_images is False
+def test_a_gemini_only_setup_reports_vision():
+    assert _routing(gemini_api_key="k" * 20, chat_provider_order="gemini").supports_images is True
 
 
 def test_claude_content_leads_with_the_image():
@@ -252,3 +250,102 @@ def test_no_images_means_a_plain_string_for_every_provider():
 
     for provider in ("claude", "groq", "gemini"):
         assert RoutingLLM._shape_for(provider, "hello", []) == "hello"
+
+
+# ── Gemini ───────────────────────────────────────────────────────────────────
+#
+# Gemini does not take typed blocks like the others. It takes native `parts`
+# with inline_data and a bare base64 payload, and its streamer used to flatten
+# every message to {"text": content} — so a block list would have been
+# stringified into the prompt and the model shown the characters
+# "[{'inline_data'...". That is worse than refusing the image, because it looks
+# like it worked.
+
+
+def test_gemini_content_is_native_parts_not_typed_blocks():
+    from core.llm.router import RoutingLLM
+
+    parts = RoutingLLM._shape_for("gemini", "what is this?", [_png()])
+
+    assert list(parts[0]) == ["inline_data"]
+    assert parts[0]["inline_data"]["mime_type"] == "image/png"
+    assert parts[-1] == {"text": "what is this?"}
+    assert "type" not in parts[0], "typed blocks are Claude/OpenAI, not Gemini"
+
+
+def test_gemini_gets_a_bare_base64_payload_not_a_data_uri():
+    from core.llm.router import RoutingLLM
+
+    parts = RoutingLLM._shape_for("gemini", "q", [_png()])
+    assert not parts[0]["inline_data"]["data"].startswith("data:")
+
+
+def test_the_gemini_streamer_forwards_a_parts_list_untouched():
+    from core.llm.providers import _gemini_parts
+
+    parts = [{"inline_data": {"mime_type": "image/png", "data": "QUJD"}}, {"text": "q"}]
+    assert _gemini_parts(parts) is parts
+
+
+def test_the_gemini_streamer_still_wraps_plain_text():
+    from core.llm.providers import _gemini_parts
+
+    assert _gemini_parts("hello") == [{"text": "hello"}]
+
+
+def test_the_gemini_request_body_carries_the_image():
+    """End to end through the real streamer, with the network faked at the SSE call."""
+    from unittest.mock import patch
+
+    from core.llm import providers
+    from core.llm.router import RoutingLLM
+
+    captured = {}
+
+    def fake_sse(name, url, headers, body, extract, timeout):
+        captured["body"] = body
+
+        async def gen():
+            if False:
+                yield ""
+
+        return gen()
+
+    msgs = [{"role": "user", "content": RoutingLLM._shape_for("gemini", "is this phishing?", [_png()])}]
+    with patch.object(providers, "_stream_sse", fake_sse):
+        providers.stream_gemini_tokens("You are DEEP.", msgs, "gemini-2.0-flash", "KEY")
+
+    parts = captured["body"]["contents"][0]["parts"]
+    assert "inline_data" in parts[0], "the image must survive into the request"
+    assert parts[1]["text"] == "is this phishing?"
+    assert captured["body"]["system_instruction"]["parts"] == [{"text": "You are DEEP."}]
+
+
+def test_a_text_only_gemini_request_is_unchanged():
+    """The common path must not regress for the sake of the rare one."""
+    from unittest.mock import patch
+
+    from core.llm import providers
+
+    captured = {}
+
+    def fake_sse(name, url, headers, body, extract, timeout):
+        captured["body"] = body
+
+        async def gen():
+            if False:
+                yield ""
+
+        return gen()
+
+    with patch.object(providers, "_stream_sse", fake_sse):
+        providers.stream_gemini_tokens("sys", [{"role": "user", "content": "hi"}], "m", "k")
+
+    assert captured["body"]["contents"][0]["parts"] == [{"text": "hi"}]
+
+
+def test_gemini_is_no_longer_skipped_when_an_image_is_present():
+    """It used to be filtered out of the chain; now it is a valid destination."""
+    from core.llm.router import RoutingLLM
+
+    assert "gemini" in RoutingLLM._IMAGE_CAPABLE_PROVIDERS

@@ -127,7 +127,10 @@ wishlist.
   screenshot exists that it cannot read and forbids it from describing the
   contents — a model that is not told will answer from the surrounding text as
   though it had looked. Point `OLLAMA_MODEL` at a vision model (`llava`,
-  `llama3.2-vision`), or configure Groq or Claude, and it actually sees. Results are bounded before
+  `llama3.2-vision`), or configure Groq, Gemini or Claude, and it actually sees.
+  Each provider gets the shape it wants — Claude blocks, OpenAI data URIs,
+  Gemini `inline_data` parts — and a provider that cannot read an image is
+  skipped rather than shown the question with the evidence missing. Results are bounded before
   they reach the model's context and truncation is stated rather than silent, a
   server that will not start costs one log line instead of the boot, and
   `GET /api/intel/mcp` says which servers are running and why any are not.

@@ -26,12 +26,14 @@ class RoutingLLM:
     so tool-calling works across every configured cloud provider — not just Groq.
     Exposes last_provider for the reasoning panel.
     """
-    #: Providers whose streamer accepts multimodal content in the messages list
-    #: as-is. Gemini is absent on purpose: its streamer flattens each message to
-    #: {"text": content}, so a content list would be serialised as a Python repr
-    #: and the model would be shown the string "[{'type': 'image'...". Adding it
-    #: means teaching that streamer inline_data, not listing it here.
-    _IMAGE_CAPABLE_PROVIDERS = frozenset({"claude", "groq"})
+    #: Providers whose streamer accepts multimodal content in the messages list.
+    #: Each wants a different shape — see _shape_for — and a provider only
+    #: belongs here once its streamer actually understands that shape. Gemini
+    #: was absent until stream_gemini_tokens learned to forward a parts list;
+    #: before that a content list would have been stringified into the prompt,
+    #: showing the model the characters "[{'inline_data'..." instead of an
+    #: image, which is worse than refusing it because it looks like it worked.
+    _IMAGE_CAPABLE_PROVIDERS = frozenset({"claude", "groq", "gemini"})
 
     def __init__(self, local_client, app_settings):
         self._local = local_client
@@ -64,6 +66,16 @@ class RoutingLLM:
         """
         if not images:
             return user_prompt
+        if provider == "gemini":
+            # Gemini takes native `parts`, not typed blocks: inline_data with a
+            # bare base64 payload, no data-URI prefix. Returned in Gemini's own
+            # shape so stream_gemini_tokens can forward it untouched.
+            parts = [
+                {"inline_data": {"mime_type": img.mime_type, "data": img.data}}
+                for img in images
+            ]
+            parts.append({"text": user_prompt})
+            return parts
         if provider == "claude":
             blocks = [
                 {"type": "image",
