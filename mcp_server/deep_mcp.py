@@ -8,7 +8,8 @@ Model Context Protocol tools, so Claude Desktop / Cursor / any MCP client can
 use DEEP as an intelligence *backend* — not just an app.
 
 It is a thin, decoupled proxy over DEEP's running HTTP API (default
-http://localhost:7768), so DEEP must be running. Set DEEP_BASE_URL to override.
+http://localhost:5174 — the port interface/server.py actually binds), so DEEP
+must be running. Set DEEP_BASE_URL to override.
 
 Run (stdio):  python mcp_server/deep_mcp.py
 """
@@ -20,7 +21,10 @@ import os
 import httpx
 from mcp.server.fastmcp import FastMCP
 
-BASE = os.environ.get("DEEP_BASE_URL", "http://localhost:7768").rstrip("/")
+# 5174 is what interface/server.py binds. This defaulted to 7768 — a port
+# nothing has listened on since the HUD server moved — so every tool here
+# failed with a connection error until DEEP_BASE_URL was set by hand.
+BASE = os.environ.get("DEEP_BASE_URL", "http://localhost:5174").rstrip("/")
 mcp = FastMCP("DEEP")
 
 
