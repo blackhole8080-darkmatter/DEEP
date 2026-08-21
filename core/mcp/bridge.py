@@ -25,7 +25,8 @@ from __future__ import annotations
 
 import json
 import logging
-from typing import Any, Dict, List, Optional
+import time
+from typing import Any, Dict, List, Optional, Tuple
 
 from core.domain.models import ToolResult
 from core.mcp.client import MCPServerConnection, MCPTool
@@ -39,6 +40,11 @@ logger = logging.getLogger(__name__)
 #: three of them do not evict the conversation.
 MAX_RESULT_CHARS = 24_000
 
+#: Most cached results held at once, across every server. Bounded because a
+#: cache that grows with the conversation is a leak, and the working set for an
+#: investigation is a handful of pivots rather than hundreds.
+MAX_CACHE_ENTRIES = 256
+
 
 class MCPBridge:
     """Owns every MCP server connection and their registered tool specs."""
@@ -47,6 +53,9 @@ class MCPBridge:
         self._configs = servers if servers is not None else configured_servers()
         self._connections: Dict[str, MCPServerConnection] = {}
         self._registered: List[str] = []
+        #: (server, tool, canonical args) -> (expires_at, rendered result).
+        self._cache: Dict[Tuple[str, str, str], Tuple[float, str]] = {}
+        self._cache_stats = {"hits": 0, "misses": 0, "stores": 0}
 
     # ── startup ──────────────────────────────────────────────────────────────
 
@@ -93,6 +102,7 @@ class MCPBridge:
         for connection in self._connections.values():
             await connection.aclose()
         self._connections.clear()
+        self._cache.clear()
 
     # ── registration ─────────────────────────────────────────────────────────
 
@@ -108,16 +118,75 @@ class MCPBridge:
         description = f"[{connection.config.id}] {description}"
 
         async def handler(ctx: Any, args: Dict[str, Any], _tool=tool, _conn=connection) -> ToolResult:
+            args = args or {}
+            cached = self._cache_get(_conn.config, _tool.name, args)
+            if cached is not None:
+                return ToolResult(True, cached, name)
             try:
-                raw = await _conn.call(_tool.name, args or {})
+                raw = await _conn.call(_tool.name, args)
             except Exception as exc:  # noqa: BLE001 - subprocess, any failure mode
                 logger.warning("[MCP] %s.%s failed: %s", _conn.config.id, _tool.name, exc)
                 return ToolResult(False, f"{name} failed: {exc}", name)
-            return ToolResult(True, render_result(raw), name)
+            rendered = render_result(raw)
+            # Only successful results are stored. Caching a failure would turn
+            # one bad minute upstream into an hour of the model being told the
+            # same lie, which the native path avoids by capping error TTLs.
+            if not getattr(raw, "isError", False):
+                self._cache_put(_conn.config, _tool.name, args, rendered)
+            return ToolResult(True, rendered, name)
 
         TOOL_SPECS[name] = ToolSpec(name, description, tool.arg_hints, handler)
         self._registered.append(name)
         return name
+
+    # ── caching ──────────────────────────────────────────────────────────────
+    #
+    # A bridged tool runs in a subprocess with its own HTTP client, so it never
+    # touches core/intel/http.py's cache or its per-host throttle. Without this
+    # the bridge is the impolite half of an integration whose native half is
+    # careful. Which tools are safe to cache is declared per server, because
+    # nothing here can tell a read from a write by looking at a tool name.
+
+    @staticmethod
+    def _cache_key(server_id: str, tool: str, args: Dict[str, Any]) -> Tuple[str, str, str]:
+        # sort_keys so {"a":1,"b":2} and {"b":2,"a":1} are one entry — models
+        # do not emit arguments in a stable order.
+        return (server_id, tool, json.dumps(args, sort_keys=True, default=str))
+
+    def _cache_get(self, config: MCPServerConfig, tool: str, args: Dict[str, Any]) -> Optional[str]:
+        if tool not in config.cache_tools:
+            return None
+        key = self._cache_key(config.id, tool, args)
+        hit = self._cache.get(key)
+        if hit is None:
+            self._cache_stats["misses"] += 1
+            return None
+        expires_at, value = hit
+        if expires_at <= time.monotonic():
+            self._cache.pop(key, None)
+            self._cache_stats["misses"] += 1
+            return None
+        self._cache_stats["hits"] += 1
+        logger.debug("[MCP] cache hit %s.%s", config.id, tool)
+        return value
+
+    def _cache_put(
+        self, config: MCPServerConfig, tool: str, args: Dict[str, Any], value: str
+    ) -> None:
+        if tool not in config.cache_tools or config.cache_ttl_s <= 0:
+            return
+        if len(self._cache) >= MAX_CACHE_ENTRIES:
+            # Evict the soonest to expire. Cheap, and close enough to LRU for a
+            # working set this small.
+            oldest = min(self._cache, key=lambda k: self._cache[k][0])
+            self._cache.pop(oldest, None)
+        self._cache[self._cache_key(config.id, tool, args)] = (
+            time.monotonic() + config.cache_ttl_s, value,
+        )
+        self._cache_stats["stores"] += 1
+
+    def clear_cache(self) -> None:
+        self._cache.clear()
 
     # ── introspection ────────────────────────────────────────────────────────
 
@@ -136,6 +205,7 @@ class MCPBridge:
             "servers": servers,
             "bridged_tools": list(self._registered),
             "total_bridged": len(self._registered),
+            "cache": {**self._cache_stats, "entries": len(self._cache)},
         }
 
 

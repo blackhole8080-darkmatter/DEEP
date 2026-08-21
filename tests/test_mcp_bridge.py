@@ -356,3 +356,133 @@ async def test_the_real_urlscan_server_bridges_end_to_end(clean_registry):
         await bridge.aclose()
 
     assert "urlscan_scan_url" not in TOOL_SPECS
+
+
+# ── caching ──────────────────────────────────────────────────────────────────
+#
+# A bridged tool runs in its own subprocess with its own HTTP client, so it
+# never touches DEEP's intel cache or per-host throttle. Two identical pivots
+# in one investigation hit the upstream twice where the native path would hit
+# it once. What must NOT be cached matters more than what is.
+
+
+async def _cached_bridge(monkeypatch, *, cache_tools=("search_scans",), ttl=900.0, outcome=None):
+    config = _config(cache_tools=cache_tools, cache_ttl_s=ttl)
+    return await _bridge_with(monkeypatch, config, [_tool("search_scans"), _tool("scan_url")], outcome)
+
+
+@pytest.mark.asyncio
+async def test_a_repeated_read_is_served_from_cache(clean_registry, monkeypatch):
+    bridge, conn, _ = await _cached_bridge(monkeypatch, outcome=_Result([_Block("hits")]))
+    handler = TOOL_SPECS["fake_search_scans"].handler
+
+    first = await handler(None, {"query": "domain:evil.test"})
+    second = await handler(None, {"query": "domain:evil.test"})
+
+    assert first.content == second.content == "hits"
+    assert len(conn.calls) == 1, "the second call must not reach the server"
+    assert bridge.status()["cache"]["hits"] == 1
+    await bridge.aclose()
+
+
+@pytest.mark.asyncio
+async def test_argument_order_does_not_defeat_the_cache(clean_registry, monkeypatch):
+    """Models do not emit arguments in a stable order."""
+    bridge, conn, _ = await _cached_bridge(monkeypatch, outcome=_Result([_Block("hits")]))
+    handler = TOOL_SPECS["fake_search_scans"].handler
+
+    await handler(None, {"a": 1, "b": 2})
+    await handler(None, {"b": 2, "a": 1})
+
+    assert len(conn.calls) == 1
+    await bridge.aclose()
+
+
+@pytest.mark.asyncio
+async def test_different_arguments_are_different_entries(clean_registry, monkeypatch):
+    bridge, conn, _ = await _cached_bridge(monkeypatch, outcome=_Result([_Block("hits")]))
+    handler = TOOL_SPECS["fake_search_scans"].handler
+
+    await handler(None, {"query": "one"})
+    await handler(None, {"query": "two"})
+
+    assert len(conn.calls) == 2
+    await bridge.aclose()
+
+
+@pytest.mark.asyncio
+async def test_a_tool_with_side_effects_is_never_cached(clean_registry, monkeypatch):
+    """Caching a submission would hand back a scan id for a scan that never ran."""
+    bridge, conn, _ = await _cached_bridge(monkeypatch, outcome=_Result([_Block("submitted")]))
+    handler = TOOL_SPECS["fake_scan_url"].handler
+
+    await handler(None, {"url": "https://x.test"})
+    await handler(None, {"url": "https://x.test"})
+
+    assert len(conn.calls) == 2, "scan_url is not on the cache list"
+    await bridge.aclose()
+
+
+@pytest.mark.asyncio
+async def test_a_failure_is_not_cached(clean_registry, monkeypatch):
+    """One bad minute upstream must not become an hour of repeating it."""
+    bridge, conn, _ = await _cached_bridge(
+        monkeypatch, outcome=_Result([_Block("upstream is down")], is_error=True)
+    )
+    handler = TOOL_SPECS["fake_search_scans"].handler
+
+    await handler(None, {"query": "x"})
+    await handler(None, {"query": "x"})
+
+    assert len(conn.calls) == 2
+    await bridge.aclose()
+
+
+@pytest.mark.asyncio
+async def test_an_expired_entry_is_refetched(clean_registry, monkeypatch):
+    bridge, conn, _ = await _cached_bridge(
+        monkeypatch, ttl=-1, outcome=_Result([_Block("hits")])
+    )
+    handler = TOOL_SPECS["fake_search_scans"].handler
+
+    await handler(None, {"query": "x"})
+    await handler(None, {"query": "x"})
+
+    assert len(conn.calls) == 2
+    await bridge.aclose()
+
+
+@pytest.mark.asyncio
+async def test_the_cache_is_bounded(clean_registry, monkeypatch):
+    bridge, _, _ = await _cached_bridge(monkeypatch, outcome=_Result([_Block("hits")]))
+    handler = TOOL_SPECS["fake_search_scans"].handler
+
+    for i in range(bridge_mod.MAX_CACHE_ENTRIES + 20):
+        await handler(None, {"query": f"q{i}"})
+
+    assert bridge.status()["cache"]["entries"] <= bridge_mod.MAX_CACHE_ENTRIES
+    await bridge.aclose()
+
+
+@pytest.mark.asyncio
+async def test_caching_is_off_unless_a_server_declares_it(clean_registry, monkeypatch):
+    """The bridge cannot tell a read from a write by looking at a name."""
+    bridge, conn, _ = await _cached_bridge(
+        monkeypatch, cache_tools=(), outcome=_Result([_Block("hits")])
+    )
+    handler = TOOL_SPECS["fake_search_scans"].handler
+
+    await handler(None, {"query": "x"})
+    await handler(None, {"query": "x"})
+
+    assert len(conn.calls) == 2
+    await bridge.aclose()
+
+
+def test_the_urlscan_server_caches_reads_but_not_submissions():
+    urlscan = next(s for s in configured_servers() if s.id == "urlscan")
+
+    assert "search_scans" in urlscan.cache_tools
+    assert "get_scan_result" in urlscan.cache_tools
+    for write_or_volatile in ("scan_url", "scan_and_wait", "get_quotas"):
+        assert write_or_volatile not in urlscan.cache_tools, write_or_volatile

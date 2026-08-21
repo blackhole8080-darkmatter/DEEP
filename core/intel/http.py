@@ -132,6 +132,13 @@ class IntelHTTP:
             self._session = aiohttp.ClientSession(
                 timeout=aiohttp.ClientTimeout(total=self._timeout_s),
                 headers={"User-Agent": USER_AGENT},
+                # Honour HTTP(S)_PROXY / NO_PROXY / .netrc from the environment.
+                # aiohttp ignores them unless asked, so on any machine behind a
+                # proxy every catalogued source failed with a bare connection
+                # error — a whole intelligence layer reporting "degraded" with
+                # no hint that the network, not the sources, was the problem.
+                # A no-op where no proxy is configured.
+                trust_env=True,
             )
         return self._session
 
