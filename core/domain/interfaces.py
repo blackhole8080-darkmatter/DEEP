@@ -31,9 +31,22 @@ class LLMClient(Protocol):
 
 
 class ToolExecutor(Protocol):
-    """Protocol for tool execution."""
+    """Protocol for tool execution.
+
+    ``list_tools`` and ``available_tools`` are part of the contract because the
+    brain validates a model-chosen tool name against them before executing.
+    They were used by AsyncBrain but never declared here, and the one real
+    implementation did not provide them — so every tool call raised
+    AttributeError and killed the turn. Declared, a missing one is a type error
+    rather than a runtime surprise.
+    """
 
     def describe_tools(self) -> str: ...
+
+    def list_tools(self) -> List[str]: ...
+
+    #: Name → {"description": str, "args": {arg: hint}}.
+    available_tools: Dict[str, Dict[str, Any]]
 
     def execute_tool(self, tool_name: str, args: Dict[str, Any]) -> Any: ...
 

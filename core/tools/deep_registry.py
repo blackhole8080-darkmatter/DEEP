@@ -46,6 +46,27 @@ class DeepToolRegistry(ToolExecutor):
         self.world_model = None
         self.plugin_manager = None  # set by server after plugins start; bridges plugin tools
 
+    def list_tools(self) -> list[str]:
+        """Every tool name the brain may call.
+
+        AsyncBrain._parse_tool_call validates a model's chosen tool name against
+        this before executing, and fuzzy-matches a near miss back onto a real
+        name. Without it that call raised AttributeError *outside* the
+        generation try/except, so every single tool call killed the whole turn —
+        the entire tool surface was unreachable in the running product while
+        every tool passed its own unit tests. The protocol now declares it (see
+        core/domain/interfaces.py) so the next executor cannot omit it silently.
+        """
+        return list(TOOL_SPECS.keys())
+
+    @property
+    def available_tools(self) -> Dict[str, Dict[str, Any]]:
+        """Name → {description, args}, for the parser's soft argument check."""
+        return {
+            name: {"description": spec.description, "args": spec.args}
+            for name, spec in TOOL_SPECS.items()
+        }
+
     def describe_tools(self) -> str:
         desc = "AVAILABLE TOOLS:\n"
         for name, spec in TOOL_SPECS.items():
