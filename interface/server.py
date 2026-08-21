@@ -54,6 +54,7 @@ from core.metrics import metrics
 from core.event_bus import EventBus
 from core.infrastructure.async_brain import AsyncBrain
 from core.multi_llm_router import OllamaClient, ProviderConfig, LLMProvider
+from core import pending_actions
 from core.tools.deep_registry import DeepToolRegistry
 from core.ltm_memory import LongTermMemory
 # core.voice_web / core.local_stt imports removed (VoiceWeb/LocalSTT stubbed above)
@@ -359,6 +360,24 @@ async def startup_event():
     except Exception as e:
         print(f"[DEEP] Agent factory init error: {e}")
 
+    # Bridge external MCP servers into the brain's tool registry. Servers that
+    # cannot start contribute nothing and say why — a missing capability, not a
+    # failed boot — so this never guards the assistant coming up.
+    try:
+        from core.mcp import shared_bridge
+
+        mcp_report = await shared_bridge().start()
+        if mcp_report["tools_registered"]:
+            print(f"[DEEP] MCP bridge: {mcp_report['tools_registered']} tool(s) from "
+                  f"{len([s for s in mcp_report['servers'] if s.get('tools')])} server(s)")
+        for entry in mcp_report["servers"]:
+            if entry.get("skipped"):
+                print(f"[DEEP] MCP {entry['id']} unavailable: {entry['skipped']}")
+            elif entry.get("error"):
+                print(f"[DEEP] MCP {entry['id']} failed to start: {entry['error']}")
+    except Exception as e:
+        print(f"[DEEP] MCP bridge init error: {e}")
+
     # Initialize Plugin Manager
     try:
         discovered = await plugin_manager.discover_plugins()
@@ -627,6 +646,19 @@ async def startup_event():
 
     event_bus.subscribe("*", _ws_broadcast)
 
+    # Approvals reach the HUD the moment a tool parks one. The queue is a
+    # plain module with no bus dependency, so it exposes a hook instead; the
+    # wildcard subscriber above forwards whatever we publish straight to the
+    # WebSocket. Fire-and-forget: a tool must not fail because a browser is
+    # not listening.
+    def _approval_notify(event_name: str, payload: dict) -> None:
+        try:
+            asyncio.get_running_loop().create_task(event_bus.publish(event_name, payload))
+        except RuntimeError:
+            pass  # enqueued outside the loop (a test, a script) — poll picks it up
+
+    pending_actions.set_notifier(_approval_notify)
+
     # Start the proactive layer (ProactiveCore: real rate-limiting/quiet-hours,
     # emits `proactive_suggestion` -> HUD alert cards). Replaces the old
     # proactive_loop() that faked alerts as raw chat tokens.
@@ -720,6 +752,12 @@ async def shutdown_event():
     try:
         from core.intel.http import shared_http
         await shared_http().close()
+    except Exception:
+        pass
+    try:
+        # Stops every bridged MCP subprocess and unregisters its tools.
+        from core.mcp import shared_bridge
+        await shared_bridge().aclose()
     except Exception:
         pass
     try:

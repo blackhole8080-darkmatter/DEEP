@@ -1,4 +1,4 @@
-import{i as b,b as r,A as c,a as v,r as h,t as f}from"./index-2Z09ZJ8J.js";var y=Object.defineProperty,$=Object.getOwnPropertyDescriptor,p=(t,i,l,a)=>{for(var s=a>1?void 0:a?$(i,l):i,o=t.length-1,d;o>=0;o--)(d=t[o])&&(s=(a?d(i,l,s):d(s))||s);return a&&s&&y(i,l,s),s};const x=300*1e3;let n=class extends b{constructor(){super(...arguments),this.stats=null,this.error="",this.loading=!0,this.timer=0}connectedCallback(){super.connectedCallback(),this.load(),this.timer=window.setInterval(()=>void this.load(),x)}disconnectedCallback(){super.disconnectedCallback(),clearInterval(this.timer)}async load(){try{const t=await fetch("/api/intel/stats");if(!t.ok)throw new Error(`HTTP ${t.status}`);this.stats=await t.json(),this.error=""}catch(t){this.error=t.message}finally{this.loading=!1}}tile(t,i,l=""){const a=t==null;return r`
+import{i as b,b as r,A as c,a as v,r as h,t as f}from"./index-CBQjtX3d.js";var y=Object.defineProperty,$=Object.getOwnPropertyDescriptor,p=(t,i,l,a)=>{for(var s=a>1?void 0:a?$(i,l):i,o=t.length-1,d;o>=0;o--)(d=t[o])&&(s=(a?d(i,l,s):d(s))||s);return a&&s&&y(i,l,s),s};const x=300*1e3;let n=class extends b{constructor(){super(...arguments),this.stats=null,this.error="",this.loading=!0,this.timer=0}connectedCallback(){super.connectedCallback(),this.load(),this.timer=window.setInterval(()=>void this.load(),x)}disconnectedCallback(){super.disconnectedCallback(),clearInterval(this.timer)}async load(){try{const t=await fetch("/api/intel/stats");if(!t.ok)throw new Error(`HTTP ${t.status}`);this.stats=await t.json(),this.error=""}catch(t){this.error=t.message}finally{this.loading=!1}}tile(t,i,l=""){const a=t==null;return r`
       <div class="tile ${a?"muted":l}">
         <div class="value">${a?"unavailable":t}</div>
         <div class="label">${i}</div>
@@ -162,4 +162,4 @@ import{i as b,b as r,A as c,a as v,r as h,t as f}from"./index-2Z09ZJ8J.js";var y
     .state { padding: 24px; opacity: 0.6; font-size: 0.8rem; }
     a { color: rgba(150, 210, 255, 0.85); }
   `;p([h()],n.prototype,"stats",2);p([h()],n.prototype,"error",2);p([h()],n.prototype,"loading",2);n=p([f("intel-stats-view")],n);export{n as IntelStatsView};
-//# sourceMappingURL=intel-stats-view-BG0Woziu.js.map
+//# sourceMappingURL=intel-stats-view-DTfwczI2.js.map

@@ -25,18 +25,31 @@ wishlist.
 - Every anomaly/threat gets enriched automatically with matching
   [MITRE ATT&CK](https://attack.mitre.org/) techniques and related CVEs, then
   surfaced on one live, severity-scored security timeline
-- **A unified OSINT investigator.** Give it any indicator — IP, domain, CVE,
-  ASN, file hash, MAC, or `pypi:requests` — and it infers the type, fans out
+- **A unified OSINT investigator.** Give it any indicator — IP, domain, URL,
+  CVE, ASN, file hash, MAC, or `pypi:requests` — and it infers the type, fans out
   across every applicable public source concurrently, and returns one dossier
   with a derived risk verdict. Every finding names the API that produced it,
   so a verdict can be audited rather than trusted. A source that times out
   lands in `degraded` and the rest of the report still renders; if *nothing*
   answers, the verdict is `unknown`, never a fabricated all-clear.
-- **20 catalogued public APIs, 16 of which need no key at all** — CISA KEV,
+- **A URL is a first-class indicator, via [urlscan.io](https://urlscan.io).**
+  A host is not the page: shared hosting serves phishing kits off decade-old
+  domains every day, and every other source in the catalog answers only about
+  the host. urlscan reports what a browser actually saw — redirect chain, final
+  destination, apex-domain age, submitter tags — and brings page-level evidence
+  to domain, IP and SHA-256 lookups too. Two failure modes are guarded
+  explicitly: urlscan's free tier returns *no verdict data*, so a missing
+  verdict is recorded as a gap rather than read as "clean"; and a domain that
+  redirects away has its reputation attributed to the destination, not to
+  itself, so a day-old throwaway domain cannot inherit github.com's age and
+  rank.
+- **22 catalogued public APIs, 17 of which need no key at all** — CISA KEV,
   FIRST EPSS, NVD, OSV.dev, GitHub Advisories, Shodan InternetDB, SANS ISC,
   abuse.ch Feodo Tracker, the Tor exit list, RDAP, RIPEstat, Cloudflare DoH,
-  crt.sh, Have I Been Pwned's breach catalog and more. `GET /api/intel/sources`
-  shows exactly which are live and which are waiting on a key you haven't set.
+  crt.sh, urlscan.io, Have I Been Pwned's breach catalog and more.
+  `GET /api/intel/sources` shows exactly which are live and which are waiting
+  on a key you haven't set — and now *why*, since a source can also be idle
+  because an optional package is missing rather than a key.
   Shodan/VirusTotal/AbuseIPDB/OTX slot in on top when you supply keys.
 - Live threat intel ingestion: CISA KEV, major security blogs (Krebs,
   The Hacker News, BleepingComputer, SANS ISC, Cisco Talos, Google Project
@@ -54,14 +67,55 @@ wishlist.
   matched against *your* stack) and `exploit_search`. Combined with the OSINT
   tools this chains: a device that started beaconing at 03:00 → who it was
   talking to → whether the CVE it's likely exploiting is in CISA KEV.
-- 61 tools reach the reasoning brain, every one of which actually runs — the
+- 63 tools reach the reasoning brain, every one of which actually runs — the
   surface was audited by executing all of them, not by reading the list.
   Off-mission groups (phone control, personal finance, email, XR) and tools
   that referenced integrations the registry never built are gone.
+- **Outward-facing actions need your yes.** Publishing a URL to urlscan.io
+  makes a permanent public record and tells the site owner the link was
+  scanned, so `url_scan_submit` parks the request instead of running it: it
+  lands in the HUD's **Approvals** panel — and in `GET /api/actions/pending` —
+  with the exact URL and visibility named, alongside what publishing actually
+  costs. Approve and Reject carry equal weight there on purpose; the panel
+  exists to make a no as easy as a yes. The dock pill badges the waiting count,
+  and the request also goes out through the alert dispatcher — desktop
+  notification, log — so switching windows does not cost you the action. Two
+  things make that safe: an approval is *solicited*, so quiet hours and rate
+  limits (which exist to stop DEEP interrupting unprompted) do not strand a
+  reply you are waiting on; and it is *local-only*, so the URL awaiting
+  confirmation never reaches the webhook channel — leaking it before you decide
+  would defeat the gate. Neither exemption touches the severity floor or
+  deduplication, so a retry loop still produces one notification.
+- **DEEP speaks again.** `tts_speak` was published from ten places — the boot
+  announcement, morning briefings, anomaly warnings, threat classifications,
+  Tailscale events — and consumed by nobody: the server-side voice package was
+  removed and the HUD never grew a replacement, so every announcement travelled
+  over the WebSocket and fell on the floor. The HUD now synthesises them
+  (`core/speech.ts`), and the alert dispatcher has a voice channel, so anything
+  that survives the gates is said as well as shown. What gets *said* is not the
+  string that gets shown: an approval names its URL in full on screen, but reads
+  only the host aloud, because a link carrying a session token should not be
+  announced into a room. ⌘K → "Voice" mutes it, and the mute persists;
+  `DEEP_ALERT_VOICE=0` turns the channel off server-side. Consent
+  expires after 15 minutes, rejecting is one call, and the model cannot
+  self-approve — the approval flag is stripped on the way in. The same gate has
+  guarded `block_device` and `vpn_control` for a while; until now nothing
+  listed the queue or ran anything out of it, so those actions were parked
+  forever behind a message promising an Approvals panel that did not exist.
 - Shell execution (`run_command`) is opt-in behind `DEEP_ENABLE_SHELL_TOOL`.
   The other file tools are path-sandboxed to a workspace root; that command
   is not — it sandboxes the working directory, not the command — so it isn't
   handed to an LLM by default.
+- **DEEP is an MCP host, not only an MCP server.** `mcp_server/` has always
+  exposed DEEP to Claude Desktop and Cursor; `core/mcp/` points the other way,
+  running external MCP servers as subprocesses and registering their tools in
+  DEEP's own registry, prefixed by server. A capability someone already built
+  and tested does not have to be reimplemented inside DEEP to be usable by it.
+  [urlscan-mcp](https://github.com/blackhole8080-darkmatter/urlscan-mcp) ships
+  wired up; add your own in `data/mcp_servers.json`. Results are bounded before
+  they reach the model's context and truncation is stated rather than silent, a
+  server that will not start costs one log line instead of the boot, and
+  `GET /api/intel/mcp` says which servers are running and why any are not.
 - The OSINT layer is exposed to DEEP's reasoning brain as tools, so asking
   "is 45.33.32.156 malicious?" or "how urgent is CVE-2021-44228 really?" in
   chat produces a sourced answer from live feeds rather than a recollection
@@ -198,8 +252,8 @@ deps pypi:requests        # advisories for a package you depend on
 Everything in `.env` is optional — DEEP degrades gracefully and tells you in
 the startup logs which pieces are inactive without a given key.
 
-DEEP's OSINT layer works fully on a fresh clone: 16 of its 20 catalogued
-sources need no signup. Keys below only add the four gated ones.
+DEEP's OSINT layer works fully on a fresh clone: 17 of its 22 catalogued
+sources need no signup. Keys below only add the gated ones.
 
 **Remote access:** DEEP trusts loopback unconditionally. Any other client —
 LAN, Tailnet — needs a key. Leave `DEEP_API_KEY` unset and DEEP mints a random
@@ -211,6 +265,8 @@ startup log.
 | `DEEP_API_KEY` | remote (non-loopback) access; auto-generated if unset | — |
 | `OLLAMA_MODEL` / `OLLAMA_BASE_URL` | local LLM (default: `llama3.2`) | [ollama.com](https://ollama.com) |
 | `CLAUDE_API_KEY`, `GEMINI_API_KEY`, `GROQ_API_KEY` | cloud LLM fallback | respective provider consoles |
+| `URLSCAN_API_KEY` | submitting live urlscan.io scans (searching the corpus needs no key) | [urlscan.io](https://urlscan.io/user/signup) |
+| `DEEP_ALERT_VOICE` | set `0` to stop DEEP speaking alerts (on by default; ⌘K → "Voice" mutes per-browser) | — |
 | `SHODAN_API_KEY` | internet-exposure lookups | [shodan.io](https://account.shodan.io/register) |
 | `VIRUSTOTAL_API_KEY` | file/URL/IP reputation | [virustotal.com](https://www.virustotal.com/gui/join-us) |
 | `ABUSEIPDB_API_KEY` | IP abuse reputation | [abuseipdb.com](https://www.abuseipdb.com/register) |
@@ -242,6 +298,8 @@ DEEP/
 │   └── web/            # Vite + Lit + TypeScript frontend source
 │       └── (builds to interface/static/app-dist, served by the backend)
 ├── mcp_server/       # MCP server exposing DEEP as tools to other agents
+├── core/mcp/         # the reverse: MCP *client* bridging external servers'
+│                     #   tools into DEEP's own registry
 ├── archive/          # retired subsystems, kept for history — not loaded
 │   └── web/          #   34 frontend modules that reached no entry point
 └── tests/            # pytest suite

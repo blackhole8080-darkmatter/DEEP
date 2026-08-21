@@ -6,6 +6,7 @@ server.py mounts via `app.include_router(...)`.
 """
 
 from interface.routers import (
+    actions,
     alerts,
     anomaly,
     audit,
@@ -24,6 +25,7 @@ from interface.routers import (
 )
 
 ROUTERS = [
+    actions.router,
     predictive.router,
     evolution.router,
     knowledge_graph.router,

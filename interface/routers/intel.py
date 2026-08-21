@@ -18,6 +18,7 @@ from core.intel.live_stats import shared_live_intel
 from core.intel.ops_terminal import OpsTerminal, command_catalog
 from core.intel.osint_investigator import OSINTInvestigator
 from core.intel.refresher import shared_refresher
+from core.intel.urlscan import shared_urlscan
 from core.playbooks import INSTALL_HINT, normalise_technique, shared_playbooks
 from interface.deps import services
 
@@ -48,7 +49,10 @@ async def intel_sources(category: Optional[str] = None):
 
 @router.get("/investigate")
 async def intel_investigate(
-    target: str = Query(..., min_length=1, max_length=253, description="IP, domain, CVE, ASN, hash, MAC or ecosystem:package"),
+    target: str = Query(
+        ..., min_length=1, max_length=2048,
+        description="IP, domain, URL, CVE, ASN, hash, MAC or ecosystem:package",
+    ),
 ):
     """Fan one indicator out across every applicable public source."""
     dossier = await _investigator.investigate(target)
@@ -58,7 +62,7 @@ async def intel_investigate(
 
 
 @router.get("/classify")
-async def intel_classify(target: str = Query(..., min_length=1, max_length=253)):
+async def intel_classify(target: str = Query(..., min_length=1, max_length=2048)):
     """What kind of indicator is this? Used by the UI to preview a pivot."""
     kind = OSINTInvestigator.classify(target)
     if kind is None:
@@ -179,3 +183,60 @@ async def terminal_exec(body: TerminalCommand):
     """Execute one read-only operations command."""
     result = await _terminal().execute(body.line)
     return result.to_dict()
+
+
+# ── urlscan.io ───────────────────────────────────────────────────────────────
+
+
+class ScanRequest(BaseModel):
+    url: str = Field(..., min_length=4, max_length=2048)
+    visibility: str = Field("public", pattern="^(public|unlisted)$")
+    tags: Optional[list[str]] = None
+
+
+@router.post("/urlscan/submit")
+async def urlscan_submit(body: ScanRequest):
+    """Submit a URL to urlscan.io for a live scan.
+
+    POST rather than GET because this has a side effect a user would care
+    about: a public scan is permanently visible on urlscan.io, and the site
+    owner can see it was scanned.
+
+    No approval gate here, unlike the ``url_scan_submit`` tool: this endpoint
+    *is* the human acting. The gate exists to stop the model publishing on the
+    user's behalf, not to make the user confirm their own click.
+    """
+    if not body.url.lower().startswith(("http://", "https://")):
+        raise HTTPException(status_code=422, detail="Expected an http:// or https:// URL.")
+    result = await shared_urlscan().submit(
+        body.url, visibility=body.visibility, tags=body.tags
+    )
+    if "error" in result:
+        # A missing key is the caller's to fix, not an upstream fault.
+        status = 428 if "API key" in result["error"] else 502
+        raise HTTPException(status_code=status, detail=result["error"])
+    return result
+
+
+@router.get("/urlscan/result/{uuid}")
+async def urlscan_result(uuid: str, full: bool = Query(False)):
+    """A finished scan, summarised. ``full=true`` returns the raw document."""
+    result = await shared_urlscan().result(uuid, full=full)
+    if "error" in result:
+        raise HTTPException(status_code=502, detail=result["error"])
+    return result
+
+
+# ── MCP bridge ───────────────────────────────────────────────────────────────
+
+
+@router.get("/mcp")
+async def intel_mcp_status():
+    """External MCP servers DEEP bridges, and the tools they contribute.
+
+    Reports why an unavailable server is unavailable, so a missing tool is
+    diagnosable from here rather than by watching the model fail to call it.
+    """
+    from core.mcp import shared_bridge
+
+    return shared_bridge().status()

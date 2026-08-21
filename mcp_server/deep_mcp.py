@@ -8,7 +8,8 @@ Model Context Protocol tools, so Claude Desktop / Cursor / any MCP client can
 use DEEP as an intelligence *backend* — not just an app.
 
 It is a thin, decoupled proxy over DEEP's running HTTP API (default
-http://localhost:7768), so DEEP must be running. Set DEEP_BASE_URL to override.
+http://localhost:5174 — the port interface/server.py actually binds), so DEEP
+must be running. Set DEEP_BASE_URL to override.
 
 Run (stdio):  python mcp_server/deep_mcp.py
 """
@@ -20,7 +21,10 @@ import os
 import httpx
 from mcp.server.fastmcp import FastMCP
 
-BASE = os.environ.get("DEEP_BASE_URL", "http://localhost:7768").rstrip("/")
+# 5174 is what interface/server.py binds. This defaulted to 7768 — a port
+# nothing has listened on since the HUD server moved — so every tool here
+# failed with a connection error until DEEP_BASE_URL was set by hand.
+BASE = os.environ.get("DEEP_BASE_URL", "http://localhost:5174").rstrip("/")
 mcp = FastMCP("DEEP")
 
 
@@ -63,6 +67,24 @@ async def deep_investigate(target: str) -> str:
         return _fmt(await _get("/api/investigate", {"target": target}))
     except Exception as e:
         return f"Investigation failed: {e}"
+
+
+@mcp.tool()
+async def deep_investigate_url(url: str) -> str:
+    """Investigate a full URL — a link from an email, a message, a report.
+
+    Returns what a browser actually saw when urlscan.io loaded the page:
+    redirect chain, final destination, scan history, whether any scan was
+    flagged malicious, apex-domain age and submitter tags — plus DNS,
+    certificate and registration detail for the host underneath.
+
+    The host's reputation is not the page's: shared hosting serves phishing
+    kits from decade-old domains daily. No verdict data means no data, never
+    'clean'."""
+    try:
+        return _fmt(await _get("/api/intel/investigate", {"target": url}))
+    except Exception as e:
+        return f"URL investigation failed: {e}"
 
 
 @mcp.tool()

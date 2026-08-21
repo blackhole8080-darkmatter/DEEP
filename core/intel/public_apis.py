@@ -21,6 +21,7 @@ The bar for inclusion here is deliberately high:
 """
 from __future__ import annotations
 
+import importlib.util
 import os
 from dataclasses import dataclass
 from enum import Enum
@@ -42,6 +43,7 @@ class Indicator(str, Enum):
 
     IP = "ip"
     DOMAIN = "domain"
+    URL = "url"
     CVE = "cve"
     HASH = "hash"
     ASN = "asn"
@@ -51,6 +53,7 @@ class Indicator(str, Enum):
 
 class Category(str, Enum):
     VULNERABILITY = "vulnerability"
+    WEB = "web"
     REPUTATION = "reputation"
     EXPOSURE = "exposure"
     NETWORK = "network"
@@ -75,13 +78,38 @@ class PublicAPI:
     env_var: Optional[str] = None
     rate_limit: str = "unspecified"
     ttl_seconds: int = 900
+    #: An importable module this source needs on top of any credential. A
+    #: keyless source can still be unavailable because the package that reads
+    #: it is not installed, and reporting that as "live" would put a source in
+    #: the catalog that fails the moment anything calls it.
+    requires_package: Optional[str] = None
+
+    @property
+    def package_installed(self) -> bool:
+        if not self.requires_package:
+            return True
+        try:
+            return importlib.util.find_spec(self.requires_package) is not None
+        except (ImportError, ValueError):  # namespace oddities, not our problem
+            return False
 
     @property
     def configured(self) -> bool:
         """True when this source can actually be called right now."""
+        if not self.package_installed:
+            return False
         if self.auth is Auth.NONE:
             return True
         return bool(self.env_var and os.environ.get(self.env_var))
+
+    @property
+    def unavailable_reason(self) -> Optional[str]:
+        """Why this source cannot be called, in words a user can act on."""
+        if not self.package_installed:
+            return f"needs the {self.requires_package} package (pip install -r requirements.txt)"
+        if self.auth is Auth.KEY and not (self.env_var and os.environ.get(self.env_var)):
+            return f"needs {self.env_var} in the environment"
+        return None
 
     def to_dict(self) -> Dict[str, object]:
         return {
@@ -96,6 +124,8 @@ class PublicAPI:
             "env_var": self.env_var,
             "rate_limit": self.rate_limit,
             "configured": self.configured,
+            "requires_package": self.requires_package,
+            "unavailable_reason": self.unavailable_reason,
         }
 
 
@@ -242,6 +272,43 @@ CATALOG: tuple[PublicAPI, ...] = (
         indicators=(Indicator.IP,),
         rate_limit="fair-use",
         ttl_seconds=3600,
+    ),
+    # ── Web / page-level scanning ───────────────────────────────────────────
+    PublicAPI(
+        id="urlscan",
+        name="urlscan.io (scan corpus)",
+        category=Category.WEB,
+        auth=Auth.NONE,
+        base_url="https://urlscan.io/api/v1/search/",
+        docs_url="https://urlscan.io/docs/api/",
+        description=(
+            "What a browser actually saw when it loaded a page: redirect chain, final "
+            "destination, certificate, apex-domain age, Umbrella rank and submitter "
+            "tags, aggregated over every recent scan of the indicator. The only source "
+            "in this catalog that can investigate a URL rather than the host behind it."
+        ),
+        indicators=(Indicator.URL, Indicator.DOMAIN, Indicator.IP, Indicator.HASH),
+        rate_limit="fair-use without a key; higher with one",
+        ttl_seconds=3600,
+        requires_package="urlscan_mcp",
+    ),
+    PublicAPI(
+        id="urlscan_submit",
+        name="urlscan.io (live scan submission)",
+        category=Category.WEB,
+        auth=Auth.KEY,
+        env_var="URLSCAN_API_KEY",
+        base_url="https://urlscan.io/api/v1/scan/",
+        docs_url="https://urlscan.io/docs/api/#submission",
+        description=(
+            "Submit a URL for a fresh scan, for indicators nobody has scanned yet. "
+            "Searching the existing corpus needs no key; submitting does, and a public "
+            "submission is permanently visible on urlscan.io."
+        ),
+        indicators=(Indicator.URL,),
+        rate_limit="free key: 100 public scans/day",
+        ttl_seconds=0,
+        requires_package="urlscan_mcp",
     ),
     PublicAPI(
         id="abuseipdb",

@@ -6,6 +6,7 @@
 // The Elements panel renders this list; clicking a tool opens its view in the
 // console's focus surface. This is how the interface grows without touching layout.
 import { html, type TemplateResult } from "lit";
+import { pendingApprovals } from "./store";
 
 export interface ToolDef {
   id: string;
@@ -14,6 +15,8 @@ export interface ToolDef {
   group: "core" | "intelligence" | "system" | "personal";
   load: () => Promise<unknown>;
   render: () => TemplateResult;
+  /** Live count for the dock badge, e.g. actions waiting on a decision. */
+  badge?: () => number;
 }
 
 export const TOOL_REGISTRY: ToolDef[] = [
@@ -26,6 +29,13 @@ export const TOOL_REGISTRY: ToolDef[] = [
     load: () => import("../components/memory/memory-graph"), render: () => html`<memory-graph></memory-graph>` },
 
   // ── System ──
+  // Approvals carries a badge because it is the one tool the user has to be
+  // told about: a parked action expires in 15 minutes, and one nobody notices
+  // reads as DEEP quietly ignoring the request that produced it.
+  { id: "approvals", label: "Approvals", icon: "⧗", group: "system",
+    load: () => import("../components/ops/approvals-view"),
+    render: () => html`<approvals-view></approvals-view>`,
+    badge: () => pendingApprovals.get().length },
   { id: "telemetry",label: "Telemetry", icon: "⎈", group: "system",
     load: () => import("../components/dashboard-view"),     render: () => html`<dashboard-view></dashboard-view>` },
   { id: "network",  label: "Network",   icon: "◎", group: "system",

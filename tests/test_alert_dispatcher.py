@@ -449,3 +449,359 @@ def test_the_test_endpoint_reports_per_channel_results(client):
     body = r.json()
     assert body["sent"]["title"] == "probe"
     assert body["channels"]["log"] is True
+
+
+# ═══════════════════════════════════════════════════════════════════════════
+# Approval requests
+#
+# An approval is not a threat, and the differences matter. It exists because
+# the user asked for something, so the gates that stop DEEP interrupting
+# unprompted must not hold it. And it names the exact thing awaiting
+# confirmation — for a urlscan submission, a URL that may carry a session
+# token, which is the whole reason it needs confirming — so it must never
+# reach a channel that leaves the machine.
+# ═══════════════════════════════════════════════════════════════════════════
+
+
+class OffDeviceChannel(RecordingChannel):
+    name = "off-device"
+    leaves_device = True
+
+
+def _approval_payload(**overrides):
+    payload = {
+        "id": "9f2a11c0",
+        "tool": "url_scan_submit",
+        "label": "Publish a public urlscan.io scan of https://evil.test/login?session=SECRET",
+        "detail": "A public scan is permanently visible, and the site owner can see it.",
+        "pending": 1,
+    }
+    payload.update(overrides)
+    return payload
+
+
+def test_an_approval_request_becomes_a_high_solicited_local_alert():
+    alert = AlertDispatcher.normalise("approval_pending", _approval_payload())
+
+    assert alert is not None
+    assert alert.kind == "approval_request"
+    assert alert.severity == "high"
+    assert alert.solicited is True
+    assert alert.local_only is True
+    assert alert.context["action_id"] == "9f2a11c0"
+
+
+def test_the_approval_alert_says_what_to_do_and_that_nothing_has_run():
+    alert = AlertDispatcher.normalise("approval_pending", _approval_payload())
+
+    assert "Approvals panel" in alert.body
+    assert "nothing runs until you decide" in alert.body
+    assert "expires in 15 minutes" in alert.body
+
+
+def test_an_approval_without_an_id_or_label_produces_nothing():
+    assert AlertDispatcher.normalise("approval_pending", {}) is None
+    assert AlertDispatcher.normalise("approval_pending", _approval_payload(label="")) is None
+    assert AlertDispatcher.normalise("approval_pending", _approval_payload(id="")) is None
+
+
+def test_retrying_the_same_action_notifies_once():
+    """A model in a retry loop must not produce five notifications."""
+    first = AlertDispatcher.normalise("approval_pending", _approval_payload(id="aaa"))
+    again = AlertDispatcher.normalise("approval_pending", _approval_payload(id="bbb"))
+
+    assert first.dedupe_key == again.dedupe_key, "same action, fresh id — one alert"
+
+
+def test_a_different_url_is_a_different_alert():
+    other = AlertDispatcher.normalise(
+        "approval_pending", _approval_payload(label="Publish a scan of https://other.test/")
+    )
+    first = AlertDispatcher.normalise("approval_pending", _approval_payload())
+
+    assert first.dedupe_key != other.dedupe_key
+
+
+@pytest.mark.asyncio
+async def test_quiet_hours_do_not_hold_a_request_the_user_is_waiting_on(dispatcher, channel):
+    """23:01 is not a reason to strand a reply someone just asked for."""
+    dispatcher._in_quiet_hours = lambda: True  # type: ignore[method-assign]
+    alert = AlertDispatcher.normalise("approval_pending", _approval_payload())
+
+    assert await dispatcher.consider(alert) is True
+    assert len(channel.sent) == 1
+
+
+@pytest.mark.asyncio
+async def test_the_rate_limit_does_not_hold_an_approval(dispatcher, channel):
+    _open_the_gates(dispatcher)
+    await dispatcher.consider(_alert("high", key="unrelated"))
+    assert len(channel.sent) == 1
+
+    # A threat arriving now would be rate-limited; the approval must not be.
+    alert = AlertDispatcher.normalise("approval_pending", _approval_payload())
+    assert await dispatcher.consider(alert) is True
+    assert len(channel.sent) == 2
+
+
+@pytest.mark.asyncio
+async def test_a_solicited_alert_is_still_deduplicated(dispatcher, channel):
+    """Solicited skips the timing gates, not the ones about the alert's worth."""
+    _open_the_gates(dispatcher)
+    first = AlertDispatcher.normalise("approval_pending", _approval_payload(id="aaa"))
+    again = AlertDispatcher.normalise("approval_pending", _approval_payload(id="bbb"))
+
+    assert await dispatcher.consider(first) is True
+    assert await dispatcher.consider(again) is False
+    assert len(channel.sent) == 1
+
+
+@pytest.mark.asyncio
+async def test_a_solicited_alert_still_obeys_the_severity_floor(tmp_path):
+    recording = RecordingChannel()
+    strict = AlertDispatcher(channels=[recording], min_severity="critical", data_dir=tmp_path)
+    _open_the_gates(strict)
+
+    alert = AlertDispatcher.normalise("approval_pending", _approval_payload())
+    assert await strict.consider(alert) is False
+    assert recording.sent == []
+
+
+@pytest.mark.asyncio
+async def test_the_url_being_confirmed_never_reaches_an_off_device_channel(tmp_path):
+    """The gate exists because the URL may be private. Leaking it to a webhook
+    before the user decides — and even if they decline — defeats the point."""
+    local, remote = RecordingChannel(), OffDeviceChannel()
+    dispatcher = AlertDispatcher(
+        channels=[local, remote], min_severity="high", data_dir=tmp_path
+    )
+    _open_the_gates(dispatcher)
+
+    alert = AlertDispatcher.normalise("approval_pending", _approval_payload())
+    assert await dispatcher.consider(alert) is True
+
+    assert len(local.sent) == 1
+    assert remote.sent == [], "an approval must never leave the machine"
+
+
+@pytest.mark.asyncio
+async def test_withholding_from_a_channel_is_recorded_not_silent(tmp_path):
+    local, remote = RecordingChannel(), OffDeviceChannel()
+    dispatcher = AlertDispatcher(
+        channels=[local, remote], min_severity="high", data_dir=tmp_path
+    )
+    _open_the_gates(dispatcher)
+    await dispatcher.consider(AlertDispatcher.normalise("approval_pending", _approval_payload()))
+
+    record = dispatcher.recent(1)[0]
+    assert record["withheld_from"] == ["off-device"]
+    assert record["channels"] == ["recording"]
+
+
+@pytest.mark.asyncio
+async def test_an_ordinary_threat_still_reaches_an_off_device_channel(tmp_path):
+    """local_only is a property of the alert, not a blanket webhook shutdown."""
+    local, remote = RecordingChannel(), OffDeviceChannel()
+    dispatcher = AlertDispatcher(
+        channels=[local, remote], min_severity="high", data_dir=tmp_path
+    )
+    _open_the_gates(dispatcher)
+    await dispatcher.consider(_alert("high"))
+
+    assert len(remote.sent) == 1
+    assert "withheld_from" not in dispatcher.recent(1)[0]
+
+
+def test_the_real_webhook_channel_declares_that_it_leaves_the_device():
+    assert WebhookChannel("https://hooks.example/x").leaves_device is True
+    assert LogChannel().leaves_device is False
+    assert DesktopChannel().leaves_device is False
+
+
+@pytest.mark.asyncio
+async def test_resolving_an_approval_notifies_nobody(dispatcher, channel):
+    """Only the request is worth an interruption; the outcome is not."""
+    assert AlertDispatcher.normalise("approval_resolved", {"id": "x", "tool": "t"}) is None
+    assert "approval_resolved" not in AlertDispatcher.SUBSCRIBED
+
+
+@pytest.mark.asyncio
+async def test_a_parked_action_reaches_a_channel_through_the_real_bus(tmp_path):
+    """The production chain: enqueue → notifier → bus → dispatcher → channel."""
+    import asyncio
+
+    from core import pending_actions
+
+    bus = EventBus()
+    await bus.start()
+    recording = RecordingChannel()
+    dispatcher = AlertDispatcher(
+        event_bus=bus, channels=[recording], min_severity="high", data_dir=tmp_path
+    )
+    await dispatcher.start()
+
+    def notify(event: str, payload: Dict[str, Any]) -> None:
+        asyncio.get_running_loop().create_task(bus.publish(event, payload))
+
+    pending_actions.clear()
+    pending_actions.set_notifier(notify)
+    try:
+        pending_actions.enqueue(
+            "url_scan_submit",
+            {"url": "https://evil.test/x"},
+            label="Publish a public urlscan.io scan of https://evil.test/x",
+            detail="A public scan is permanently visible.",
+        )
+        for _ in range(20):
+            await asyncio.sleep(0.02)
+            if recording.sent:
+                break
+    finally:
+        pending_actions.set_notifier(None)
+        pending_actions.clear()
+        await dispatcher.stop()
+        await bus.stop()
+
+    assert len(recording.sent) == 1
+    assert recording.sent[0].kind == "approval_request"
+
+
+# ═══════════════════════════════════════════════════════════════════════════
+# Voice
+#
+# `tts_speak` was published from ten places in DEEP and consumed by nobody —
+# the server-side voice package was deleted and the HUD never grew one. These
+# cover the channel that now publishes it, and the rule that matters most:
+# what gets said aloud is not the same string as what gets shown.
+# ═══════════════════════════════════════════════════════════════════════════
+
+
+class RecordingBus:
+    """Captures published events without a real event loop's machinery."""
+
+    def __init__(self, fail: bool = False):
+        self.published: List[tuple] = []
+        self._fail = fail
+
+    async def publish(self, name: str, payload: Dict[str, Any]) -> None:
+        if self._fail:
+            raise RuntimeError("bus down")
+        self.published.append((name, payload))
+
+
+@pytest.mark.asyncio
+async def test_the_voice_channel_publishes_a_speak_intent():
+    from core.alert_dispatcher import VoiceChannel
+
+    bus = RecordingBus()
+    alert = AlertDispatcher.normalise("approval_pending", _approval_payload(speech="Say this."))
+    assert await VoiceChannel(bus).send(alert) is True
+
+    name, payload = bus.published[0]
+    assert name == "tts_speak"
+    assert payload["text"] == "Say this."
+    assert payload["priority"] == "normal"
+
+
+@pytest.mark.asyncio
+async def test_a_critical_alert_interrupts_whatever_is_being_said():
+    from core.alert_dispatcher import VoiceChannel
+
+    bus = RecordingBus()
+    await VoiceChannel(bus).send(_alert("critical"))
+    assert bus.published[0][1]["priority"] == "urgent"
+
+
+@pytest.mark.asyncio
+async def test_a_dead_bus_does_not_take_the_other_channels_with_it():
+    from core.alert_dispatcher import VoiceChannel
+
+    assert await VoiceChannel(RecordingBus(fail=True)).send(_alert()) is False
+    assert VoiceChannel(None).available is False
+
+
+def test_what_is_said_is_not_what_is_shown():
+    """A URL carrying a session token must not be announced into a room."""
+    alert = AlertDispatcher.normalise("approval_pending", _approval_payload(
+        speech="DEEP needs your approval to publish a public scan of evil.test."
+    ))
+
+    assert "SECRET" in alert.title, "the panel and the toast still name it in full"
+    assert "SECRET" not in alert.spoken()
+    assert "evil.test" in alert.spoken()
+
+
+def test_speech_falls_back_to_something_true_rather_than_nothing():
+    alert = AlertDispatcher.normalise("approval_pending", _approval_payload(speech=""))
+    assert "approval" in alert.spoken().lower()
+    assert "SECRET" not in alert.spoken()
+
+    bare = _alert(title="Botnet C2 contact")
+    assert bare.spoken() == "Botnet C2 contact"
+
+
+def test_the_voice_channel_stays_on_this_machine():
+    from core.alert_dispatcher import VoiceChannel
+
+    # Speaking is local by definition, so a local_only alert may still be said.
+    assert VoiceChannel(RecordingBus()).leaves_device is False
+
+
+@pytest.mark.asyncio
+async def test_an_approval_is_spoken_as_well_as_shown(tmp_path):
+    from core.alert_dispatcher import VoiceChannel
+
+    bus = RecordingBus()
+    recording = RecordingChannel()
+    dispatcher = AlertDispatcher(
+        channels=[recording, VoiceChannel(bus)], min_severity="high", data_dir=tmp_path
+    )
+    _open_the_gates(dispatcher)
+    await dispatcher.consider(AlertDispatcher.normalise("approval_pending", _approval_payload()))
+
+    assert len(recording.sent) == 1
+    assert bus.published[0][0] == "tts_speak"
+
+
+def test_voice_is_a_default_channel_but_can_be_switched_off(monkeypatch):
+    from core.alert_dispatcher import _default_channels
+
+    monkeypatch.delenv("DEEP_ALERT_VOICE", raising=False)
+    assert "voice" in [c.name for c in _default_channels(RecordingBus())]
+
+    monkeypatch.setenv("DEEP_ALERT_VOICE", "0")
+    assert "voice" not in [c.name for c in _default_channels(RecordingBus())]
+
+
+def test_without_a_bus_there_is_no_voice_channel(monkeypatch):
+    from core.alert_dispatcher import _default_channels
+
+    monkeypatch.delenv("DEEP_ALERT_VOICE", raising=False)
+    assert "voice" not in [c.name for c in _default_channels(None)]
+
+
+# ── notification headline ────────────────────────────────────────────────────
+
+
+def test_the_notification_does_not_say_deep_twice():
+    alert = AlertDispatcher.normalise("approval_pending", _approval_payload())
+    headline = DesktopChannel.headline(alert)
+
+    assert headline.count("DEEP") == 1, headline
+    assert headline.startswith("[HIGH]")
+
+
+def test_an_ordinary_alert_still_gets_the_app_prefix():
+    assert DesktopChannel.headline(_alert("critical", title="Botnet C2")) == (
+        "DEEP [CRITICAL] Botnet C2"
+    )
+
+
+def test_a_long_title_is_cut_at_a_word_not_mid_token():
+    """A URL truncated mid-token reads as a different address than it is."""
+    alert = AlertDispatcher.normalise("approval_pending", _approval_payload())
+    headline = DesktopChannel.headline(alert)
+
+    assert len(headline) <= DesktopChannel.TITLE_BUDGET
+    assert headline.endswith("…")
+    assert not headline.rstrip("…").endswith(" ")

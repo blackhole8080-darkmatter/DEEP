@@ -228,3 +228,38 @@ export async function createAgent(name: string, role: string) {
   const r = await fetch("/api/agents", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ name, role }) });
   return r.json() as Promise<{ success?: boolean; agent?: AgentInfo; error?: string }>;
 }
+
+// ── Approvals ──────────────────────────────────────────────────────────────
+// Actions DEEP parked for a human decision rather than taking on its own —
+// publishing a URL to urlscan.io, blocking a device, dropping the VPN.
+export interface PendingAction {
+  id: string;
+  tool: string;
+  label: string;
+  detail: string;
+  args: Record<string, unknown>;
+  created: number;
+  expires_in_s: number;
+}
+export const fetchPendingActions = () =>
+  get<{ count: number; pending: PendingAction[] }>("/api/actions/pending");
+
+export interface ApprovalOutcome {
+  id: string; tool: string; label: string; ok: boolean; result: string;
+}
+
+/** Approve and run. The tool can still fail, so the outcome carries its result. */
+export async function approveAction(id: string): Promise<ApprovalOutcome> {
+  const r = await fetch(`/api/actions/${encodeURIComponent(id)}/approve`, { method: "POST" });
+  const body = (await r.json()) as ApprovalOutcome & { detail?: string };
+  if (!r.ok) throw new Error(body.detail ?? `approve → ${r.status}`);
+  return body;
+}
+
+export async function rejectAction(id: string): Promise<void> {
+  const r = await fetch(`/api/actions/${encodeURIComponent(id)}/reject`, { method: "POST" });
+  if (!r.ok) {
+    const body = (await r.json().catch(() => ({}))) as { detail?: string };
+    throw new Error(body.detail ?? `reject → ${r.status}`);
+  }
+}

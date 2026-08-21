@@ -70,6 +70,28 @@ class Alert:
     context: Dict[str, Any] = field(default_factory=dict)
     #: How many alerts were dropped by the gates since the last delivery.
     suppressed: int = 0
+    #: True when this alert exists because the user just asked for something,
+    #: rather than because DEEP noticed something. Quiet hours and rate limits
+    #: exist to stop DEEP interrupting a person who did not ask to be
+    #: interrupted; applying them to a reply the user is actively waiting for
+    #: turns a gate against the person it protects. Solicited alerts therefore
+    #: skip those two gates — never the severity floor or deduplication, which
+    #: are about the alert's own worth rather than about timing.
+    solicited: bool = False
+    #: How this alert should be *said*, when a voice channel is delivering it.
+    #: Speech is not a shorter title: reading a URL aloud is both unusable and
+    #: its own disclosure — a link carrying a session token should not be
+    #: announced into a room. Whoever raises the alert supplies this, because
+    #: only they know which part is safe and useful to say. Falls back to the
+    #: title, which is at least always true.
+    speech: str = ""
+    #: True when this alert's contents must not leave the machine, whatever
+    #: channels are configured. An approval request names the exact thing being
+    #: confirmed — for a urlscan submission, a URL that may carry a token or a
+    #: session id, which is the very reason it needs confirming. Shipping that
+    #: to a third-party webhook before the user has decided (and even if they
+    #: then decline) would leak precisely what the gate exists to protect.
+    local_only: bool = False
 
     def to_dict(self) -> Dict[str, Any]:
         return {
@@ -83,7 +105,14 @@ class Alert:
             "timestamp": self.timestamp,
             "context": self.context,
             "suppressed": self.suppressed,
+            "speech": self.speech,
+            "solicited": self.solicited,
+            "local_only": self.local_only,
         }
+
+    def spoken(self) -> str:
+        """One sentence a voice channel can read out."""
+        return (self.speech or self.title).strip()
 
     def render(self) -> str:
         """Body as a channel should show it, including any suppression note."""
@@ -102,6 +131,11 @@ class Channel:
     """A place an alert can be delivered. Never raises out of ``send``."""
 
     name = "channel"
+
+    #: True when delivering here sends the alert's contents off this machine.
+    #: The dispatcher skips these for ``local_only`` alerts, so a channel must
+    #: declare this honestly rather than the dispatcher guessing from its name.
+    leaves_device = False
 
     @property
     def available(self) -> bool:
@@ -149,13 +183,35 @@ class DesktopChannel(Channel):
     def available(self) -> bool:
         return self._notify is not None
 
+    #: Notification daemons truncate hard, and an approval's title carries the
+    #: decision itself, so the budget is spent on the title rather than on
+    #: repeating what the app_name field already says.
+    TITLE_BUDGET = 64
+
+    @classmethod
+    def headline(cls, alert: Alert) -> str:
+        """Notification title: no doubled app name, no cut mid-word."""
+        title = alert.title.strip()
+        # "DEEP needs your OK: …" under app_name="DEEP" read as "DEEP DEEP".
+        prefix = "" if title.upper().startswith("DEEP") else "DEEP "
+        text = f"{prefix}[{alert.severity.upper()}] {title}"
+        if len(text) <= cls.TITLE_BUDGET:
+            return text
+        # Back off to the last space so a truncated URL does not end mid-token,
+        # which reads as a different address than it is.
+        cut = text[: cls.TITLE_BUDGET - 1]
+        space = cut.rfind(" ")
+        if space > cls.TITLE_BUDGET // 2:
+            cut = cut[:space]
+        return cut.rstrip(" ,.:;-") + "…"
+
     async def send(self, alert: Alert) -> bool:
         if self._notify is None:
             return False
         try:
             await asyncio.to_thread(
                 self._notify.notify,
-                title=f"DEEP [{alert.severity.upper()}] {alert.title}"[:64],
+                title=self.headline(alert),
                 message=alert.render()[:256],
                 app_name="DEEP",
                 timeout=15,
@@ -178,6 +234,7 @@ class WebhookChannel(Channel):
     """
 
     name = "webhook"
+    leaves_device = True
 
     def __init__(self, url: str, timeout_s: float = 10.0) -> None:
         self._url = url
@@ -225,6 +282,51 @@ class WebhookChannel(Channel):
                 "configured": bool(self._url), "detail": self._reason}
 
 
+class VoiceChannel(Channel):
+    """Say the alert out loud, by publishing ``tts_speak`` on the event bus.
+
+    DEEP has no server-side synthesiser — the voice package was removed — so
+    this states an intent and the HUD performs it (``interface/web/src/core/
+    speech.ts``). That split is deliberate: speech belongs where the speakers
+    are, and a headless DEEP on a server should not try to talk.
+
+    It follows that this channel reaches only a machine with the HUD open. It
+    is not a replacement for the desktop notification, which survives a closed
+    tab; it is for someone sitting at the machine who is not looking at it.
+
+    ``send`` reports success when the intent was published, which is the only
+    thing this side can actually observe. Whether a browser was listening, and
+    whether the user has muted it, are not knowable from here — so the delivery
+    record means "DEEP asked for this to be said", not "the user heard it".
+    """
+
+    name = "voice"
+
+    def __init__(self, event_bus: Any = None) -> None:
+        self.bus = event_bus
+
+    @property
+    def available(self) -> bool:
+        return self.bus is not None
+
+    async def send(self, alert: Alert) -> bool:
+        if self.bus is None:
+            return False
+        try:
+            await self.bus.publish("tts_speak", {
+                "text": alert.spoken(),
+                # Critical interrupts whatever is being said; everything else
+                # waits its turn rather than talking over it.
+                "priority": "urgent" if rank(alert.severity) >= rank("critical") else "normal",
+                "source": "alert_dispatcher",
+                "alert_id": alert.id,
+            })
+            return True
+        except Exception as exc:  # noqa: BLE001 - a bus failure is not fatal
+            logger.debug("voice channel publish failed: %s", exc)
+            return False
+
+
 # ═══════════════════════════════════════════════════════════════════════════
 # The dispatcher
 # ═══════════════════════════════════════════════════════════════════════════
@@ -234,7 +336,14 @@ class AlertDispatcher:
     """Turns alert events into notifications a person actually receives."""
 
     #: Events carrying something worth delivering, and how to read them.
-    SUBSCRIBED = ("security_alert_correlated", "world_threat_match", "security_alert")
+    SUBSCRIBED = (
+        "security_alert_correlated", "world_threat_match", "security_alert",
+        # Not a threat — a request. DEEP parked an action it will not take
+        # without a yes, and that yes has a 15-minute life. The HUD badge only
+        # helps someone looking at the HUD; this is the path for someone who
+        # asked DEEP to do something and then switched windows.
+        "approval_pending",
+    )
 
     MIN_GAP_SECONDS = 120
     MAX_PER_DAY = 30
@@ -255,7 +364,7 @@ class AlertDispatcher:
             min_severity or os.environ.get("DEEP_ALERT_MIN_SEVERITY") or "high"
         ).strip().lower()
         self.channels: List[Channel] = (
-            channels if channels is not None else _default_channels()
+            channels if channels is not None else _default_channels(event_bus)
         )
 
         self.data_dir = Path(data_dir) if data_dir else (
@@ -308,6 +417,52 @@ class AlertDispatcher:
     @staticmethod
     def normalise(event_name: str, payload: Dict[str, Any]) -> Optional[Alert]:
         """Map one bus event onto an Alert, or None if it carries nothing."""
+        if event_name == "approval_pending":
+            label = str(payload.get("label") or "").strip()
+            action_id = str(payload.get("id") or "").strip()
+            if not label or not action_id:
+                return None
+            tool = str(payload.get("tool") or "an action")
+            detail = str(payload.get("detail") or "").strip()
+            return Alert(
+                id=f"alert_approval_{action_id}",
+                kind="approval_request",
+                # High rather than critical. It needs an answer inside fifteen
+                # minutes, which is what separates it from an FYI — but it is
+                # a question, and a question does not get to override the
+                # judgement that critical is reserved for.
+                severity="high",
+                title=f"DEEP needs your OK: {label}"[:96],
+                body="\n".join(filter(None, [
+                    label,
+                    detail,
+                    "Approve or reject it in DEEP's Approvals panel. "
+                    "It expires in 15 minutes, and nothing runs until you decide.",
+                ])),
+                source="approvals",
+                # Keyed on what is being confirmed, not on the action id, which
+                # is fresh every time. A model retrying the same submission
+                # produces one notification, not five — while a different URL
+                # produces a different label and rightly notifies again.
+                dedupe_key=f"approval:{tool}:{label.lower()}",
+                # Supplied by whoever parked the action; see
+                # pending_actions.enqueue. The fallback is the title, which
+                # names the URL — fine on a screen, wrong in a room, which is
+                # exactly why the caller is asked to phrase this.
+                speech=str(payload.get("speech") or "").strip()
+                or f"DEEP needs your approval before it can continue. "
+                   f"Check the approvals panel.",
+                # The queue only fills when a tool runs, and DEEP's tools run
+                # in response to a user turn. Revisit this if an autonomous
+                # path ever enqueues an action nobody asked for.
+                solicited=True,
+                # The label names the exact thing awaiting confirmation — for a
+                # urlscan submission, a URL that may carry a token. See
+                # Alert.local_only.
+                local_only=True,
+                context={"action_id": action_id, "tool": tool},
+            )
+
         if event_name == "world_threat_match":
             cve = str(payload.get("cve_id") or "").strip()
             entity = str(payload.get("matched_entity") or "").strip()
@@ -411,6 +566,14 @@ class AlertDispatcher:
         if rank(alert.severity) >= rank("critical"):
             return ""
 
+        # So does a solicited alert, for the opposite reason: the remaining
+        # gates all answer "is DEEP interrupting too much?", and an alert the
+        # user's own request produced is not an interruption. Holding one back
+        # at 23:01 because it is technically quiet hours would strand a request
+        # the user is sitting there waiting on.
+        if alert.solicited:
+            return ""
+
         if self._in_quiet_hours():
             return "quiet_hours"
         if self._delivered_today >= self.MAX_PER_DAY:
@@ -438,13 +601,26 @@ class AlertDispatcher:
         self._suppressed = 0
         self._counts["delivered"] += 1
 
+        # A local-only alert never reaches a channel that would carry it off
+        # the machine, regardless of what is configured.
+        targets = [
+            c for c in self.channels
+            if not (alert.local_only and c.leaves_device)
+        ]
+        withheld = [c.name for c in self.channels if c not in targets]
+
         results = await asyncio.gather(
-            *(self._send_one(channel, alert) for channel in self.channels),
+            *(self._send_one(channel, alert) for channel in targets),
             return_exceptions=False,
         )
-        delivered_to = [c.name for c, ok in zip(self.channels, results) if ok]
+        delivered_to = [c.name for c, ok in zip(targets, results) if ok]
 
         record = {**alert.to_dict(), "channels": delivered_to}
+        if withheld:
+            # Recorded, not silent: a channel the user configured did not fire,
+            # and they should be able to see that it was withheld by policy
+            # rather than broken.
+            record["withheld_from"] = withheld
         self._recent.append(record)
         self._recent = self._recent[-50:]
         self._save()
@@ -522,8 +698,8 @@ class AlertDispatcher:
         return list(reversed(self._recent[-limit:]))
 
 
-def _default_channels() -> List[Channel]:
-    """Log always; desktop when plyer works; webhook only when configured."""
+def _default_channels(event_bus: Any = None) -> List[Channel]:
+    """Log always; desktop when plyer works; voice with a bus; webhook when set."""
     channels: List[Channel] = [LogChannel()]
     if os.environ.get("DEEP_ALERT_DESKTOP", "1").strip().lower() not in {
         "0", "false", "off", "no",
@@ -531,6 +707,16 @@ def _default_channels() -> List[Channel]:
         desktop = DesktopChannel()
         if desktop.available:
             channels.append(desktop)
+    # On by default: an alert that survived the floor, the dedupe and the rate
+    # limit is, by construction, one of the few things a day worth saying out
+    # loud. DEEP_ALERT_VOICE=0 turns it off server-side, and the HUD has its own
+    # mute — one switch at each end, because whoever is annoyed by it may not be
+    # whoever can edit the environment.
+    if event_bus is not None and os.environ.get("DEEP_ALERT_VOICE", "1").strip().lower() not in {
+        "0", "false", "off", "no",
+    }:
+        channels.append(VoiceChannel(event_bus))
+
     webhook_url = (os.environ.get("DEEP_ALERT_WEBHOOK") or "").strip()
     if webhook_url:
         channels.append(WebhookChannel(webhook_url))

@@ -28,10 +28,12 @@ import re
 from dataclasses import asdict, dataclass, field
 from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional, Tuple
+from urllib.parse import urlsplit
 
 from core.intel import public_apis
 from core.intel.http import Fetch, IntelHTTP, shared_http
 from core.intel.public_apis import Indicator
+from core.intel.urlscan import UrlscanSource
 
 logger = logging.getLogger(__name__)
 
@@ -44,6 +46,7 @@ _PACKAGE_RE = re.compile(r"^(pypi|npm|go|maven|crates\.io|nuget|rubygems):(.+)$"
 _DOMAIN_RE = re.compile(
     r"^(?=.{1,253}$)(?!-)[a-z0-9-]{1,63}(?<!-)(\.(?!-)[a-z0-9-]{1,63}(?<!-))+$", re.I
 )
+_URL_RE = re.compile(r"^https?://\S+$", re.I)
 
 # Risk weights. Kept as one visible table rather than scattered through the
 # collectors so the scoring is auditable in a single place.
@@ -58,6 +61,13 @@ _RISK_SIGNALS: Dict[str, int] = {
     "high_severity": 12,
     "many_open_ports": 10,
     "breached_domain": 15,
+    # urlscan signals. Weighted below the verdict-backed ones on purpose: a
+    # young domain is suspicious, not proof, and urlscan verdicts are
+    # heuristic and community-influenced rather than ground truth.
+    "scanned_malicious": 40,
+    "tagged_phishing": 25,
+    "very_young_domain": 20,
+    "no_established_traffic": 5,
 }
 
 
@@ -104,6 +114,7 @@ class OSINTInvestigator:
 
     def __init__(self, http: Optional[IntelHTTP] = None) -> None:
         self._http = http or shared_http()
+        self._urlscan = UrlscanSource(self._http)
 
     # ── entry point ──────────────────────────────────────────────────────────
 
@@ -128,6 +139,14 @@ class OSINTInvestigator:
             pass
         if len(t) in _HASH_LENGTHS and _HASH_RE.match(t):
             return Indicator.HASH
+        # A URL only counts when its host is itself investigable. `http://x`
+        # is well-formed and useless: no source can say anything about a
+        # single-label host, so it is garbage rather than a URL.
+        if _URL_RE.match(t):
+            host = _url_host(t)
+            if host and (_DOMAIN_RE.match(host) or _is_ip(host)):
+                return Indicator.URL
+            return None
         if _DOMAIN_RE.match(t):
             return Indicator.DOMAIN
         return None
@@ -143,9 +162,9 @@ class OSINTInvestigator:
                 target=target,
                 indicator="unknown",
                 summary=(
-                    "Unrecognised indicator. Expected an IP, domain, CVE id "
-                    "(CVE-2021-44228), ASN (AS15169), file hash, MAC address, or "
-                    "ecosystem package (pypi:requests)."
+                    "Unrecognised indicator. Expected an IP, domain, URL "
+                    "(https://…), CVE id (CVE-2021-44228), ASN (AS15169), file "
+                    "hash, MAC address, or ecosystem package (pypi:requests)."
                 ),
                 generated_at=_now(),
             )
@@ -155,6 +174,7 @@ class OSINTInvestigator:
         collectors = {
             Indicator.IP: self._collect_ip,
             Indicator.DOMAIN: self._collect_domain,
+            Indicator.URL: self._collect_url,
             Indicator.CVE: self._collect_cve,
             Indicator.ASN: self._collect_asn,
             Indicator.PACKAGE: self._collect_package,
@@ -169,7 +189,7 @@ class OSINTInvestigator:
 
     # ── collectors ───────────────────────────────────────────────────────────
 
-    async def _collect_ip(self, ip: str, d: Dossier) -> None:
+    async def _collect_ip(self, ip: str, d: Dossier, *, with_urlscan: bool = True) -> None:
         addr = ipaddress.ip_address(ip)
         # Covers RFC1918, loopback, link-local and the IANA special-purpose
         # ranges (documentation, benchmarking, …) — none of them are routable,
@@ -184,6 +204,16 @@ class OSINTInvestigator:
             )
             d.risk = "n/a"
             return
+
+        # See _collect_domain for why a URL dossier suppresses this.
+        if with_urlscan:
+            d.sources_queried.append("urlscan")
+            report = await self._urlscan.assess(ip)
+            if "error" in report:
+                d.degraded["urlscan"] = report["error"]
+            else:
+                d.sources_answered.append("urlscan")
+                self._apply_urlscan(report, d)
 
         tasks = {
             "shodan_internetdb": self._fetch("shodan_internetdb", f"https://internetdb.shodan.io/{ip}"),
@@ -279,7 +309,21 @@ class OSINTInvestigator:
                 )
                 d.signals.append("botnet_c2")
 
-    async def _collect_domain(self, domain: str, d: Dossier) -> None:
+    async def _collect_domain(
+        self, domain: str, d: Dossier, *, with_urlscan: bool = True
+    ) -> None:
+        # ``with_urlscan`` is False when a URL dossier already ran the scan
+        # corpus against the full URL — re-running it for the bare host would
+        # double-count the same evidence into the risk score.
+        if with_urlscan:
+            d.sources_queried.append("urlscan")
+            report = await self._urlscan.assess(domain)
+            if "error" in report:
+                d.degraded["urlscan"] = report["error"]
+            else:
+                d.sources_answered.append("urlscan")
+                self._apply_urlscan(report, d)
+
         tasks = {
             "dns_doh_a": self._dns(domain, "A"),
             "dns_doh_mx": self._dns(domain, "MX"),
@@ -340,6 +384,130 @@ class OSINTInvestigator:
                         {"breaches": named, "accounts_exposed": total}, "high")
             )
             d.signals.append("breached_domain")
+
+    async def _collect_url(self, url: str, d: Dossier) -> None:
+        """Investigate a URL — the indicator no other catalogued source covers.
+
+        A URL is not its host. The host may be a decade-old shared CDN while
+        the path serves a credential-harvesting page put up an hour ago, and
+        every other source in the catalog answers only about the host. urlscan
+        is what closes that gap, so a URL dossier leads with the scan corpus
+        and then investigates the hostname underneath it for the network,
+        certificate and registration picture.
+        """
+        host = _url_host(url)
+
+        d.sources_queried.append("urlscan")
+        report = await self._urlscan.assess(url)
+        if "error" in report:
+            d.degraded["urlscan"] = report["error"]
+        else:
+            d.sources_answered.append("urlscan")
+            self._apply_urlscan(report, d)
+
+        if host:
+            d.findings.append(Finding("local", "hostname", host))
+            # The host is investigated with the same collector a bare domain
+            # gets, so a URL dossier is never thinner than the domain one.
+            if self.classify(host) is Indicator.IP:
+                await self._collect_ip(host, d, with_urlscan=False)
+            elif self.classify(host) is Indicator.DOMAIN:
+                await self._collect_domain(host, d, with_urlscan=False)
+
+        if not d.sources_answered:
+            d.summary = (
+                f"Nothing answered for {url}. urlscan.io has no record of it and the "
+                "host could not be resolved — which is an absence of data, not a "
+                "clean result."
+            )
+
+    def _apply_urlscan(self, report: Dict[str, Any], d: Dossier) -> None:
+        """Fold a urlscan assessment into the dossier, caveats intact.
+
+        Nothing here converts an absent verdict into a benign finding. When
+        urlscan returns no verdict data — which is the normal case on the free
+        tier — that fact is recorded as a finding of its own, so a reader can
+        see the gap instead of inferring safety from a quiet report.
+        """
+        scans = report.get("scans_found", 0)
+        if not scans:
+            d.findings.append(
+                Finding("urlscan", "scan_history",
+                        "No scans on record. Nobody has submitted this indicator; "
+                        "that is an absence of visibility, not evidence of safety.")
+            )
+            return
+
+        d.findings.append(
+            Finding("urlscan", "scans_found",
+                    f"{scans} scan(s), first {report.get('first_seen') or '?'}, "
+                    f"last {report.get('last_seen') or '?'}")
+        )
+
+        verdicts = report.get("verdicts") or {}
+        if verdicts.get("available"):
+            flagged = verdicts.get("flagged_malicious", 0)
+            if flagged:
+                d.findings.append(
+                    Finding("urlscan", "malicious_verdicts",
+                            f"{flagged}/{scans} scans flagged malicious "
+                            f"(peak score {verdicts.get('max_score')})", "critical")
+                )
+                d.signals.append("scanned_malicious")
+        else:
+            d.findings.append(
+                Finding("urlscan", "verdicts_unavailable",
+                        "urlscan returned no verdict data for these scans — normal "
+                        "without an API key, and NOT a clean verdict.")
+            )
+
+        reputation = report.get("reputation_signals") or {}
+        age = reputation.get("min_apex_domain_age_days")
+        if isinstance(age, int):
+            d.findings.append(
+                Finding("urlscan", "apex_domain_age_days", age,
+                        "high" if age < 30 else "medium" if age < 180 else "info")
+            )
+            if age < 30:
+                d.signals.append("very_young_domain")
+        if reputation.get("derived_from_scans"):
+            if not reputation.get("ranked_in_umbrella"):
+                d.signals.append("no_established_traffic")
+        elif report.get("scans_redirected_away"):
+            # Every scan bounced elsewhere, so page.* describes the destination.
+            # Reporting its age or rank here would hand the indicator someone
+            # else's reputation.
+            destinations = [t.get("value") for t in report.get("redirect_destinations", [])[:5]]
+            d.findings.append(
+                Finding("urlscan", "redirects_away",
+                        {"scans": report["scans_redirected_away"], "destinations": destinations},
+                        "medium")
+            )
+            d.findings.append(
+                Finding("urlscan", "reputation_unattributable",
+                        "Every scan redirected elsewhere, so no age or popularity "
+                        "signal belongs to this indicator.")
+            )
+
+        tags = [t.get("value") for t in (report.get("recurring_tags") or [])[:8]]
+        if tags:
+            d.findings.append(Finding("urlscan", "submitter_tags", tags))
+            if any(str(t).lower() in {"phishing", "malicious", "malware", "scam", "credential"}
+                   for t in tags):
+                d.signals.append("tagged_phishing")
+
+        countries = [c.get("value") for c in (report.get("hosting_countries") or [])[:5]]
+        if countries:
+            d.findings.append(Finding("urlscan", "hosting_countries", countries))
+
+        sample = report.get("sample_scans") or []
+        if sample:
+            d.findings.append(
+                Finding("urlscan", "sample_scan",
+                        f"https://urlscan.io/result/{sample[0].get('uuid')}/")
+            )
+        if report.get("freshness"):
+            d.findings.append(Finding("urlscan", "freshness", report["freshness"]))
 
     async def _collect_cve(self, cve: str, d: Dossier) -> None:
         cve = cve.upper()
@@ -522,6 +690,27 @@ class OSINTInvestigator:
     async def _collect_hash(self, digest: str, d: Dossier) -> None:
         algo = _HASH_LENGTHS[len(digest)]
         d.findings.append(Finding("local", "algorithm", algo))
+
+        # urlscan indexes the SHA-256 of every resource a scanned page loaded,
+        # so a hash pivots to the pages serving it — keylessly. That is not
+        # file reputation, and it is not offered as a substitute for it, but it
+        # is the difference between "no keyless source covers hashes" and a
+        # campaign map from one known-bad artefact.
+        if algo == "sha256":
+            d.sources_queried.append("urlscan")
+            report = await self._urlscan.assess(digest)
+            if "error" in report:
+                d.degraded["urlscan"] = report["error"]
+            else:
+                d.sources_answered.append("urlscan")
+                self._apply_urlscan(report, d)
+                serving = [t.get("value") for t in (report.get("related_domains") or [])[:10]]
+                if serving:
+                    d.findings.append(
+                        Finding("urlscan", "served_by_domains", serving,
+                                "medium" if len(serving) > 3 else "info")
+                    )
+
         vt = public_apis.get("virustotal")
         if vt and vt.configured:
             key = public_apis.get("virustotal").env_var or ""
@@ -549,8 +738,9 @@ class OSINTInvestigator:
         else:
             d.findings.append(
                 Finding("local", "note",
-                        "File-hash reputation needs VIRUSTOTAL_API_KEY; no keyless source "
-                        "covers hashes.")
+                        "File-hash *reputation* needs VIRUSTOTAL_API_KEY. urlscan covers "
+                        "SHA-256 resource hashes keylessly, but it reports which scanned "
+                        "pages loaded the resource — not whether the file is malicious.")
             )
 
     # ── fetch plumbing ───────────────────────────────────────────────────────
@@ -649,6 +839,10 @@ class OSINTInvestigator:
             "high_severity": "high severity",
             "many_open_ports": "broad open-port surface",
             "breached_domain": "appears in known breach corpora",
+            "scanned_malicious": "urlscan.io scans flagged malicious",
+            "tagged_phishing": "submitters tagged it phishing/malware",
+            "very_young_domain": "apex domain registered very recently",
+            "no_established_traffic": "no Umbrella popularity ranking",
         }
         flagged = [readable[s] for s in d.signals if s in readable]
         if flagged:
@@ -665,6 +859,23 @@ class OSINTInvestigator:
 
 def _now() -> str:
     return datetime.now(timezone.utc).isoformat()
+
+
+def _is_ip(value: str) -> bool:
+    try:
+        ipaddress.ip_address(value)
+        return True
+    except ValueError:
+        return False
+
+
+def _url_host(url: str) -> str:
+    """The hostname out of a URL, without port or credentials. '' if unparseable."""
+    try:
+        host = urlsplit(url).hostname or ""
+    except ValueError:  # malformed IPv6 literal, bad port
+        return ""
+    return host.strip(".").lower()
 
 
 def _to_float(value: Any) -> float:

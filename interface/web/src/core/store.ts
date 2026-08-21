@@ -3,6 +3,8 @@
 // SignalWatcher — no manual subscription bookkeeping in components.
 import { signal, computed } from "@lit-labs/signals";
 import { socket } from "./ws";
+import { fetchPendingActions, type PendingAction } from "./api";
+import { initSpeech } from "./speech";
 import type { ServerMessage, ReasoningStep } from "./events";
 
 // ── Chat ────────────────────────────────────────────────────────────────────
@@ -35,6 +37,22 @@ const PROX_TYPES = new Set([
   "ap_entered_proximity", "new_device_detected", "network_flow_recorded",
   "device_joined", "security_alert",
 ]);
+
+// ── Approvals ───────────────────────────────────────────────────────────────
+// Actions DEEP parked for a human decision. Held in the store rather than in
+// the panel so the dock can badge the count without the panel being open —
+// an approval nobody notices expires in 15 minutes, which reads to the user as
+// DEEP silently ignoring them.
+export const pendingApprovals = signal<PendingAction[]>([]);
+
+export async function refreshApprovals(): Promise<void> {
+  try {
+    pendingApprovals.set((await fetchPendingActions()).pending);
+  } catch {
+    // A failed poll must not blank a list the user is mid-decision on; the
+    // next tick retries, and a genuinely resolved action drops on its own.
+  }
+}
 
 export const isStreaming = computed(() =>
   messages.get().some((m) => m.streaming),
@@ -80,9 +98,18 @@ function reduce(msg: ServerMessage): void {
   switch (msg.type) {
     case "_socket_open":
       connection.set("open");
+      // A reconnect may have missed queue changes entirely.
+      void refreshApprovals();
       break;
     case "_socket_close":
       connection.set("closed");
+      break;
+    // A tool parked something, or someone (possibly in another tab) decided.
+    // Re-read rather than patching from the payload: the queue is the truth,
+    // and an entry may also have expired since the last poll.
+    case "approval_pending":
+    case "approval_resolved":
+      void refreshApprovals();
       break;
     case "thinking":
       thinking.set(true);
@@ -154,5 +181,11 @@ export function initStore(): void {
   if (wired) return;
   wired = true;
   socket.on((m) => reduce(m as ServerMessage));
+  // `tts_speak` had no consumer at all until this; see core/speech.ts.
+  initSpeech();
   socket.connect();
+  void refreshApprovals();
+  // Backstop for the WebSocket: entries also leave the queue by expiring,
+  // which produces no event at all.
+  setInterval(() => void refreshApprovals(), 20000);
 }
