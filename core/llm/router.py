@@ -26,11 +26,58 @@ class RoutingLLM:
     so tool-calling works across every configured cloud provider — not just Groq.
     Exposes last_provider for the reasoning panel.
     """
+    #: Providers whose streamer accepts multimodal content in the messages list
+    #: as-is. Gemini is absent on purpose: its streamer flattens each message to
+    #: {"text": content}, so a content list would be serialised as a Python repr
+    #: and the model would be shown the string "[{'type': 'image'...". Adding it
+    #: means teaching that streamer inline_data, not listing it here.
+    _IMAGE_CAPABLE_PROVIDERS = frozenset({"claude", "groq"})
+
     def __init__(self, local_client, app_settings):
         self._local = local_client
         self._settings = app_settings
         self.last_provider = f"ollama:{app_settings.ollama_model}"
         self.config = type("Cfg", (), {"model": app_settings.groq_model})()
+
+    @property
+    def supports_images(self) -> bool:
+        """True when *some* reachable provider could actually look at a picture.
+
+        The brain asks this before deciding whether to send an image or to tell
+        the user it cannot see one, so a wrong answer here is the difference
+        between an honest "I can't view that" and a confident description of a
+        page nobody looked at.
+        """
+        if getattr(self._local, "supports_images", False):
+            return True
+        return any(
+            provider in self._IMAGE_CAPABLE_PROVIDERS
+            for provider, _model, _key, _streamer in self._cloud_chain()
+        )
+
+    @staticmethod
+    def _shape_for(provider: str, user_prompt: str, images) -> object:
+        """Per-provider message content. Images lead; the question follows.
+
+        A picture that arrives after the question is one the reasoning was
+        already written without.
+        """
+        if not images:
+            return user_prompt
+        if provider == "claude":
+            blocks = [
+                {"type": "image",
+                 "source": {"type": "base64", "media_type": img.mime_type, "data": img.data}}
+                for img in images
+            ]
+        else:  # groq and any other OpenAI-compatible chat completions endpoint
+            blocks = [
+                {"type": "image_url",
+                 "image_url": {"url": f"data:{img.mime_type};base64,{img.data}"}}
+                for img in images
+            ]
+        blocks.append({"type": "text", "text": user_prompt})
+        return blocks
 
     def _cloud_chain(self):
         """Ordered (provider, model, key, streamer) tuples for configured clouds."""
@@ -55,7 +102,7 @@ class RoutingLLM:
 
     async def generate_stream(self, system_prompt: str, user_prompt: str,
                               temperature: float = 0.7, max_tokens: int = 1024, **kw):
-        msgs = [{"role": "user", "content": user_prompt}]
+        images = list(kw.pop("images", None) or [])
         # Honour the caller's budget up to a configurable ceiling (was a flat
         # 1024 that truncated the 70B model on hard queries). Groq 429s are now
         # handled by retry/backoff + provider fallthrough rather than a tiny cap.
@@ -71,6 +118,12 @@ class RoutingLLM:
         _fallthroughs = 0
         _tokens_in = _tel.estimate_tokens(system_prompt + user_prompt) if _tel else 0
         for provider, model, key, streamer in self._cloud_chain():
+            # A provider that cannot read the image would be shown the question
+            # with the evidence missing and answer anyway, which is worse than
+            # falling through to one that can.
+            if images and provider not in self._IMAGE_CAPABLE_PROVIDERS:
+                continue
+            msgs = [{"role": "user", "content": self._shape_for(provider, user_prompt, images)}]
             emitted = False
             _ttft = None
             _completion_chars = 0
@@ -115,7 +168,7 @@ class RoutingLLM:
                             tokens_in=_tokens_in)
         async for tok in self._local.generate_stream(
             system_prompt=system_prompt, user_prompt=user_prompt,
-            temperature=temperature, max_tokens=max_tokens, **kw
+            temperature=temperature, max_tokens=max_tokens, images=images, **kw
         ):
             yield tok
 

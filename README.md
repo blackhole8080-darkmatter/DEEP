@@ -114,11 +114,20 @@ wishlist.
   [urlscan-mcp](https://github.com/blackhole8080-darkmatter/urlscan-mcp) ships
   wired up; add your own in `data/mcp_servers.json`. What a bridged server
   offers is filtered rather than forwarded wholesale: tools the native path
-  already covers are withheld to avoid two routes to the same evidence, and so
-  is urlscan's `analyze_screenshot` — it returns the page as an image, and
-  DEEP's tool results are text, so bridging it would advertise a capability
-  that silently does not happen. Use that one from an MCP client whose model is
-  multimodal. Results are bounded before
+  already covers are withheld, to avoid two routes to the same evidence with
+  different failure modes.
+- **Tools can hand the model a picture.** `ToolResult` carries images, so
+  urlscan's `analyze_screenshot` puts the rendered page in front of the brain —
+  domain age says a site is suspicious, but only looking at it says *this is a
+  Microsoft 365 sign-in form*. The image rides with the request that follows
+  the tool call and is not re-sent on later loops, and a per-turn byte budget
+  stops a run of screenshots evicting the conversation that asked for them.
+  Which model sees it matters: DEEP's default `llama3.2` is text-only, and
+  rather than silently dropping the picture the brain tells the model a
+  screenshot exists that it cannot read and forbids it from describing the
+  contents — a model that is not told will answer from the surrounding text as
+  though it had looked. Point `OLLAMA_MODEL` at a vision model (`llava`,
+  `llama3.2-vision`), or configure Groq or Claude, and it actually sees. Results are bounded before
   they reach the model's context and truncation is stated rather than silent, a
   server that will not start costs one log line instead of the boot, and
   `GET /api/intel/mcp` says which servers are running and why any are not.

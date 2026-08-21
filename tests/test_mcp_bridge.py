@@ -20,7 +20,7 @@ import sys
 import pytest
 
 from core.mcp import bridge as bridge_mod
-from core.mcp.bridge import MCPBridge, render_result
+from core.mcp.bridge import MCPBridge, render_full, render_result
 from core.mcp.client import MCPServerConnection, MCPTool
 from core.mcp.config import MCPServerConfig, configured_servers
 from core.tools.registry import TOOL_SPECS
@@ -268,19 +268,16 @@ def test_structured_content_wins_over_text():
     assert json.loads(out) == {"verdict": "malicious"}
 
 
-def test_binary_content_is_described_not_inlined():
-    """And says *why*, so a model does not read a dropped image as a finding."""
-    out = render_result(_Result([_Block(kind="image", mime="image/png")]))
+def test_a_non_image_binary_block_still_says_why_it_is_absent():
+    out = render_result(_Result([_Block(kind="audio", mime="audio/wav")]))
     assert "could not be included" in out
-    assert "image/png" in out
-    assert "says nothing about what the image showed" in out
+    assert "says nothing about what it contained" in out
 
 
-def test_the_screenshot_tool_is_not_advertised_to_a_text_only_brain():
-    """Its whole point is an image DEEP's tool channel cannot carry."""
+def test_the_screenshot_tool_is_advertised_now_that_images_travel():
     urlscan = next(s for s in configured_servers() if s.id == "urlscan")
-    assert "analyze_screenshot" not in urlscan.allow_tools
-    assert "get_screenshot_url" in urlscan.allow_tools  # links still useful
+    assert "analyze_screenshot" in urlscan.allow_tools
+    assert "analyze_screenshot" not in urlscan.cache_tools, "an image would evict the cache"
 
 
 def test_an_error_result_says_so():
@@ -495,3 +492,84 @@ def test_the_urlscan_server_caches_reads_but_not_submissions():
     assert "get_scan_result" in urlscan.cache_tools
     for write_or_volatile in ("scan_url", "scan_and_wait", "get_quotas"):
         assert write_or_volatile not in urlscan.cache_tools, write_or_volatile
+
+
+# ── images ───────────────────────────────────────────────────────────────────
+#
+# An image block used to be described and thrown away, which made a tool whose
+# whole point is a picture arrive as "[image omitted]" — advertised, and
+# silently not happening.
+
+
+class _ImageBlock:
+    def __init__(self, data="aGVsbG8=", mime="image/png"):
+        self.type = "image"
+        self.data = data
+        self.mimeType = mime
+
+
+def test_an_image_block_reaches_the_caller():
+    text, images = render_full(_Result([_Block("look at this"), _ImageBlock()]))
+
+    assert len(images) == 1
+    assert images[0].mime_type == "image/png"
+    assert images[0].data == "aGVsbG8="
+    assert "look at this" in text
+    assert "[image/png attached]" in text, "the text should mark where it sits"
+
+
+def test_an_image_with_no_text_is_not_reported_as_empty():
+    text, images = render_full(_Result([_ImageBlock()]))
+    assert images
+    assert "[image/png attached]" in text
+    assert "(no content)" not in text
+
+
+def test_an_oversized_image_is_dropped_rather_than_blowing_the_context():
+    huge = _ImageBlock(data="A" * (bridge_mod.MAX_IMAGE_BYTES * 2))
+    _, images = render_full(_Result([huge]))
+    assert images == []
+
+
+def test_an_empty_image_payload_is_skipped():
+    _, images = render_full(_Result([_ImageBlock(data="")]))
+    assert images == []
+
+
+def test_an_error_result_carries_no_images():
+    """Whatever the server attached, an error is not evidence to look at."""
+    _, images = render_full(_Result([_ImageBlock()], is_error=True))
+    assert images == []
+
+
+@pytest.mark.asyncio
+async def test_a_tool_returning_an_image_puts_it_on_the_result(clean_registry, monkeypatch):
+    bridge, _, _ = await _bridge_with(
+        monkeypatch, _config(), [_tool("analyze_screenshot")],
+        _Result([_Block("Screenshot of evil.test"), _ImageBlock()]),
+    )
+    result = await TOOL_SPECS["fake_analyze_screenshot"].handler(None, {"uuid": "u1"})
+
+    assert result.ok
+    assert len(result.images) == 1
+    assert "evil.test" in result.content
+    await bridge.aclose()
+
+
+@pytest.mark.asyncio
+async def test_a_result_with_images_is_never_cached(clean_registry, monkeypatch):
+    """One cached screenshot would evict the whole working set."""
+    config = _config(cache_tools=("analyze_screenshot",))
+    connection = FakeConnection(
+        config, [_tool("analyze_screenshot")], _Result([_Block("x"), _ImageBlock()])
+    )
+    monkeypatch.setattr(bridge_mod, "MCPServerConnection", lambda cfg: connection)
+    bridge = MCPBridge([config])
+    await bridge.start()
+
+    handler = TOOL_SPECS["fake_analyze_screenshot"].handler
+    await handler(None, {"uuid": "u1"})
+    await handler(None, {"uuid": "u1"})
+
+    assert len(connection.calls) == 2
+    await bridge.aclose()

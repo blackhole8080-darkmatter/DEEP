@@ -28,7 +28,7 @@ import logging
 import time
 from typing import Any, Dict, List, Optional, Tuple
 
-from core.domain.models import ToolResult
+from core.domain.models import ToolImage, ToolResult
 from core.mcp.client import MCPServerConnection, MCPTool
 from core.mcp.config import MCPServerConfig, configured_servers
 from core.tools.registry import TOOL_SPECS, ToolSpec
@@ -39,6 +39,11 @@ logger = logging.getLogger(__name__)
 #: enough for a shaped urlscan summary or a truncated DOM, small enough that
 #: three of them do not evict the conversation.
 MAX_RESULT_CHARS = 24_000
+
+#: Largest single image accepted from a server, decoded. Past this the picture
+#: costs more context than it returns, and the brain's own per-turn budget would
+#: reject it anyway — better to say so here, where the server is named.
+MAX_IMAGE_BYTES = 2 * 1024 * 1024
 
 #: Most cached results held at once, across every server. Bounded because a
 #: cache that grows with the conversation is a leak, and the working set for an
@@ -121,19 +126,23 @@ class MCPBridge:
             args = args or {}
             cached = self._cache_get(_conn.config, _tool.name, args)
             if cached is not None:
+                # Images are never cached (see cache_tools), so a hit is text.
                 return ToolResult(True, cached, name)
             try:
                 raw = await _conn.call(_tool.name, args)
             except Exception as exc:  # noqa: BLE001 - subprocess, any failure mode
                 logger.warning("[MCP] %s.%s failed: %s", _conn.config.id, _tool.name, exc)
                 return ToolResult(False, f"{name} failed: {exc}", name)
-            rendered = render_result(raw)
+            rendered, images = render_full(raw)
             # Only successful results are stored. Caching a failure would turn
             # one bad minute upstream into an hour of the model being told the
             # same lie, which the native path avoids by capping error TTLs.
-            if not getattr(raw, "isError", False):
+            if not getattr(raw, "isError", False) and not images:
+                # Only text is cached: an image is orders of magnitude larger
+                # than the entries this cache is sized for, and one would evict
+                # the whole working set.
                 self._cache_put(_conn.config, _tool.name, args, rendered)
-            return ToolResult(True, rendered, name)
+            return ToolResult(True, rendered, name, images=images)
 
         TOOL_SPECS[name] = ToolSpec(name, description, tool.arg_hints, handler)
         self._registered.append(name)
@@ -210,25 +219,57 @@ class MCPBridge:
 
 
 def render_result(raw: Any) -> str:
-    """Turn an MCP CallToolResult into bounded text for the model's context.
+    """Bounded text for the model's context. See `render_full` for images."""
+    return render_full(raw)[0]
 
-    An MCP result is a list of content blocks that may carry text, structured
-    JSON, or binary. Anything non-textual is described rather than inlined —
-    a base64 image in a prompt is thousands of wasted tokens and no
-    information.
+
+def render_full(raw: Any) -> Tuple[str, List[ToolImage]]:
+    """Turn an MCP CallToolResult into (text, images).
+
+    An MCP result is a list of content blocks carrying text, structured JSON,
+    or binary. Images used to be described and thrown away, which made a tool
+    whose whole point is a picture — urlscan's analyze_screenshot — arrive as
+    "[image omitted]": advertised, and silently not happening. They now travel
+    to whatever the active model can accept, and the brain says so when it
+    cannot.
     """
     if raw is None:
-        return "(no content)"
+        return "(no content)", []
 
     if getattr(raw, "isError", False):
-        return _truncate(f"Tool reported an error: {_blocks_to_text(raw)}")
+        return _truncate(f"Tool reported an error: {_blocks_to_text(raw)}"), []
+
+    images = _blocks_to_images(raw)
 
     structured = getattr(raw, "structuredContent", None)
     if structured:
-        return _truncate(_dumps(structured))
+        return _truncate(_dumps(structured)), images
 
+    # An image-only result is not empty: _blocks_to_text marks each image's
+    # place, so the text reads "[image/png attached]" rather than "(no content)".
     text = _blocks_to_text(raw)
-    return _truncate(text or "(no content)")
+    return _truncate(text or "(no content)"), images
+
+
+def _blocks_to_images(raw: Any) -> List[ToolImage]:
+    """Pull image blocks out, skipping any too large to be worth the context."""
+    out: List[ToolImage] = []
+    for block in getattr(raw, "content", None) or []:
+        if getattr(block, "type", "") != "image":
+            continue
+        data = getattr(block, "data", "") or ""
+        mime = getattr(block, "mimeType", "") or "image/png"
+        image = ToolImage(data=data, mime_type=mime, label=f"a {mime} image")
+        if not data:
+            continue
+        if image.approx_bytes > MAX_IMAGE_BYTES:
+            logger.warning(
+                "[MCP] dropping a %s of %d bytes — over the per-image ceiling",
+                mime, image.approx_bytes,
+            )
+            continue
+        out.append(image)
+    return out
 
 
 def _blocks_to_text(raw: Any) -> str:
@@ -244,14 +285,14 @@ def _blocks_to_text(raw: Any) -> str:
             continue
         kind = getattr(block, "type", type(block).__name__)
         mime = getattr(block, "mimeType", "") or ""
-        # Say why, not just that. DEEP's tool channel is text — ToolResult
-        # carries a str — so a model handed a bare "[image omitted]" cannot
-        # tell whether the tool failed, the page was blank, or the transport
-        # dropped it, and will guess. Naming the limit lets it route around.
+        if kind == "image":
+            # Carried separately now, on ToolResult.images. Marking its place
+            # keeps the text coherent for a model that cannot see it.
+            parts.append(f"[{mime or 'image'} attached]")
+            continue
         parts.append(
-            f"[{kind} content{f' ({mime})' if mime else ''} could not be included: "
-            "DEEP's tools return text, so images from an MCP server are dropped "
-            "here. This says nothing about what the image showed.]"
+            f"[{kind} content{f' ({mime})' if mime else ''} could not be included. "
+            "This says nothing about what it contained.]"
         )
     return "\n".join(parts)
 

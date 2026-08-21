@@ -10,6 +10,12 @@ class LLMClient(Protocol):
 
     model_name: str = "unknown"
     is_available: bool = False
+    #: True when this client can be handed images alongside the prompt. Declared
+    #: rather than assumed: DEEP's default local model cannot see, and sending a
+    #: picture to a text-only model either errors or is silently ignored — the
+    #: second being worse, because the answer then reads as though the model
+    #: looked. Callers check this and say so when the answer is text-only.
+    supports_images: bool = False
 
     async def generate(
         self,
