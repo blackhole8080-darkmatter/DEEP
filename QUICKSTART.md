@@ -78,7 +78,7 @@ python interface\server.py
 ```
 
 Then open:
-- **Main UI:** http://127.0.0.1:5174/ai
+- **Main UI:** http://127.0.0.1:5174/app
 - **Health:** http://127.0.0.1:5174/api/health
 
 The WebSocket endpoint is `/ws/deep`. Voice input is transcribed offline with
@@ -388,7 +388,7 @@ Logs are printed to console. Check for:
 After setup, verify everything works:
 
 - [ ] `start_deep.bat` starts the server without errors
-- [ ] http://127.0.0.1:5174/ai loads the HUD
+- [ ] http://127.0.0.1:5174/app loads the HUD
 - [ ] AI responds with JARVIS personality ("As you wish", "Right away")
 - [ ] Voice works (if enabled): "Testing" → spoken response
 - [ ] Wake word works (if configured): Say "jarvis" → activation
@@ -417,7 +417,7 @@ start_deep.bat
 python interface\server.py
 
 # Then open the UI
-#   http://127.0.0.1:5174/ai
+#   http://127.0.0.1:5174/app
 ```
 
-**Ready to begin?** Run `start_deep.bat`, open http://127.0.0.1:5174/ai, and say hello to DEEP! 🚀
+**Ready to begin?** Run `start_deep.bat`, open http://127.0.0.1:5174/app, and say hello to DEEP! 🚀

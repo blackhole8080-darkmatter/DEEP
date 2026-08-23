@@ -35,10 +35,10 @@ import json
 import logging
 import re
 import socket
+import threading
 import struct
 import subprocess
 import time
-from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta
 from enum import Enum
@@ -285,7 +285,8 @@ class NetworkMonitor:
         #: too; see _resolve_hostnames.
         self._hostname_cache: Dict[str, tuple[Optional[str], float]] = {}
         #: Created on first use so a monitor that never sweeps costs no threads.
-        self._resolver_pool: Optional[ThreadPoolExecutor] = None
+        #: Bounds concurrent reverse lookups. Created on the running loop.
+        self._resolver_gate: Optional[asyncio.Semaphore] = None
         self._last_scan: Optional[datetime] = None
         
         # Load previous state if exists
@@ -312,12 +313,10 @@ class NetworkMonitor:
     async def stop(self) -> None:
         """Deactivate the network monitor."""
         self.stop_monitoring()
-        if self._resolver_pool is not None:
-            # Do not wait: a stalled lookup is exactly what this pool exists to
-            # contain, and blocking shutdown on one would hand the freeze we
-            # removed from the sweep to the shutdown path instead.
-            self._resolver_pool.shutdown(wait=False)
-            self._resolver_pool = None
+        # Nothing to tear down: reverse lookups run on daemon threads, which
+        # are never joined. An in-flight lookup is abandoned by both the await
+        # and the interpreter, so shutdown does not wait on the resolver.
+        self._resolver_gate = None
         logger.info("[NetworkMonitor] Stopped")
 
     def status(self) -> Dict[str, Any]:
@@ -809,21 +808,49 @@ class NetworkMonitor:
         unknown = [ip for ip in ips if ip not in fresh]
 
         loop = asyncio.get_running_loop()
-        pool = self._resolver_pool
-        if pool is None:
-            pool = self._resolver_pool = ThreadPoolExecutor(
-                max_workers=HOSTNAME_RESOLVER_THREADS,
-                thread_name_prefix="deep-ptr",
-            )
+        # Daemon threads, not a pool. A ThreadPoolExecutor's workers are not
+        # daemons on 3.9+, and concurrent.futures joins them from an atexit
+        # hook — so `shutdown(wait=False)` returns at once but the *interpreter*
+        # still waits for the stalled lookup. Measured: stop() returned in
+        # 0.16s, the process left 3s later. That is the freeze this function
+        # removed from the sweep, handed to shutdown instead.
+        #
+        # A daemon thread is never joined, so a resolver that has wandered off
+        # cannot hold DEEP open. The semaphore is what bounds them: it is held
+        # for the thread's real lifetime, not until the await gives up, so a
+        # timed-out lookup still occupies its slot until the C call returns and
+        # the ceiling remains a true ceiling.
+        gate = self._resolver_gate
+        if gate is None:
+            gate = self._resolver_gate = asyncio.Semaphore(HOSTNAME_RESOLVER_THREADS)
 
         async def resolve(ip: str) -> tuple[str, Optional[str]]:
+            await gate.acquire()
+            future: "asyncio.Future[Optional[str]]" = loop.create_future()
+
+            def deliver(name: Optional[str]) -> None:
+                gate.release()
+                if not future.done():
+                    future.set_result(name)
+
+            def work() -> None:
+                try:
+                    name, _, _ = socket.gethostbyaddr(ip)
+                except (socket.herror, socket.gaierror, OSError):
+                    name = None
+                try:
+                    loop.call_soon_threadsafe(deliver, name)
+                except RuntimeError:
+                    pass  # loop already closed; nothing left to deliver to
+
+            threading.Thread(
+                target=work, name=f"deep-ptr-{ip}", daemon=True
+            ).start()
             try:
-                name, _, _ = await asyncio.wait_for(
-                    loop.run_in_executor(pool, socket.gethostbyaddr, ip),
-                    timeout=HOSTNAME_TIMEOUT_S,
+                return ip, await asyncio.wait_for(
+                    asyncio.shield(future), timeout=HOSTNAME_TIMEOUT_S
                 )
-                return ip, name
-            except (socket.herror, socket.gaierror, asyncio.TimeoutError, OSError):
+            except (asyncio.TimeoutError, asyncio.CancelledError):
                 return ip, None
 
         for ip, name in await asyncio.gather(*(resolve(ip) for ip in unknown)):

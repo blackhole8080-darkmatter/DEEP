@@ -251,21 +251,69 @@ async def test_a_stalled_lookup_does_not_occupy_the_shared_executor(monitor, mon
 
 
 @pytest.mark.asyncio
-async def test_the_resolver_pool_is_bounded(monitor, monkeypatch):
-    """Unbounded would mean one sweep of a /24 spawning 254 threads."""
-    monkeypatch.setattr(socket, "gethostbyaddr", lambda ip: (_ for _ in ()).throw(socket.herror()))
-    await monitor._resolve_hostnames(["10.0.0.1"])
-    assert monitor._resolver_pool is not None
-    assert monitor._resolver_pool._max_workers == nm.HOSTNAME_RESOLVER_THREADS
+async def test_the_resolver_is_bounded(monitor, monkeypatch):
+    """Unbounded would mean one sweep of a /24 spawning 254 threads.
+
+    Asserted by observation rather than by inspecting whatever object does the
+    bounding, so the guarantee survives a change of mechanism.
+    """
+    import threading as _t
+
+    live = 0
+    peak = 0
+    lock = _t.Lock()
+
+    def slow(ip):
+        nonlocal live, peak
+        with lock:
+            live += 1
+            peak = max(peak, live)
+        time.sleep(0.15)
+        with lock:
+            live -= 1
+        raise socket.herror()
+
+    monkeypatch.setattr(socket, "gethostbyaddr", slow)
+    monkeypatch.setattr(nm, "HOSTNAME_TIMEOUT_S", 5.0)
+    await monitor._resolve_hostnames([f"10.2.{n // 256}.{n % 256}" for n in range(80)])
+
+    assert peak <= nm.HOSTNAME_RESOLVER_THREADS, f"{peak} lookups ran at once"
 
 
 @pytest.mark.asyncio
-async def test_stopping_releases_the_resolver_threads(monitor, monkeypatch):
+async def test_a_stalled_lookup_cannot_hold_the_interpreter_open(monitor, monkeypatch):
+    """The reason this is not a ThreadPoolExecutor.
+
+    Its workers are not daemons on 3.9+, and concurrent.futures joins them from
+    an atexit hook — so `shutdown(wait=False)` returns immediately while the
+    process still waits out the stalled lookup. Measured before this changed:
+    stop() returned in 0.16s, the process exited 3s later. A daemon thread is
+    never joined, so shutdown owes the resolver nothing.
+    """
+    seen = []
+
+    def slow(ip):
+        seen.append(__import__("threading").current_thread())
+        time.sleep(0.3)
+        raise socket.herror()
+
+    monkeypatch.setattr(socket, "gethostbyaddr", slow)
+    monkeypatch.setattr(nm, "HOSTNAME_TIMEOUT_S", 0.05)  # abandon it, thread runs on
+    await monitor._resolve_hostnames(["10.0.0.1"])
+
+    assert seen, "the lookup never ran"
+    assert all(t.daemon for t in seen), "a non-daemon lookup thread will be joined at exit"
+
+
+@pytest.mark.asyncio
+async def test_stopping_does_not_wait_on_the_resolver(monitor, monkeypatch):
+    """stop() must not block on a lookup that has wandered off."""
     monkeypatch.setattr(socket, "gethostbyaddr", lambda ip: (_ for _ in ()).throw(socket.herror()))
     await monitor._resolve_hostnames(["10.0.0.1"])
-    assert monitor._resolver_pool is not None
+
+    started = time.perf_counter()
     await monitor.stop()
-    assert monitor._resolver_pool is None
+    assert time.perf_counter() - started < 1.0, "stop() waited for the resolver"
 
 
 @pytest.mark.asyncio

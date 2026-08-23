@@ -58,7 +58,7 @@ python interface/server.py (FastAPI + uvicorn, port 7768)
 ├─ WebSocket /ws/deep   (streaming AI responses + voice)
 ├─ REST API /api/*      (health, security, research, predictive, knowledge, science)
 ├─ POST /api/transcribe (offline Whisper STT)
-└─ Static files interface/static/ (HUD interface at /ai)
+└─ Static files interface/static/ (HUD interface at /app)
 ```
 
 ## Requirements
