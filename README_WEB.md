@@ -8,7 +8,7 @@
 ```bat
 start_deep.bat
 ```
-Starts the main server (`interface\server.py`) on **port 7768** plus the
+Starts the main server (`interface\server.py`) on **port 5174** plus the
 science-engine HUD on port 8000.
 
 ### Manual
@@ -20,8 +20,8 @@ python interface\server.py
 ## Web Interface
 
 Once started, open your browser to:
-- **Main UI:** http://127.0.0.1:7768/app
-- **Health:** http://127.0.0.1:7768/api/health
+- **Main UI:** http://127.0.0.1:5174/app
+- **Health:** http://127.0.0.1:5174/api/health
 
 ### Features
 - **JARVIS HUD UI** - Animated sci-fi interface with system vitals
@@ -36,7 +36,7 @@ Once started, open your browser to:
 
 ## Configuration
 
-The server binds to `127.0.0.1:7768` (see the bottom of `interface/server.py`).
+The server binds to `127.0.0.1:5174` (see the bottom of `interface/server.py`).
 Key `.env` settings:
 
 ```env
@@ -53,7 +53,7 @@ DEEP_RATE_LIMIT_PER_MIN=240
 ```
 start_deep.bat
     ↓
-python interface/server.py (FastAPI + uvicorn, port 7768)
+python interface/server.py (FastAPI + uvicorn, port 5174)
     ↓
 ├─ WebSocket /ws/deep   (streaming AI responses + voice)
 ├─ REST API /api/*      (health, security, research, predictive, knowledge, science)
@@ -89,7 +89,7 @@ VOICE_PERSONALITY=jarvis
 
 ### Port already in use
 Edit the `uvicorn.run(...)` call at the bottom of `interface/server.py` to use a
-different port, or stop the process already bound to 7768.
+different port, or stop the process already bound to 5174.
 
 ### Module not found
 ```bash
@@ -98,6 +98,6 @@ pip install -r requirements.txt
 ```
 
 ### WebSocket not connecting
-- Check firewall settings and that port 7768 is free
+- Check firewall settings and that port 5174 is free
 - The endpoint is `/ws/deep`
 - For remote access, append `?key=YOUR_DEEP_API_KEY` to the WS URL
