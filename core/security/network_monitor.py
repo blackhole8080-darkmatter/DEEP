@@ -845,14 +845,27 @@ class NetworkMonitor:
                     answer.set_result(name)
 
             def work() -> None:
+                # Every exception, not just the expected socket ones. The
+                # allowance is handed back by `deliver`, so a lookup that dies
+                # any other way never returns its slot — and eight of those
+                # exhaust the semaphore permanently, leaving every later sweep
+                # blocked forever on `acquire()`. That is the freeze this whole
+                # function exists to remove, made permanent rather than merely
+                # long. `gethostbyaddr` really does raise outside the socket
+                # family: a PTR record that is not valid UTF-8 surfaces as
+                # UnicodeDecodeError, and on a hostile LAN the record is the
+                # attacker's to choose.
                 try:
                     name, _, _ = socket.gethostbyaddr(ip)
-                except (socket.herror, socket.gaierror, OSError):
+                except Exception:
                     name = None
                 try:
                     loop.call_soon_threadsafe(deliver, name)
                 except RuntimeError:
-                    pass  # loop is gone; there is nobody left to tell
+                    # The loop is gone, so there is nobody to tell and nothing
+                    # left to protect. Releasing from this thread is not an
+                    # option: asyncio.Semaphore is not thread-safe.
+                    pass
 
             threading.Thread(target=work, name=f"deep-ptr-{ip}", daemon=True).start()
             try:

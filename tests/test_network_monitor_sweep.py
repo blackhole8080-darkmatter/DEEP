@@ -48,8 +48,12 @@ async def test_a_resolver_that_never_answers_does_not_stall_the_sweep(monitor, m
     release = threading.Event()
 
     def hangs(ip):
+        # Raising here to signal "should never get this far" would be a guard
+        # that cannot fire: the lookup body swallows every exception so a dead
+        # thread cannot leak its allowance, so the assertion would never reach
+        # the test. The elapsed-time check below is the real one.
         release.wait(30)
-        raise AssertionError("should have been abandoned long before this")
+        raise socket.herror()
 
     monkeypatch.setattr(socket, "gethostbyaddr", hangs)
     monkeypatch.setattr(nm, "HOSTNAME_TIMEOUT_S", 0.2)
@@ -387,3 +391,41 @@ async def test_expired_entries_leave_the_cache(monitor, monkeypatch):
 
     assert "10.0.0.99" not in monitor._hostname_cache, "expired entry was kept"
     assert "10.0.0.98" in monitor._hostname_cache, "a live entry was evicted with it"
+
+
+@pytest.mark.asyncio
+async def test_an_unexpected_lookup_failure_does_not_leak_its_allowance(monitor, monkeypatch):
+    """The allowance must come back however the lookup ends.
+
+    `deliver` hands the slot back, so a lookup that dies before reaching it
+    keeps its slot forever. Enough of those and `acquire()` never returns —
+    every later sweep blocks indefinitely, which is the freeze this module
+    exists to remove, made permanent rather than merely long.
+
+    `gethostbyaddr` does raise outside the socket family: a PTR record that is
+    not valid UTF-8 arrives as UnicodeDecodeError, and on a hostile LAN that
+    record is the attacker's to choose.
+    """
+    def malformed_ptr(ip):
+        raise UnicodeDecodeError("utf-8", b"\xff", 0, 1, "invalid start byte")
+
+    monkeypatch.setattr(socket, "gethostbyaddr", malformed_ptr)
+    monkeypatch.setattr(nm, "HOSTNAME_TIMEOUT_S", 0.2)
+
+    count = nm.HOSTNAME_RESOLVER_THREADS
+    assert await monitor._resolve_hostnames(
+        [f"10.0.0.{n}" for n in range(1, count + 1)]
+    ) == {}
+
+    # Every thread has to have finished dying before the allowance is counted.
+    for _ in range(50):
+        if monitor._resolver_gate._value == count:
+            break
+        await asyncio.sleep(0.02)
+    assert monitor._resolver_gate._value == count, "the allowance was not returned"
+
+    # And the real proof: a later sweep still resolves rather than blocking.
+    monkeypatch.setattr(socket, "gethostbyaddr", lambda ip: ("host.lan", [], [ip]))
+    assert await asyncio.wait_for(
+        monitor._resolve_hostnames(["10.0.1.1"]), timeout=5
+    ) == {"10.0.1.1": "host.lan"}
