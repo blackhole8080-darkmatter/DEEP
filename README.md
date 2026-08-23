@@ -112,7 +112,25 @@ wishlist.
   DEEP's own registry, prefixed by server. A capability someone already built
   and tested does not have to be reimplemented inside DEEP to be usable by it.
   [urlscan-mcp](https://github.com/blackhole8080-darkmatter/urlscan-mcp) ships
-  wired up; add your own in `data/mcp_servers.json`. Results are bounded before
+  wired up; add your own in `data/mcp_servers.json`. What a bridged server
+  offers is filtered rather than forwarded wholesale: tools the native path
+  already covers are withheld, to avoid two routes to the same evidence with
+  different failure modes.
+- **Tools can hand the model a picture.** `ToolResult` carries images, so
+  urlscan's `analyze_screenshot` puts the rendered page in front of the brain —
+  domain age says a site is suspicious, but only looking at it says *this is a
+  Microsoft 365 sign-in form*. The image rides with the request that follows
+  the tool call and is not re-sent on later loops, and a per-turn byte budget
+  stops a run of screenshots evicting the conversation that asked for them.
+  Which model sees it matters: DEEP's default `llama3.2` is text-only, and
+  rather than silently dropping the picture the brain tells the model a
+  screenshot exists that it cannot read and forbids it from describing the
+  contents — a model that is not told will answer from the surrounding text as
+  though it had looked. Point `OLLAMA_MODEL` at a vision model (`llava`,
+  `llama3.2-vision`), or configure Groq, Gemini or Claude, and it actually sees.
+  Each provider gets the shape it wants — Claude blocks, OpenAI data URIs,
+  Gemini `inline_data` parts — and a provider that cannot read an image is
+  skipped rather than shown the question with the evidence missing. Results are bounded before
   they reach the model's context and truncation is stated rather than silent, a
   server that will not start costs one log line instead of the boot, and
   `GET /api/intel/mcp` says which servers are running and why any are not.

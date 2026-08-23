@@ -14,13 +14,15 @@ is DEEP's behaviour around a server it does not control:
 from __future__ import annotations
 
 import asyncio
+import base64
+import dataclasses
 import json
 import sys
 
 import pytest
 
 from core.mcp import bridge as bridge_mod
-from core.mcp.bridge import MCPBridge, render_result
+from core.mcp.bridge import MCPBridge, render_full, render_result
 from core.mcp.client import (
     MCPServerConnection,
     MCPTool,
@@ -274,10 +276,16 @@ def test_structured_content_wins_over_text():
     assert json.loads(out) == {"verdict": "malicious"}
 
 
-def test_binary_content_is_described_not_inlined():
-    out = render_result(_Result([_Block(kind="image", mime="image/png")]))
-    assert "image content omitted" in out
-    assert "image/png" in out
+def test_a_non_image_binary_block_still_says_why_it_is_absent():
+    out = render_result(_Result([_Block(kind="audio", mime="audio/wav")]))
+    assert "could not be included" in out
+    assert "says nothing about what it contained" in out
+
+
+def test_the_screenshot_tool_is_advertised_now_that_images_travel():
+    urlscan = next(s for s in configured_servers() if s.id == "urlscan")
+    assert "analyze_screenshot" in urlscan.allow_tools
+    assert "analyze_screenshot" not in urlscan.cache_tools, "an image would evict the cache"
 
 
 def test_an_error_result_says_so():
@@ -364,6 +372,151 @@ async def test_the_real_urlscan_server_bridges_end_to_end(clean_registry):
     assert "urlscan_scan_url" not in TOOL_SPECS
 
 
+@pytest.mark.asyncio
+async def test_a_real_screenshot_survives_the_subprocess_boundary(clean_registry, tmp_path):
+    """The one seam every other test in this file fakes.
+
+    ToolResult.images, the bridge's image extraction, the brain's admission
+    budget — all of it is tested against blocks built in-process. None of that
+    proves an actual PNG survives base64 encoding, a JSON-RPC frame, a pipe and
+    a decode with its bytes intact, which is the only property that matters
+    when the model is finally shown the page.
+
+    urlscan.io is unreachable from CI and needs no key for screenshots anyway,
+    so a local stand-in serves one and URLSCAN_BASE_URL points the child at it.
+    The image is checked byte-for-byte at the far end.
+    """
+    pytest.importorskip("urlscan_mcp")
+    pytest.importorskip("mcp")
+
+    import json as _json
+    import struct
+    import threading
+    import zlib
+    from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+
+    def png(width: int, height: int) -> bytes:
+        def chunk(tag: bytes, body: bytes) -> bytes:
+            return (struct.pack(">I", len(body)) + tag + body
+                    + struct.pack(">I", zlib.crc32(tag + body) & 0xFFFFFFFF))
+
+        raw = b"".join(b"\x00" + bytes([(y * 5) % 256, 90, 210] * width)
+                       for y in range(height))
+        return (b"\x89PNG\r\n\x1a\n"
+                + chunk(b"IHDR", struct.pack(">IIBBBBB", width, height, 8, 2, 0, 0, 0))
+                + chunk(b"IDAT", zlib.compress(raw, 6))
+                + chunk(b"IEND", b""))
+
+    # Wider than one screen and taller than the crop threshold, so the child
+    # does real work on it rather than passing the bytes through.
+    screenshot = png(1280, 4200)
+    uuid = "0198fb1a-6f0d-7b2c-9c31-2a4f9d0e1c77"
+    result_doc = {
+        "task": {"uuid": uuid, "url": "https://example.com/login",
+                 "time": "2026-08-20T10:00:00.000Z"},
+        "page": {"url": "https://cdn-elsewhere.net/x", "domain": "cdn-elsewhere.net",
+                 "country": "US", "title": "Sign in"},
+        "verdicts": {"overall": {"score": 0, "malicious": False}},
+        "stats": {}, "lists": {"domains": [], "urls": []},
+    }
+
+    class Handler(BaseHTTPRequestHandler):
+        def log_message(self, *a):
+            pass
+
+        def do_GET(self):  # noqa: N802
+            if self.path.startswith("/screenshots/"):
+                body, ctype = screenshot, "image/png"
+            elif self.path.startswith("/api/v1/result/"):
+                body, ctype = _json.dumps(result_doc).encode(), "application/json"
+            else:
+                body, ctype = b'{"message":"not found"}', "application/json"
+            self.send_response(200)
+            self.send_header("Content-Type", ctype)
+            self.send_header("Content-Length", str(len(body)))
+            self.end_headers()
+            self.wfile.write(body)
+
+    server = ThreadingHTTPServer(("127.0.0.1", 0), Handler)
+    threading.Thread(target=server.serve_forever, daemon=True).start()
+    base = f"http://127.0.0.1:{server.server_address[1]}"
+
+    config = next(s for s in configured_servers() if s.id == "urlscan")
+    if not config.available:
+        server.shutdown()
+        pytest.skip(config.unavailable_reason)
+
+    # The child inherits this environment; no proxy, or it would be asked to
+    # tunnel to loopback.
+    env = dict(config.env)
+    env.update({"URLSCAN_BASE_URL": base, "NO_PROXY": "127.0.0.1,localhost",
+                "no_proxy": "127.0.0.1,localhost", "HTTP_PROXY": "", "HTTPS_PROXY": "",
+                "http_proxy": "", "https_proxy": ""})
+    config = dataclasses.replace(config, env=env)
+
+    bridge = MCPBridge([config])
+    try:
+        await asyncio.wait_for(bridge.start(), timeout=60)
+        assert "urlscan_analyze_screenshot" in TOOL_SPECS
+
+        result = await asyncio.wait_for(
+            TOOL_SPECS["urlscan_analyze_screenshot"].handler(None, {"uuid": uuid}),
+            timeout=60,
+        )
+        # And again with the domain DEEP already holds for the indicator it is
+        # investigating: the scan's own domain comes from a result document
+        # that needs an API key, so keyless this is the only way the brief has
+        # anything to compare the brand against.
+        with_domain = await asyncio.wait_for(
+            TOOL_SPECS["urlscan_analyze_screenshot"].handler(
+                None, {"uuid": uuid, "domain": "login-microsoft.example"}
+            ),
+            timeout=60,
+        )
+    finally:
+        await bridge.aclose()
+        server.shutdown()
+
+    assert result.ok, result.content
+    assert result.images, "the image did not survive the boundary"
+
+    # ToolImage carries base64, because that is the shape every provider wants
+    # on the wire. Decoding here is the point: it proves what crossed the pipe
+    # is still a PNG and not a truncated or re-encoded approximation of one.
+    image = result.images[0]
+    assert image.mime_type == "image/png"
+    decoded = base64.b64decode(image.data)
+    assert decoded.startswith(b"\x89PNG"), "arrived corrupt, not merely truncated"
+    assert decoded.endswith(b"IEND\xaeB`\x82"), "arrived truncated"
+    assert image.approx_bytes > 1000
+
+    # Pillow is optional: with it the child crops and downscales, without it the
+    # bytes come through untouched. Both are correct; silently losing them is not.
+    try:
+        from io import BytesIO
+
+        from PIL import Image
+
+        with Image.open(BytesIO(decoded)) as img:
+            assert img.width <= 1280
+            assert img.height / img.width <= 3.0, "the crop did not happen"
+    except ImportError:
+        assert decoded == screenshot
+
+    # And the brief travels with it. No key here, so the scan's result document
+    # is unreadable and the brief must decline the brand-versus-domain
+    # comparison rather than invite one against "unknown".
+    assert "NOT a clean verdict" in result.content
+    assert "could not be determined" in result.content
+    assert "cannot be made from" in result.content
+
+    # With a domain supplied, the comparison is back on — flagged as the
+    # caller's claim, since nothing in the scan record confirms it.
+    assert with_domain.images
+    assert "login-microsoft.example" in with_domain.content
+    assert "NOT confirmed against this scan's record" in with_domain.content
+
+
 # ── diagnosing a server that will not start ──────────────────────────────────
 #
 # The bridge already proved it survives a dead server. What it did not prove is
@@ -446,3 +599,214 @@ def test_the_startup_budget_survives_a_nonsense_override(monkeypatch):
     assert _startup_timeout() == 60.0
     monkeypatch.setenv("DEEP_MCP_STARTUP_TIMEOUT", "12.5")
     assert _startup_timeout() == 12.5
+
+
+# ── caching ──────────────────────────────────────────────────────────────────
+#
+# A bridged tool runs in its own subprocess with its own HTTP client, so it
+# never touches DEEP's intel cache or per-host throttle. Two identical pivots
+# in one investigation hit the upstream twice where the native path would hit
+# it once. What must NOT be cached matters more than what is.
+
+
+async def _cached_bridge(monkeypatch, *, cache_tools=("search_scans",), ttl=900.0, outcome=None):
+    config = _config(cache_tools=cache_tools, cache_ttl_s=ttl)
+    return await _bridge_with(monkeypatch, config, [_tool("search_scans"), _tool("scan_url")], outcome)
+
+
+@pytest.mark.asyncio
+async def test_a_repeated_read_is_served_from_cache(clean_registry, monkeypatch):
+    bridge, conn, _ = await _cached_bridge(monkeypatch, outcome=_Result([_Block("hits")]))
+    handler = TOOL_SPECS["fake_search_scans"].handler
+
+    first = await handler(None, {"query": "domain:evil.test"})
+    second = await handler(None, {"query": "domain:evil.test"})
+
+    assert first.content == second.content == "hits"
+    assert len(conn.calls) == 1, "the second call must not reach the server"
+    assert bridge.status()["cache"]["hits"] == 1
+    await bridge.aclose()
+
+
+@pytest.mark.asyncio
+async def test_argument_order_does_not_defeat_the_cache(clean_registry, monkeypatch):
+    """Models do not emit arguments in a stable order."""
+    bridge, conn, _ = await _cached_bridge(monkeypatch, outcome=_Result([_Block("hits")]))
+    handler = TOOL_SPECS["fake_search_scans"].handler
+
+    await handler(None, {"a": 1, "b": 2})
+    await handler(None, {"b": 2, "a": 1})
+
+    assert len(conn.calls) == 1
+    await bridge.aclose()
+
+
+@pytest.mark.asyncio
+async def test_different_arguments_are_different_entries(clean_registry, monkeypatch):
+    bridge, conn, _ = await _cached_bridge(monkeypatch, outcome=_Result([_Block("hits")]))
+    handler = TOOL_SPECS["fake_search_scans"].handler
+
+    await handler(None, {"query": "one"})
+    await handler(None, {"query": "two"})
+
+    assert len(conn.calls) == 2
+    await bridge.aclose()
+
+
+@pytest.mark.asyncio
+async def test_a_tool_with_side_effects_is_never_cached(clean_registry, monkeypatch):
+    """Caching a submission would hand back a scan id for a scan that never ran."""
+    bridge, conn, _ = await _cached_bridge(monkeypatch, outcome=_Result([_Block("submitted")]))
+    handler = TOOL_SPECS["fake_scan_url"].handler
+
+    await handler(None, {"url": "https://x.test"})
+    await handler(None, {"url": "https://x.test"})
+
+    assert len(conn.calls) == 2, "scan_url is not on the cache list"
+    await bridge.aclose()
+
+
+@pytest.mark.asyncio
+async def test_a_failure_is_not_cached(clean_registry, monkeypatch):
+    """One bad minute upstream must not become an hour of repeating it."""
+    bridge, conn, _ = await _cached_bridge(
+        monkeypatch, outcome=_Result([_Block("upstream is down")], is_error=True)
+    )
+    handler = TOOL_SPECS["fake_search_scans"].handler
+
+    await handler(None, {"query": "x"})
+    await handler(None, {"query": "x"})
+
+    assert len(conn.calls) == 2
+    await bridge.aclose()
+
+
+@pytest.mark.asyncio
+async def test_an_expired_entry_is_refetched(clean_registry, monkeypatch):
+    bridge, conn, _ = await _cached_bridge(
+        monkeypatch, ttl=-1, outcome=_Result([_Block("hits")])
+    )
+    handler = TOOL_SPECS["fake_search_scans"].handler
+
+    await handler(None, {"query": "x"})
+    await handler(None, {"query": "x"})
+
+    assert len(conn.calls) == 2
+    await bridge.aclose()
+
+
+@pytest.mark.asyncio
+async def test_the_cache_is_bounded(clean_registry, monkeypatch):
+    bridge, _, _ = await _cached_bridge(monkeypatch, outcome=_Result([_Block("hits")]))
+    handler = TOOL_SPECS["fake_search_scans"].handler
+
+    for i in range(bridge_mod.MAX_CACHE_ENTRIES + 20):
+        await handler(None, {"query": f"q{i}"})
+
+    assert bridge.status()["cache"]["entries"] <= bridge_mod.MAX_CACHE_ENTRIES
+    await bridge.aclose()
+
+
+@pytest.mark.asyncio
+async def test_caching_is_off_unless_a_server_declares_it(clean_registry, monkeypatch):
+    """The bridge cannot tell a read from a write by looking at a name."""
+    bridge, conn, _ = await _cached_bridge(
+        monkeypatch, cache_tools=(), outcome=_Result([_Block("hits")])
+    )
+    handler = TOOL_SPECS["fake_search_scans"].handler
+
+    await handler(None, {"query": "x"})
+    await handler(None, {"query": "x"})
+
+    assert len(conn.calls) == 2
+    await bridge.aclose()
+
+
+def test_the_urlscan_server_caches_reads_but_not_submissions():
+    urlscan = next(s for s in configured_servers() if s.id == "urlscan")
+
+    assert "search_scans" in urlscan.cache_tools
+    assert "get_scan_result" in urlscan.cache_tools
+    for write_or_volatile in ("scan_url", "scan_and_wait", "get_quotas"):
+        assert write_or_volatile not in urlscan.cache_tools, write_or_volatile
+
+
+# ── images ───────────────────────────────────────────────────────────────────
+#
+# An image block used to be described and thrown away, which made a tool whose
+# whole point is a picture arrive as "[image omitted]" — advertised, and
+# silently not happening.
+
+
+class _ImageBlock:
+    def __init__(self, data="aGVsbG8=", mime="image/png"):
+        self.type = "image"
+        self.data = data
+        self.mimeType = mime
+
+
+def test_an_image_block_reaches_the_caller():
+    text, images = render_full(_Result([_Block("look at this"), _ImageBlock()]))
+
+    assert len(images) == 1
+    assert images[0].mime_type == "image/png"
+    assert images[0].data == "aGVsbG8="
+    assert "look at this" in text
+    assert "[image/png attached]" in text, "the text should mark where it sits"
+
+
+def test_an_image_with_no_text_is_not_reported_as_empty():
+    text, images = render_full(_Result([_ImageBlock()]))
+    assert images
+    assert "[image/png attached]" in text
+    assert "(no content)" not in text
+
+
+def test_an_oversized_image_is_dropped_rather_than_blowing_the_context():
+    huge = _ImageBlock(data="A" * (bridge_mod.MAX_IMAGE_BYTES * 2))
+    _, images = render_full(_Result([huge]))
+    assert images == []
+
+
+def test_an_empty_image_payload_is_skipped():
+    _, images = render_full(_Result([_ImageBlock(data="")]))
+    assert images == []
+
+
+def test_an_error_result_carries_no_images():
+    """Whatever the server attached, an error is not evidence to look at."""
+    _, images = render_full(_Result([_ImageBlock()], is_error=True))
+    assert images == []
+
+
+@pytest.mark.asyncio
+async def test_a_tool_returning_an_image_puts_it_on_the_result(clean_registry, monkeypatch):
+    bridge, _, _ = await _bridge_with(
+        monkeypatch, _config(), [_tool("analyze_screenshot")],
+        _Result([_Block("Screenshot of evil.test"), _ImageBlock()]),
+    )
+    result = await TOOL_SPECS["fake_analyze_screenshot"].handler(None, {"uuid": "u1"})
+
+    assert result.ok
+    assert len(result.images) == 1
+    assert "evil.test" in result.content
+    await bridge.aclose()
+
+
+@pytest.mark.asyncio
+async def test_a_result_with_images_is_never_cached(clean_registry, monkeypatch):
+    """One cached screenshot would evict the whole working set."""
+    config = _config(cache_tools=("analyze_screenshot",))
+    connection = FakeConnection(
+        config, [_tool("analyze_screenshot")], _Result([_Block("x"), _ImageBlock()])
+    )
+    monkeypatch.setattr(bridge_mod, "MCPServerConnection", lambda cfg: connection)
+    bridge = MCPBridge([config])
+    await bridge.start()
+
+    handler = TOOL_SPECS["fake_analyze_screenshot"].handler
+    await handler(None, {"uuid": "u1"})
+    await handler(None, {"uuid": "u1"})
+
+    assert len(connection.calls) == 2
+    await bridge.aclose()

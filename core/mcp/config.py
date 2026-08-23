@@ -70,6 +70,14 @@ class MCPServerConfig:
     requires_env: tuple[str, ...] = ()
     enabled: bool = True
     call_timeout_s: float = DEFAULT_CALL_TIMEOUT_S
+    #: Tools whose results may be reused from cache. Empty means none — the
+    #: safe default, because the bridge cannot tell a read from a write by
+    #: looking at a name, and caching a submission would return a stale scan id
+    #: for a scan that never ran. Whoever declares the server knows which of its
+    #: tools are pure; nobody else does.
+    cache_tools: tuple[str, ...] = ()
+    #: How long a cached result stays usable.
+    cache_ttl_s: float = 900.0
 
     @property
     def prefix(self) -> str:
@@ -151,12 +159,36 @@ BUILTIN_SERVERS: tuple[MCPServerConfig, ...] = (
         # attributed. Bridging them again would give the model two paths to the
         # same evidence with different failure modes, so the bridge exposes
         # only what the native path cannot do.
+        #
+        # analyze_screenshot is here now that ToolResult carries images and the
+        # brain forwards them to a model that can see. On a text-only model
+        # (DEEP's default llama3.2 cannot see) the brain says so plainly rather
+        # than answering as though it had looked.
         allow_tools=(
             "scan_url", "scan_and_wait", "get_scan_result", "get_page_dom",
-            "get_screenshot_url", "search_scans", "get_quotas",
-            "list_available_countries", "server_capabilities",
+            "get_screenshot_url", "analyze_screenshot", "search_scans",
+            "get_quotas", "list_available_countries", "server_capabilities",
         ),
         call_timeout_s=120.0,  # scan_and_wait polls for up to 90s by design
+        # A bridged tool runs in a subprocess with its own HTTP client, so it
+        # never sees core/intel/http.py's cache or its per-host throttle. Two
+        # identical pivots during one investigation therefore hit urlscan.io
+        # twice, where the native path would have hit it once — the bridge was
+        # quietly the impolite half of the same integration.
+        #
+        # Only immutable or cheap reads are listed. A finished scan never
+        # changes, and the country list changes yearly. Submissions are absent
+        # on purpose: caching one would hand back a scan id for a scan that
+        # never ran. get_quotas is absent because a stale quota is worse than
+        # no quota, and get_page_dom because a cached megabyte per uuid is a
+        # memory leak wearing a hat — which is also why analyze_screenshot is
+        # not cached: one screenshot would evict the whole working set. (The
+        # bridge refuses to cache any result carrying images regardless.)
+        cache_tools=(
+            "search_scans", "get_scan_result", "get_screenshot_url",
+            "list_available_countries", "server_capabilities",
+        ),
+        cache_ttl_s=3600.0,
     ),
 )
 
@@ -176,6 +208,8 @@ def _coerce(entry: Dict[str, Any]) -> Optional[MCPServerConfig]:
             requires_env=tuple(str(v) for v in entry.get("requires_env", ())),
             enabled=bool(entry.get("enabled", True)),
             call_timeout_s=float(entry.get("call_timeout_s", DEFAULT_CALL_TIMEOUT_S)),
+            cache_tools=tuple(str(t) for t in entry.get("cache_tools", ())),
+            cache_ttl_s=float(entry.get("cache_ttl_s", 900.0)),
         )
     except (KeyError, TypeError, ValueError) as exc:
         logger.warning("[MCP] ignoring malformed server entry %r: %s", entry, exc)

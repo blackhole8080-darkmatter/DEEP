@@ -12,7 +12,8 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
-from typing import AsyncIterator, Optional
+import os
+from typing import Any, AsyncIterator, Optional
 
 import aiohttp
 import requests
@@ -22,6 +23,25 @@ from ..resilience import CircuitBreaker, CircuitBreakerConfig, get_breaker
 from ..health import ComponentHealth, ComponentStatus
 
 logger = logging.getLogger(__name__)
+
+
+#: Ollama model families that accept images. Matched on the name because
+#: /api/show would cost a round trip on every capability question, and the
+#: names are stable. DEEP_OLLAMA_VISION=1 forces it on for a model not listed —
+#: better an escape hatch than a wrong "cannot see" on a model that can.
+_OLLAMA_VISION_FAMILIES = (
+    "llava", "bakllava", "moondream", "llama3.2-vision", "llama-3.2-vision",
+    "minicpm-v", "qwen2-vl", "qwen2.5-vl", "gemma3", "granite3.2-vision",
+    "mistral-small3.1", "pixtral",
+)
+
+
+def _ollama_model_sees(model: str) -> bool:
+    """Whether this Ollama model can be handed a picture."""
+    if os.environ.get("DEEP_OLLAMA_VISION", "").strip().lower() in {"1", "true", "yes", "on"}:
+        return True
+    name = (model or "").lower()
+    return any(family in name for family in _OLLAMA_VISION_FAMILIES)
 
 
 class OllamaClient(LLMClient):
@@ -38,6 +58,10 @@ class OllamaClient(LLMClient):
         self.base_url = base_url.rstrip("/")
         self.model = model
         self.timeout = timeout
+        # DEEP's default model is llama3.2, which cannot see. Saying so lets the
+        # brain tell the user "there is a screenshot I cannot read" instead of
+        # answering as though it had looked.
+        self.supports_images = _ollama_model_sees(model)
         self._breaker = get_breaker("ollama") or CircuitBreaker(
             "ollama",
             CircuitBreakerConfig(
@@ -136,6 +160,31 @@ class OllamaClient(LLMClient):
             logger.error(f"Ollama generation failed: {e}")
             raise
     
+    def _payload(
+        self, system_prompt: str, user_prompt: str, *, stream: bool, **kwargs
+    ) -> dict:
+        """Request body, with images attached when the model can use them.
+
+        Ollama takes images as a top-level list of bare base64 strings — no data
+        URI prefix, no mime type. Attaching them to a model that cannot see is
+        not a harmless no-op: some builds error and others quietly ignore them,
+        and the second produces an answer that reads as though the model looked.
+        """
+        body = {
+            "model": self.model,
+            "system": system_prompt,
+            "prompt": user_prompt,
+            "stream": stream,
+            "options": {
+                "temperature": kwargs.get("temperature", 0.7),
+                "num_predict": kwargs.get("max_tokens", 512),
+            },
+        }
+        images = kwargs.get("images") or []
+        if images and self.supports_images:
+            body["images"] = [img.data for img in images]
+        return body
+
     async def generate_stream(
         self, 
         system_prompt: str, 
@@ -151,16 +200,7 @@ class OllamaClient(LLMClient):
         try:
             async with session.post(
                 f"{self.base_url}/api/generate",
-                json={
-                    "model": self.model,
-                    "system": system_prompt,
-                    "prompt": user_prompt,
-                    "stream": True,
-                    "options": {
-                        "temperature": kwargs.get("temperature", 0.7),
-                        "num_predict": kwargs.get("max_tokens", 512)
-                    }
-                }
+                json=self._payload(system_prompt, user_prompt, stream=True, **kwargs)
             ) as response:
                 response.raise_for_status()
                 
@@ -286,6 +326,8 @@ class ClaudeClient(LLMClient):
         self.api_key = api_key
         self.model = model
         self.timeout = timeout
+        # Every Claude model DEEP would reach here reads images.
+        self.supports_images = True
         self._breaker = get_breaker("claude") or CircuitBreaker(
             "claude",
             CircuitBreakerConfig(
@@ -377,6 +419,30 @@ class ClaudeClient(LLMClient):
             logger.error(f"Claude generation failed: {e}")
             raise
     
+    @staticmethod
+    def _content_blocks(user_prompt: str, images) -> Any:
+        """A plain string when there are no images, blocks when there are.
+
+        Images lead. A model reads its context in order, and a picture arriving
+        after the question about it is a picture the reasoning has already been
+        written without.
+        """
+        if not images:
+            return user_prompt
+        blocks: list[dict] = [
+            {
+                "type": "image",
+                "source": {
+                    "type": "base64",
+                    "media_type": img.mime_type,
+                    "data": img.data,
+                },
+            }
+            for img in images
+        ]
+        blocks.append({"type": "text", "text": user_prompt})
+        return blocks
+
     async def generate_stream(
         self, 
         system_prompt: str, 
@@ -392,7 +458,10 @@ class ClaudeClient(LLMClient):
                 json={
                     "model": self.model,
                     "system": system_prompt,
-                    "messages": [{"role": "user", "content": user_prompt}],
+                    "messages": [{
+                        "role": "user",
+                        "content": self._content_blocks(user_prompt, kwargs.get("images")),
+                    }],
                     "max_tokens": kwargs.get("max_tokens", 1024),
                     "temperature": kwargs.get("temperature", 0.7),
                     "stream": True

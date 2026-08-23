@@ -132,13 +132,31 @@ def stream_groq_tokens(system_prompt: str, messages: list, model: str, api_key: 
     )
 
 
+def _gemini_parts(content) -> list:
+    """A message's content as Gemini `parts`.
+
+    Plain text is the common case and stays a single text part. A list means the
+    caller shaped multimodal content — Gemini's own part dicts, built by
+    RoutingLLM._shape_for — and is forwarded as-is.
+
+    The isinstance check is the whole point: this used to be an unconditional
+    ``[{"text": m["content"]}]``, so a content list would have been stringified
+    into the prompt and the model shown the characters ``[{'inline_data': ...``
+    instead of a picture. That is worse than refusing the image, because it
+    looks like it worked.
+    """
+    if isinstance(content, list):
+        return content
+    return [{"text": content}]
+
+
 def stream_gemini_tokens(system_prompt: str, messages: list, model: str, api_key: str, max_tokens: int = 1024):
-    """Stream tokens from Google Gemini (SSE). Free tier."""
+    """Stream tokens from Google Gemini (SSE). Free tier. Accepts images."""
     import aiohttp
     # Map OpenAI-style roles → Gemini roles (assistant → model)
     contents = [
         {"role": ("model" if m["role"] == "assistant" else "user"),
-         "parts": [{"text": m["content"]}]}
+         "parts": _gemini_parts(m["content"])}
         for m in messages
     ]
     return _stream_sse(

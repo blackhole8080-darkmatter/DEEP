@@ -15,7 +15,7 @@ import difflib
 import json
 import logging
 import time
-from typing import AsyncIterator, Dict, Optional, Any, Tuple
+from typing import Any, AsyncIterator, Dict, List, Optional, Tuple
 
 from ..domain.interfaces import Agent, LLMClient, ToolExecutor
 from ..domain.models import AgentLoopResult, ToolResult
@@ -161,6 +161,7 @@ class AsyncBrain(Agent):
 
         loops = 0
         seen_calls: Dict[str, str] = {}   # per-turn tool-call result cache (dedup)
+        pending_images: List[Any] = []    # tool images awaiting the next request
         while loops < self.max_loops:
             loops += 1
             await _emit({"t": "model", "model": getattr(self.llm, "last_provider", None), "loop": loops})
@@ -169,11 +170,16 @@ class AsyncBrain(Agent):
             tool_content = ""
             
             try:
+                # Images ride with the request that follows the tool call that
+                # produced them, then are cleared: re-sending them every loop
+                # would re-bill the same picture and crowd out the text.
+                sending_images, pending_images = pending_images, []
                 async for token in self.llm.generate_stream(
                     system_prompt=system_prompt,
                     user_prompt=current_user_prompt,
                     temperature=0.7,
-                    max_tokens=max_tokens
+                    max_tokens=max_tokens,
+                    images=sending_images,
                 ):
                     buffer += token
                     
@@ -250,8 +256,9 @@ class AsyncBrain(Agent):
                     "use the result above and proceed; don't repeat it.)"
                 )
             else:
-                res_content = await self._safe_execute(tools, tool_name, tool_args)
+                res_content, res_images = await self._safe_execute(tools, tool_name, tool_args)
                 seen_calls[key] = res_content
+                pending_images.extend(self._admit_images(tool_name, res_images))
 
             res_content = self._cap_result(res_content)
             await _emit({"t": "tool_result", "tool": tool_name, "result": str(res_content)[:1500]})
@@ -259,6 +266,20 @@ class AsyncBrain(Agent):
                 f"\n\n[TOOL_RESULT: {res_content}]\n\n"
                 "Continue your response based on this information."
             )
+            if pending_images and not getattr(self.llm, "supports_images", False):
+                # Say it rather than drop it. A model that is not told an image
+                # exists will answer from the surrounding text as though it had
+                # seen the page — which for a phishing screenshot is exactly the
+                # confident wrong answer this whole path exists to avoid.
+                described = ", ".join(img.label for img in pending_images)
+                current_user_prompt += (
+                    f"\n\n[NOTE: the tool also returned {described}, but the active "
+                    f"model ({getattr(self.llm, 'model_name', 'this model')}) cannot "
+                    "view images. Do not describe or judge the image contents. Say "
+                    "plainly that you cannot see it, and reason only from the text "
+                    "above — or suggest a vision-capable model.]"
+                )
+                pending_images = []
 
             if loops >= self.max_loops:
                 yield "\n\n*(Tool execution limit reached)*"
@@ -374,21 +395,61 @@ class AsyncBrain(Agent):
 
     async def _safe_execute(
         self, tools: Optional[ToolExecutor], name: str, args: Dict[str, Any]
-    ) -> str:
+    ) -> Tuple[str, List[Any]]:
         """Execute a tool with a hard timeout so a hung tool can't freeze the turn.
-        Returns the result content (or a clear, model-readable error string)."""
+
+        Returns ``(content, images)``. Almost every tool returns no images, so
+        the second element is usually empty — but a tool whose whole point is a
+        picture (urlscan's analyze_screenshot) has nowhere else to put it, and
+        dropping it here is how a capability ends up advertised but absent.
+        """
         if not tools:
-            return "Error: no tool executor available."
+            return "Error: no tool executor available.", []
         timeout, _ = self._tool_settings()
         try:
             result = await asyncio.wait_for(tools.execute_tool(name, args), timeout=timeout)
-            return result.content
+            return result.content, list(getattr(result, "images", None) or [])
         except asyncio.TimeoutError:
             logger.warning(f"[tool] {name} timed out after {timeout}s")
-            return f"Tool '{name}' timed out after {timeout:.0f}s. Try a narrower request or a different approach."
+            return (
+                f"Tool '{name}' timed out after {timeout:.0f}s. Try a narrower "
+                "request or a different approach.", []
+            )
         except Exception as e:
             logger.error(f"[tool] {name} failed: {e}")
-            return f"Tool '{name}' failed: {e}"
+            return f"Tool '{name}' failed: {e}", []
+
+    #: Most image bytes a single turn may put in front of the model. Images are
+    #: charged by area and arrive base64-inflated, so an unbounded stream of
+    #: screenshots would evict the conversation that asked for them. Two typical
+    #: downscaled captures fit comfortably.
+    MAX_IMAGE_BYTES_PER_TURN = 4 * 1024 * 1024
+    MAX_IMAGES_PER_TURN = 4
+
+    def _admit_images(self, tool_name: str, images: List[Any]) -> List[Any]:
+        """Take what fits in the turn's image budget; log what does not.
+
+        Dropping quietly would be the same failure as the text-only path this
+        replaced, so anything refused is named in the log rather than vanishing.
+        """
+        admitted: List[Any] = []
+        budget = self.MAX_IMAGE_BYTES_PER_TURN
+        for image in images[: self.MAX_IMAGES_PER_TURN]:
+            size = getattr(image, "approx_bytes", 0)
+            if size > budget:
+                logger.warning(
+                    "[tool] %s: dropping %s (%d bytes) — over this turn's image budget",
+                    tool_name, getattr(image, "label", "an image"), size,
+                )
+                continue
+            budget -= size
+            admitted.append(image)
+        if len(images) > self.MAX_IMAGES_PER_TURN:
+            logger.warning(
+                "[tool] %s returned %d images; only the first %d are shown",
+                tool_name, len(images), self.MAX_IMAGES_PER_TURN,
+            )
+        return admitted
 
     def _cap_result(self, text: str) -> str:
         """Cap a tool result fed back into the prompt to keep context efficient."""

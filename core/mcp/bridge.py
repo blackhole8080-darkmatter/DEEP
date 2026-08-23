@@ -26,9 +26,10 @@ from __future__ import annotations
 import json
 import asyncio
 import logging
-from typing import Any, Dict, List, Optional
+import time
+from typing import Any, Dict, List, Optional, Tuple
 
-from core.domain.models import ToolResult
+from core.domain.models import ToolImage, ToolResult
 from core.mcp.client import MCPServerConnection, MCPTool
 from core.mcp.config import MCPServerConfig, configured_servers
 from core.tools.registry import TOOL_SPECS, ToolSpec
@@ -40,6 +41,16 @@ logger = logging.getLogger(__name__)
 #: three of them do not evict the conversation.
 MAX_RESULT_CHARS = 24_000
 
+#: Largest single image accepted from a server, decoded. Past this the picture
+#: costs more context than it returns, and the brain's own per-turn budget would
+#: reject it anyway — better to say so here, where the server is named.
+MAX_IMAGE_BYTES = 2 * 1024 * 1024
+
+#: Most cached results held at once, across every server. Bounded because a
+#: cache that grows with the conversation is a leak, and the working set for an
+#: investigation is a handful of pivots rather than hundreds.
+MAX_CACHE_ENTRIES = 256
+
 
 class MCPBridge:
     """Owns every MCP server connection and their registered tool specs."""
@@ -48,6 +59,9 @@ class MCPBridge:
         self._configs = servers if servers is not None else configured_servers()
         self._connections: Dict[str, MCPServerConnection] = {}
         self._registered: List[str] = []
+        #: (server, tool, canonical args) -> (expires_at, rendered result).
+        self._cache: Dict[Tuple[str, str, str], Tuple[float, str]] = {}
+        self._cache_stats = {"hits": 0, "misses": 0, "stores": 0}
 
     # ── startup ──────────────────────────────────────────────────────────────
 
@@ -109,6 +123,7 @@ class MCPBridge:
         for connection in self._connections.values():
             await connection.aclose()
         self._connections.clear()
+        self._cache.clear()
 
     # ── registration ─────────────────────────────────────────────────────────
 
@@ -124,16 +139,79 @@ class MCPBridge:
         description = f"[{connection.config.id}] {description}"
 
         async def handler(ctx: Any, args: Dict[str, Any], _tool=tool, _conn=connection) -> ToolResult:
+            args = args or {}
+            cached = self._cache_get(_conn.config, _tool.name, args)
+            if cached is not None:
+                # Images are never cached (see cache_tools), so a hit is text.
+                return ToolResult(True, cached, name)
             try:
-                raw = await _conn.call(_tool.name, args or {})
+                raw = await _conn.call(_tool.name, args)
             except Exception as exc:  # noqa: BLE001 - subprocess, any failure mode
                 logger.warning("[MCP] %s.%s failed: %s", _conn.config.id, _tool.name, exc)
                 return ToolResult(False, f"{name} failed: {exc}", name)
-            return ToolResult(True, render_result(raw), name)
+            rendered, images = render_full(raw)
+            # Only successful results are stored. Caching a failure would turn
+            # one bad minute upstream into an hour of the model being told the
+            # same lie, which the native path avoids by capping error TTLs.
+            if not getattr(raw, "isError", False) and not images:
+                # Only text is cached: an image is orders of magnitude larger
+                # than the entries this cache is sized for, and one would evict
+                # the whole working set.
+                self._cache_put(_conn.config, _tool.name, args, rendered)
+            return ToolResult(True, rendered, name, images=images)
 
         TOOL_SPECS[name] = ToolSpec(name, description, tool.arg_hints, handler)
         self._registered.append(name)
         return name
+
+    # ── caching ──────────────────────────────────────────────────────────────
+    #
+    # A bridged tool runs in a subprocess with its own HTTP client, so it never
+    # touches core/intel/http.py's cache or its per-host throttle. Without this
+    # the bridge is the impolite half of an integration whose native half is
+    # careful. Which tools are safe to cache is declared per server, because
+    # nothing here can tell a read from a write by looking at a tool name.
+
+    @staticmethod
+    def _cache_key(server_id: str, tool: str, args: Dict[str, Any]) -> Tuple[str, str, str]:
+        # sort_keys so {"a":1,"b":2} and {"b":2,"a":1} are one entry — models
+        # do not emit arguments in a stable order.
+        return (server_id, tool, json.dumps(args, sort_keys=True, default=str))
+
+    def _cache_get(self, config: MCPServerConfig, tool: str, args: Dict[str, Any]) -> Optional[str]:
+        if tool not in config.cache_tools:
+            return None
+        key = self._cache_key(config.id, tool, args)
+        hit = self._cache.get(key)
+        if hit is None:
+            self._cache_stats["misses"] += 1
+            return None
+        expires_at, value = hit
+        if expires_at <= time.monotonic():
+            self._cache.pop(key, None)
+            self._cache_stats["misses"] += 1
+            return None
+        self._cache_stats["hits"] += 1
+        logger.debug("[MCP] cache hit %s.%s", config.id, tool)
+        return value
+
+    def _cache_put(
+        self, config: MCPServerConfig, tool: str, args: Dict[str, Any], value: str
+    ) -> None:
+        if tool not in config.cache_tools or config.cache_ttl_s <= 0:
+            return
+        if len(self._cache) >= MAX_CACHE_ENTRIES:
+            # Evict the soonest to expire. Cheap, and close enough to LRU for a
+            # working set this small.
+            oldest = min(self._cache, key=lambda k: self._cache[k][0])
+            self._cache.pop(oldest, None)
+        self._cache[self._cache_key(config.id, tool, args)] = (
+            time.monotonic() + config.cache_ttl_s, value,
+        )
+        self._cache_stats["stores"] += 1
+
+    def clear_cache(self) -> None:
+        self._cache.clear()
 
     # ── introspection ────────────────────────────────────────────────────────
 
@@ -152,29 +230,62 @@ class MCPBridge:
             "servers": servers,
             "bridged_tools": list(self._registered),
             "total_bridged": len(self._registered),
+            "cache": {**self._cache_stats, "entries": len(self._cache)},
         }
 
 
 def render_result(raw: Any) -> str:
-    """Turn an MCP CallToolResult into bounded text for the model's context.
+    """Bounded text for the model's context. See `render_full` for images."""
+    return render_full(raw)[0]
 
-    An MCP result is a list of content blocks that may carry text, structured
-    JSON, or binary. Anything non-textual is described rather than inlined —
-    a base64 image in a prompt is thousands of wasted tokens and no
-    information.
+
+def render_full(raw: Any) -> Tuple[str, List[ToolImage]]:
+    """Turn an MCP CallToolResult into (text, images).
+
+    An MCP result is a list of content blocks carrying text, structured JSON,
+    or binary. Images used to be described and thrown away, which made a tool
+    whose whole point is a picture — urlscan's analyze_screenshot — arrive as
+    "[image omitted]": advertised, and silently not happening. They now travel
+    to whatever the active model can accept, and the brain says so when it
+    cannot.
     """
     if raw is None:
-        return "(no content)"
+        return "(no content)", []
 
     if getattr(raw, "isError", False):
-        return _truncate(f"Tool reported an error: {_blocks_to_text(raw)}")
+        return _truncate(f"Tool reported an error: {_blocks_to_text(raw)}"), []
+
+    images = _blocks_to_images(raw)
 
     structured = getattr(raw, "structuredContent", None)
     if structured:
-        return _truncate(_dumps(structured))
+        return _truncate(_dumps(structured)), images
 
+    # An image-only result is not empty: _blocks_to_text marks each image's
+    # place, so the text reads "[image/png attached]" rather than "(no content)".
     text = _blocks_to_text(raw)
-    return _truncate(text or "(no content)")
+    return _truncate(text or "(no content)"), images
+
+
+def _blocks_to_images(raw: Any) -> List[ToolImage]:
+    """Pull image blocks out, skipping any too large to be worth the context."""
+    out: List[ToolImage] = []
+    for block in getattr(raw, "content", None) or []:
+        if getattr(block, "type", "") != "image":
+            continue
+        data = getattr(block, "data", "") or ""
+        mime = getattr(block, "mimeType", "") or "image/png"
+        image = ToolImage(data=data, mime_type=mime, label=f"a {mime} image")
+        if not data:
+            continue
+        if image.approx_bytes > MAX_IMAGE_BYTES:
+            logger.warning(
+                "[MCP] dropping a %s of %d bytes — over the per-image ceiling",
+                mime, image.approx_bytes,
+            )
+            continue
+        out.append(image)
+    return out
 
 
 def _blocks_to_text(raw: Any) -> str:
@@ -190,7 +301,15 @@ def _blocks_to_text(raw: Any) -> str:
             continue
         kind = getattr(block, "type", type(block).__name__)
         mime = getattr(block, "mimeType", "") or ""
-        parts.append(f"[{kind} content omitted{f' ({mime})' if mime else ''}]")
+        if kind == "image":
+            # Carried separately now, on ToolResult.images. Marking its place
+            # keeps the text coherent for a model that cannot see it.
+            parts.append(f"[{mime or 'image'} attached]")
+            continue
+        parts.append(
+            f"[{kind} content{f' ({mime})' if mime else ''} could not be included. "
+            "This says nothing about what it contained.]"
+        )
     return "\n".join(parts)
 
 
