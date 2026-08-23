@@ -29,6 +29,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import math
 import os
 import tempfile
 from dataclasses import dataclass
@@ -48,7 +49,13 @@ def _startup_timeout() -> float:
         value = float(raw)
     except ValueError:
         return 60.0
-    return value if value > 0 else 60.0
+    # float() accepts "inf" and "nan". An infinite budget is not a long budget:
+    # it removes the deadline entirely, and a wedged child then hangs the boot
+    # it was given a deadline to survive — the exact failure this timeout
+    # exists for, reachable by a plausible-looking setting.
+    if not math.isfinite(value) or value <= 0:
+        return 60.0
+    return value
 
 
 STARTUP_TIMEOUT_S = _startup_timeout()
@@ -92,18 +99,48 @@ STDERR_TAIL_CHARS = 800
 
 
 def _read_spool(spool: Any) -> str:
-    """The tail of a captured stderr stream, collapsed to one line."""
+    """The tail of a captured stderr stream, collapsed to one line.
+
+    Reads the tail directly rather than reading the file and slicing it. A
+    child in a crash loop can write a great deal during the handshake window,
+    and pulling all of it into memory to keep the last 800 characters would
+    make error handling the most expensive thing this module does — precisely
+    when something has already gone wrong.
+
+    The read goes through a duplicated descriptor, in bytes. The spool is a
+    text file so the child's own writes are encoded properly, but a text
+    stream's seek positions are opaque cookies — only values from ``tell()``
+    are valid to seek to — so arithmetic on them is not allowed. A dup'd fd has
+    its own offset, byte semantics, and no effect on the writer.
+    """
     try:
-        spool.seek(0)
-        text = spool.read()
-    except (OSError, ValueError):  # closed or never written
+        # The child writes to the descriptor directly, so in production there is
+        # nothing buffered on this side. Anything written through the Python
+        # object — as tests do — still has to reach the fd before we read it.
+        spool.flush()
+        fd = os.dup(spool.fileno())
+    except (OSError, ValueError, AttributeError):  # closed, or not a real file
         return ""
-    text = (text or "").strip()
+    try:
+        size = os.lseek(fd, 0, os.SEEK_END)
+        # Over-read, then slice by character: one character can be four bytes,
+        # and cutting mid-sequence is what errors="replace" is for.
+        want = STDERR_TAIL_CHARS * 4
+        os.lseek(fd, max(0, size - want), os.SEEK_SET)
+        raw = os.read(fd, want)
+    except OSError:
+        return ""
+    finally:
+        os.close(fd)
+
+    text = raw.decode("utf-8", errors="replace").strip()
     if not text:
         return ""
+    truncated = size > len(raw)
     if len(text) > STDERR_TAIL_CHARS:
-        text = "..." + text[-STDERR_TAIL_CHARS:]
-    return " ".join(text.split())
+        text = text[-STDERR_TAIL_CHARS:]
+        truncated = True
+    return ("..." if truncated else "") + " ".join(text.split())
 
 
 @dataclass(slots=True)

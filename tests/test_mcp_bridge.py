@@ -601,6 +601,19 @@ def test_the_startup_budget_survives_a_nonsense_override(monkeypatch):
     assert _startup_timeout() == 12.5
 
 
+def test_an_infinite_budget_is_not_a_budget(monkeypatch):
+    """float() accepts these, and both remove the deadline entirely.
+
+    "inf" reads like "be patient", but it means a wedged child hangs the boot
+    the timeout exists to protect — the failure, reachable through a setting
+    that looks reasonable. "nan" fails every comparison, so a deadline built
+    from it never trips either.
+    """
+    for value in ("inf", "-inf", "Infinity", "nan"):
+        monkeypatch.setenv("DEEP_MCP_STARTUP_TIMEOUT", value)
+        assert _startup_timeout() == 60.0, value
+
+
 # ── caching ──────────────────────────────────────────────────────────────────
 #
 # A bridged tool runs in its own subprocess with its own HTTP client, so it
@@ -810,3 +823,47 @@ async def test_a_result_with_images_is_never_cached(clean_registry, monkeypatch)
 
     assert len(connection.calls) == 2
     await bridge.aclose()
+
+
+# ── shutdown while startup is still in flight ────────────────────────────────
+#
+# Bridge startup was moved off the boot critical path, which means a process
+# that dies young can reach shutdown with the handshake still running. Closing
+# the bridge underneath its own start() lets that task spawn subprocesses and
+# register tools *after* everything has been torn down — a child left running
+# past the server that owns it, and tools in the registry pointing at it.
+
+
+@pytest.mark.asyncio
+async def test_shutdown_stops_the_starter_before_closing_the_bridge(
+    monkeypatch, clean_registry
+):
+    started_late = False
+
+    class SlowConnection(FakeConnection):
+        async def start(self):
+            nonlocal started_late
+            await asyncio.sleep(0.2)  # a handshake still in flight at shutdown
+            started_late = True
+            return await super().start()
+
+    config = _config()
+    connection = SlowConnection(config, [_tool("thing")])
+    monkeypatch.setattr(bridge_mod, "MCPServerConnection", lambda cfg: connection)
+
+    bridge = MCPBridge([config])
+    task = asyncio.create_task(bridge.start())
+    await asyncio.sleep(0)  # let start() reach its first await
+
+    # What interface/server.py's shutdown does, in the same order.
+    if not task.done():
+        task.cancel()
+        try:
+            await task
+        except (asyncio.CancelledError, Exception):
+            pass
+    await bridge.aclose()
+
+    await asyncio.sleep(0.3)  # past when the slow handshake would have landed
+    assert not started_late, "the handshake continued after shutdown"
+    assert "fake_thing" not in TOOL_SPECS, "a tool was registered after shutdown"

@@ -114,10 +114,18 @@ matplotlib         # Plot generation (physics, RF spectrum, firmware entropy)
 
 # --- Cybersecurity / OSINT ---
 # aiohttp already included above
-urlscan-mcp @ git+https://github.com/blackhole8080-darkmatter/urlscan-mcp.git
+urlscan-mcp @ git+https://github.com/blackhole8080-darkmatter/urlscan-mcp.git@5fac0d964df2c1d564ac0c58c679e4d528176044
                   # urlscan.io: URL/page-level intelligence, and the MCP server
                   #   DEEP bridges. Search needs no key; set URLSCAN_API_KEY to
                   #   submit live scans. Pulls in `mcp`, which core/mcp/ needs.
+                  #
+                  # Pinned to a commit, not a branch. DEEP imports
+                  #   urlscan_mcp.{query,assess} directly and bridges its server
+                  #   as a subprocess, so a moving default branch means two
+                  #   checkouts of DEEP at the same commit can disagree about
+                  #   what the native urlscan path does. This SHA is the one
+                  #   tests/test_mcp_bridge.py drives end to end. Bump it
+                  #   deliberately, with the tests.
 pypdf              # PDF metadata extraction (OSINT)
 # dnspython is optional — fallback uses socket
 dnspython          # DNS query library for OSINT passive recon

@@ -770,6 +770,21 @@ async def shutdown_event():
     except Exception:
         pass
     try:
+        # Startup was moved off the critical path, so on a short-lived process
+        # the handshake can still be in flight here. Closing the bridge while
+        # its own start() is mid-flight lets that task spawn subprocesses and
+        # register tools *after* shutdown has torn them down — a child left
+        # running past the server that owns it. Stop the starter first.
+        task = getattr(app.state, "mcp_bridge_task", None)
+        if task is not None and not task.done():
+            task.cancel()
+            try:
+                await task
+            except (asyncio.CancelledError, Exception):
+                pass
+    except Exception:
+        pass
+    try:
         # Stops every bridged MCP subprocess and unregisters its tools.
         from core.mcp import shared_bridge
         await shared_bridge().aclose()

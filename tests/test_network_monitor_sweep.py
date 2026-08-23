@@ -17,6 +17,7 @@ from __future__ import annotations
 import asyncio
 import socket
 import sys
+import threading
 import time
 from pathlib import Path
 
@@ -53,9 +54,20 @@ async def test_a_resolver_that_never_answers_does_not_stall_the_sweep(monitor, m
 
 @pytest.mark.asyncio
 async def test_the_event_loop_keeps_running_during_resolution(monitor, monkeypatch):
-    """A sweep must not be a stop-the-world pause for the rest of DEEP."""
-    monkeypatch.setattr(socket, "gethostbyaddr", lambda ip: (_ for _ in ()).throw(socket.herror()))
-    monkeypatch.setattr(nm, "HOSTNAME_TIMEOUT_S", 0.3)
+    """A sweep must not be a stop-the-world pause for the rest of DEEP.
+
+    The resolver here *blocks* rather than raising immediately. An instant
+    failure proves nothing: the whole resolution then finishes inside one tick
+    of the heartbeat, and the test reads a loop that was never given the chance
+    to block as a loop that was blocked. Real PTR lookups against a silent
+    resolver take seconds, and seconds are what this has to survive.
+    """
+    def slow_failure(ip):
+        time.sleep(0.25)
+        raise socket.herror()
+
+    monkeypatch.setattr(socket, "gethostbyaddr", slow_failure)
+    monkeypatch.setattr(nm, "HOSTNAME_TIMEOUT_S", 2.0)
 
     ticks = 0
 
@@ -66,10 +78,15 @@ async def test_the_event_loop_keeps_running_during_resolution(monitor, monkeypat
             await asyncio.sleep(0.01)
 
     beat = asyncio.create_task(heartbeat())
+    started = time.monotonic()
     await monitor._resolve_hostnames([f"10.0.0.{n}" for n in range(1, 20)])
+    elapsed = time.monotonic() - started
     beat.cancel()
 
-    assert ticks > 1, "the loop was blocked for the whole sweep"
+    # 19 addresses that each block for 0.25s. Serially that is 4.75s of frozen
+    # loop; the heartbeat should have ticked throughout instead.
+    assert elapsed > 0.2, "the resolver did not actually block, so this proves nothing"
+    assert ticks > 5, f"the loop only ticked {ticks} times in {elapsed:.2f}s"
 
 
 @pytest.mark.asyncio
@@ -197,3 +214,74 @@ async def test_establishing_the_baseline_twice_does_not_move_it(monitor):
     )
     monitor._establish_baseline()
     assert monitor.baseline_device_count == 1, "the baseline drifted to match the anomaly"
+
+
+# ── what a stalled lookup is allowed to block ────────────────────────────────
+#
+# asyncio.wait_for abandons the await; it cannot stop a gethostbyaddr already
+# inside the C library. So the deadline bounds how long the *sweep* waits, not
+# how long the thread stays busy — and on asyncio's shared default pool those
+# stragglers accumulate until everything else that calls to_thread waits behind
+# them, including the collectors in this same sweep.
+
+
+@pytest.mark.asyncio
+async def test_a_stalled_lookup_does_not_occupy_the_shared_executor(monitor, monkeypatch):
+    release = threading.Event()
+
+    def hangs(ip):
+        release.wait(10)
+        raise socket.herror()
+
+    monkeypatch.setattr(socket, "gethostbyaddr", hangs)
+    monkeypatch.setattr(nm, "HOSTNAME_TIMEOUT_S", 0.05)
+    try:
+        await monitor._resolve_hostnames([f"10.0.0.{n}" for n in range(1, 9)])
+
+        # Eight lookups are still wedged in the resolver's own threads. Work on
+        # the default executor — where the ARP and connection collectors run —
+        # must be unaffected.
+        began = time.monotonic()
+        assert await asyncio.wait_for(
+            asyncio.to_thread(lambda: "collector"), timeout=2
+        ) == "collector"
+        assert time.monotonic() - began < 1.0
+    finally:
+        release.set()
+
+
+@pytest.mark.asyncio
+async def test_the_resolver_pool_is_bounded(monitor, monkeypatch):
+    """Unbounded would mean one sweep of a /24 spawning 254 threads."""
+    monkeypatch.setattr(socket, "gethostbyaddr", lambda ip: (_ for _ in ()).throw(socket.herror()))
+    await monitor._resolve_hostnames(["10.0.0.1"])
+    assert monitor._resolver_pool is not None
+    assert monitor._resolver_pool._max_workers == nm.HOSTNAME_RESOLVER_THREADS
+
+
+@pytest.mark.asyncio
+async def test_stopping_releases_the_resolver_threads(monitor, monkeypatch):
+    monkeypatch.setattr(socket, "gethostbyaddr", lambda ip: (_ for _ in ()).throw(socket.herror()))
+    await monitor._resolve_hostnames(["10.0.0.1"])
+    assert monitor._resolver_pool is not None
+    await monitor.stop()
+    assert monitor._resolver_pool is None
+
+
+@pytest.mark.asyncio
+async def test_expired_entries_leave_the_cache(monitor, monkeypatch):
+    """Skipping an expired entry is not the same as removing it.
+
+    A monitor runs for weeks and sees every address the machine has spoken to.
+    Entries that are merely ignored still have to be walked, so the cost of a
+    sweep grows with everything the host has ever contacted rather than with
+    what is on the network now.
+    """
+    monkeypatch.setattr(socket, "gethostbyaddr", lambda ip: (_ for _ in ()).throw(socket.herror()))
+    monitor._hostname_cache["10.0.0.99"] = ("stale.lan", time.monotonic() - nm.HOSTNAME_CACHE_TTL_S - 1)
+    monitor._hostname_cache["10.0.0.98"] = ("current.lan", time.monotonic())
+
+    await monitor._resolve_hostnames(["10.0.0.1"])
+
+    assert "10.0.0.99" not in monitor._hostname_cache, "expired entry was kept"
+    assert "10.0.0.98" in monitor._hostname_cache, "a live entry was evicted with it"

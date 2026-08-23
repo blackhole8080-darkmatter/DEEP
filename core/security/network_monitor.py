@@ -38,6 +38,7 @@ import socket
 import struct
 import subprocess
 import time
+from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta
 from enum import Enum
@@ -237,6 +238,17 @@ HOSTNAME_TIMEOUT_S = 1.5
 #: do not move faster than this, and re-asking is what made sweeps expensive.
 HOSTNAME_CACHE_TTL_S = 900.0
 
+#: Reverse lookups get their own threads, not asyncio's shared default pool.
+#: `asyncio.wait_for` abandons the *await*; it cannot stop a `gethostbyaddr`
+#: that has already entered the C library, so a silent resolver leaves a worker
+#: occupied for however long the system resolver takes — well past our 1.5s
+#: deadline. On the shared pool those stragglers accumulate across sweeps and
+#: eventually starve everything else that calls `to_thread`, including the ARP
+#: and connection collectors in this same sweep. Here they can only starve each
+#: other, and the next sweep's lookups queue behind them instead of the rest of
+#: DEEP doing so.
+HOSTNAME_RESOLVER_THREADS = 8
+
 
 class NetworkMonitor:
     """
@@ -272,6 +284,8 @@ class NetworkMonitor:
         #: ip -> (hostname or None, monotonic timestamp). Negatives are cached
         #: too; see _resolve_hostnames.
         self._hostname_cache: Dict[str, tuple[Optional[str], float]] = {}
+        #: Created on first use so a monitor that never sweeps costs no threads.
+        self._resolver_pool: Optional[ThreadPoolExecutor] = None
         self._last_scan: Optional[datetime] = None
         
         # Load previous state if exists
@@ -298,6 +312,12 @@ class NetworkMonitor:
     async def stop(self) -> None:
         """Deactivate the network monitor."""
         self.stop_monitoring()
+        if self._resolver_pool is not None:
+            # Do not wait: a stalled lookup is exactly what this pool exists to
+            # contain, and blocking shutdown on one would hand the freeze we
+            # removed from the sweep to the shutdown path instead.
+            self._resolver_pool.shutdown(wait=False)
+            self._resolver_pool = None
         logger.info("[NetworkMonitor] Stopped")
 
     def status(self) -> Dict[str, Any]:
@@ -531,8 +551,11 @@ class NetworkMonitor:
                 all_ips[ip] = mac
                 all_macs[mac] = ip
         
-        # Get network info for gateway detection
-        _, _, _, gateway = self._get_network_info()
+        # Gateway detection shells out to `route print` with a five-second
+        # timeout. On the event loop that is five seconds of frozen server, on
+        # every sweep — a smaller copy of the freeze this whole path was rewritten
+        # to remove.
+        _, _, _, gateway = await asyncio.to_thread(self._get_network_info)
 
         # Drop internet IPs — only track devices on the local subnet.
         # ARP caches on Windows often contain internet IPs mapped to the gateway
@@ -773,17 +796,30 @@ class NetworkMonitor:
             return {}
 
         now = time.monotonic()
-        fresh = {
-            ip: name
-            for ip, (name, at) in self._hostname_cache.items()
-            if now - at < HOSTNAME_CACHE_TTL_S
-        }
+        # Drop expired entries rather than merely skipping them. A monitor runs
+        # for weeks and sees every address a machine has ever spoken to; left in
+        # place, dead entries make each sweep walk a dictionary that only grows.
+        for ip in [
+            ip for ip, (_, at) in self._hostname_cache.items()
+            if now - at >= HOSTNAME_CACHE_TTL_S
+        ]:
+            del self._hostname_cache[ip]
+
+        fresh = {ip: name for ip, (name, _) in self._hostname_cache.items()}
         unknown = [ip for ip in ips if ip not in fresh]
+
+        loop = asyncio.get_running_loop()
+        pool = self._resolver_pool
+        if pool is None:
+            pool = self._resolver_pool = ThreadPoolExecutor(
+                max_workers=HOSTNAME_RESOLVER_THREADS,
+                thread_name_prefix="deep-ptr",
+            )
 
         async def resolve(ip: str) -> tuple[str, Optional[str]]:
             try:
                 name, _, _ = await asyncio.wait_for(
-                    asyncio.to_thread(socket.gethostbyaddr, ip),
+                    loop.run_in_executor(pool, socket.gethostbyaddr, ip),
                     timeout=HOSTNAME_TIMEOUT_S,
                 )
                 return ip, name
