@@ -20,7 +20,7 @@ python interface\server.py
 ## Web Interface
 
 Once started, open your browser to:
-- **Main UI:** http://127.0.0.1:7768/ai
+- **Main UI:** http://127.0.0.1:7768/app
 - **Health:** http://127.0.0.1:7768/api/health
 
 ### Features

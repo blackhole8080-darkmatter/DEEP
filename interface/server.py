@@ -159,7 +159,7 @@ async def security_middleware(request: Request, call_next):
     path = request.url.path
 
     # Sliding-window rate limit, per client IP. Loopback is trusted and exempt:
-    # a single /ai load fans out to ~30-40 static assets in one burst, which
+    # a single /app load fans out to ~30-40 static assets in one burst, which
     # would otherwise rate-limit the app's own page loads/refreshes.
     if settings.rate_limit_per_min > 0 and not _client_is_local(client_host):
         now = _time.monotonic()

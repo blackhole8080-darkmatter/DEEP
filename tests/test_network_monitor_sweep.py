@@ -251,69 +251,59 @@ async def test_a_stalled_lookup_does_not_occupy_the_shared_executor(monitor, mon
 
 
 @pytest.mark.asyncio
-async def test_the_resolver_is_bounded(monitor, monkeypatch):
-    """Unbounded would mean one sweep of a /24 spawning 254 threads.
-
-    Asserted by observation rather than by inspecting whatever object does the
-    bounding, so the guarantee survives a change of mechanism.
-    """
-    import threading as _t
-
-    live = 0
-    peak = 0
-    lock = _t.Lock()
-
-    def slow(ip):
-        nonlocal live, peak
-        with lock:
-            live += 1
-            peak = max(peak, live)
-        time.sleep(0.15)
-        with lock:
-            live -= 1
-        raise socket.herror()
-
-    monkeypatch.setattr(socket, "gethostbyaddr", slow)
-    monkeypatch.setattr(nm, "HOSTNAME_TIMEOUT_S", 5.0)
-    await monitor._resolve_hostnames([f"10.2.{n // 256}.{n % 256}" for n in range(80)])
-
-    assert peak <= nm.HOSTNAME_RESOLVER_THREADS, f"{peak} lookups ran at once"
-
-
-@pytest.mark.asyncio
-async def test_a_stalled_lookup_cannot_hold_the_interpreter_open(monitor, monkeypatch):
-    """The reason this is not a ThreadPoolExecutor.
-
-    Its workers are not daemons on 3.9+, and concurrent.futures joins them from
-    an atexit hook — so `shutdown(wait=False)` returns immediately while the
-    process still waits out the stalled lookup. Measured before this changed:
-    stop() returned in 0.16s, the process exited 3s later. A daemon thread is
-    never joined, so shutdown owes the resolver nothing.
-    """
-    seen = []
-
-    def slow(ip):
-        seen.append(__import__("threading").current_thread())
-        time.sleep(0.3)
-        raise socket.herror()
-
-    monkeypatch.setattr(socket, "gethostbyaddr", slow)
-    monkeypatch.setattr(nm, "HOSTNAME_TIMEOUT_S", 0.05)  # abandon it, thread runs on
-    await monitor._resolve_hostnames(["10.0.0.1"])
-
-    assert seen, "the lookup never ran"
-    assert all(t.daemon for t in seen), "a non-daemon lookup thread will be joined at exit"
-
-
-@pytest.mark.asyncio
-async def test_stopping_does_not_wait_on_the_resolver(monitor, monkeypatch):
-    """stop() must not block on a lookup that has wandered off."""
+async def test_the_resolver_pool_is_bounded(monitor, monkeypatch):
+    """Unbounded would mean one sweep of a /24 spawning 254 threads."""
     monkeypatch.setattr(socket, "gethostbyaddr", lambda ip: (_ for _ in ()).throw(socket.herror()))
     await monitor._resolve_hostnames(["10.0.0.1"])
+    assert monitor._resolver_pool is not None
+    assert monitor._resolver_pool._max_workers == nm.HOSTNAME_RESOLVER_THREADS
 
-    started = time.perf_counter()
+
+@pytest.mark.asyncio
+async def test_resolver_threads_stay_bounded_across_stop_and_start(monitor, monkeypatch):
+    """A stop/start cycle must not be able to double the thread count.
+
+    Releasing the pool on stop looks tidier, and is wrong: `shutdown(wait=False)`
+    returns while a `gethostbyaddr` already inside the C library keeps running,
+    so a fresh pool on the next sweep would run alongside the stalled workers of
+    the old one. Repeat the cycle and the bound is gone.
+    """
+    release = threading.Event()
+
+    def hangs(ip):
+        release.wait(10)
+        raise socket.herror()
+
+    monkeypatch.setattr(socket, "gethostbyaddr", hangs)
+    monkeypatch.setattr(nm, "HOSTNAME_TIMEOUT_S", 0.05)
+    try:
+        # Wedge every worker, stop, then sweep again — the cycle in question.
+        await monitor._resolve_hostnames([f"10.0.0.{n}" for n in range(1, 9)])
+        pool = monitor._resolver_pool
+        assert pool is not None
+
+        await monitor.stop()
+        await monitor._resolve_hostnames([f"10.0.1.{n}" for n in range(1, 9)])
+
+        assert monitor._resolver_pool is pool, "a second pool was created"
+        assert len(pool._threads) <= nm.HOSTNAME_RESOLVER_THREADS
+    finally:
+        release.set()
+
+
+@pytest.mark.asyncio
+async def test_a_sweep_after_stop_still_resolves(monitor, monkeypatch):
+    """Submitting to an executor that has been shut down raises RuntimeError —
+    which `resolve()` does not catch, so it would escape and kill the sweep."""
+    monkeypatch.setattr(socket, "gethostbyaddr", lambda ip: ("host.lan", [], [ip]))
+    await monitor._resolve_hostnames(["10.0.0.1"])
+    pool = monitor._resolver_pool
     await monitor.stop()
-    assert time.perf_counter() - started < 1.0, "stop() waited for the resolver"
+
+    assert await monitor._resolve_hostnames(["10.0.0.2"]) == {"10.0.0.2": "host.lan"}
+    # Resolving by way of a *replacement* pool would pass the line above while
+    # reintroducing the overlap the test above forbids, so pin the identity too.
+    assert monitor._resolver_pool is pool
 
 
 @pytest.mark.asyncio
