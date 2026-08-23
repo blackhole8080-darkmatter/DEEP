@@ -15,6 +15,7 @@ the monitor does not track are never looked up at all.
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import socket
 import sys
 import threading
@@ -251,59 +252,110 @@ async def test_a_stalled_lookup_does_not_occupy_the_shared_executor(monitor, mon
 
 
 @pytest.mark.asyncio
-async def test_the_resolver_pool_is_bounded(monitor, monkeypatch):
-    """Unbounded would mean one sweep of a /24 spawning 254 threads."""
-    monkeypatch.setattr(socket, "gethostbyaddr", lambda ip: (_ for _ in ()).throw(socket.herror()))
-    await monitor._resolve_hostnames(["10.0.0.1"])
-    assert monitor._resolver_pool is not None
-    assert monitor._resolver_pool._max_workers == nm.HOSTNAME_RESOLVER_THREADS
+async def test_the_resolver_is_bounded(monitor, monkeypatch):
+    """Unbounded would mean one sweep of a /24 spawning 254 threads.
+
+    Asserted by watching how many lookups are in flight, not by inspecting
+    whichever object does the bounding, so the guarantee outlives the
+    mechanism.
+    """
+    live = 0
+    peak = 0
+    lock = threading.Lock()
+
+    def slow(ip):
+        nonlocal live, peak
+        with lock:
+            live += 1
+            peak = max(peak, live)
+        time.sleep(0.15)
+        with lock:
+            live -= 1
+        raise socket.herror()
+
+    monkeypatch.setattr(socket, "gethostbyaddr", slow)
+    monkeypatch.setattr(nm, "HOSTNAME_TIMEOUT_S", 5.0)
+    await monitor._resolve_hostnames([f"10.3.{n // 256}.{n % 256}" for n in range(60)])
+
+    assert peak <= nm.HOSTNAME_RESOLVER_THREADS, f"{peak} lookups ran at once"
 
 
 @pytest.mark.asyncio
-async def test_resolver_threads_stay_bounded_across_stop_and_start(monitor, monkeypatch):
-    """A stop/start cycle must not be able to double the thread count.
+async def test_a_stalled_lookup_cannot_hold_the_interpreter_open(monitor, monkeypatch):
+    """Why these are daemon threads and not a ThreadPoolExecutor's workers.
 
-    Releasing the pool on stop looks tidier, and is wrong: `shutdown(wait=False)`
-    returns while a `gethostbyaddr` already inside the C library keeps running,
-    so a fresh pool on the next sweep would run alongside the stalled workers of
-    the old one. Repeat the cycle and the bound is gone.
+    Those are not daemons on 3.9+, and concurrent.futures joins them from an
+    atexit hook, so `shutdown(wait=False)` returns at once while the process
+    still waits out the lookup. Measured: stop() returned in 0.16s, the process
+    exited 3.17s later — the freeze this module removed from the sweep, moved
+    to shutdown. A daemon thread is never joined.
     """
+    seen = []
     release = threading.Event()
 
-    def hangs(ip):
+    def slow(ip):
+        seen.append(threading.current_thread())
         release.wait(10)
         raise socket.herror()
 
-    monkeypatch.setattr(socket, "gethostbyaddr", hangs)
+    monkeypatch.setattr(socket, "gethostbyaddr", slow)
     monkeypatch.setattr(nm, "HOSTNAME_TIMEOUT_S", 0.05)
     try:
-        # Wedge every worker, stop, then sweep again — the cycle in question.
-        await monitor._resolve_hostnames([f"10.0.0.{n}" for n in range(1, 9)])
-        pool = monitor._resolver_pool
-        assert pool is not None
-
-        await monitor.stop()
-        await monitor._resolve_hostnames([f"10.0.1.{n}" for n in range(1, 9)])
-
-        assert monitor._resolver_pool is pool, "a second pool was created"
-        assert len(pool._threads) <= nm.HOSTNAME_RESOLVER_THREADS
+        await monitor._resolve_hostnames(["10.0.0.1"])
+        assert seen, "the lookup never ran"
+        assert all(t.daemon for t in seen), "a non-daemon lookup will be joined at exit"
     finally:
         release.set()
 
 
 @pytest.mark.asyncio
-async def test_a_sweep_after_stop_still_resolves(monitor, monkeypatch):
-    """Submitting to an executor that has been shut down raises RuntimeError —
-    which `resolve()` does not catch, so it would escape and kill the sweep."""
-    monkeypatch.setattr(socket, "gethostbyaddr", lambda ip: ("host.lan", [], [ip]))
-    await monitor._resolve_hostnames(["10.0.0.1"])
-    pool = monitor._resolver_pool
-    await monitor.stop()
+async def test_lookups_stay_bounded_across_stop_and_start(monitor, monkeypatch):
+    """A stop/start cycle must not be able to double the number in flight.
 
-    assert await monitor._resolve_hostnames(["10.0.0.2"]) == {"10.0.0.2": "host.lan"}
-    # Resolving by way of a *replacement* pool would pass the line above while
-    # reintroducing the overlap the test above forbids, so pin the identity too.
-    assert monitor._resolver_pool is pool
+    Handing out a fresh allowance on stop looks tidier and is wrong: a
+    `gethostbyaddr` already inside the C library keeps running whatever we do,
+    so a new allowance would permit a second full set alongside the stalled
+    first. Repeat the cycle and the bound is gone. The allowance therefore
+    lives as long as the monitor.
+    """
+    bound = nm.HOSTNAME_RESOLVER_THREADS
+    live = 0
+    peak = 0
+    lock = threading.Lock()
+    release = threading.Event()
+
+    def hangs(ip):
+        nonlocal live, peak
+        with lock:
+            live += 1
+            peak = max(peak, live)
+        release.wait(10)
+        with lock:
+            live -= 1          # count concurrency, not arrivals
+        raise socket.herror()
+
+    monkeypatch.setattr(socket, "gethostbyaddr", hangs)
+    monkeypatch.setattr(nm, "HOSTNAME_TIMEOUT_S", 0.05)
+    try:
+        # Wedge the whole allowance, then stop — the cycle in question.
+        await monitor._resolve_hostnames([f"10.0.0.{n}" for n in range(1, bound + 1)])
+        assert peak == bound
+        await monitor.stop()
+
+        # The second sweep must not be able to proceed while the first set is
+        # still wedged. Run it alongside a pause rather than awaiting it, so a
+        # bound that has been widened shows up as extra lookups in flight.
+        second = asyncio.create_task(
+            monitor._resolve_hostnames([f"10.0.1.{n}" for n in range(1, bound + 1)])
+        )
+        await asyncio.sleep(0.5)
+
+        assert peak <= bound, f"{peak} lookups in flight — the cycle widened the bound"
+        assert not second.done(), "the second sweep ignored the allowance entirely"
+    finally:
+        release.set()
+        with contextlib.suppress(asyncio.TimeoutError, Exception):
+            await asyncio.wait_for(second, 10)
 
 
 @pytest.mark.asyncio

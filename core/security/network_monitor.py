@@ -35,10 +35,10 @@ import json
 import logging
 import re
 import socket
+import threading
 import struct
 import subprocess
 import time
-from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta
 from enum import Enum
@@ -286,7 +286,8 @@ class NetworkMonitor:
         self._hostname_cache: Dict[str, tuple[Optional[str], float]] = {}
         #: Created on first use so a monitor that never sweeps costs no threads,
         #: and kept for the monitor's lifetime — see _resolver.
-        self._resolver_pool: Optional[ThreadPoolExecutor] = None
+        #: Ceiling on concurrent reverse lookups; see _resolver_bound.
+        self._resolver_gate: Optional[asyncio.Semaphore] = None
         self._last_scan: Optional[datetime] = None
         
         # Load previous state if exists
@@ -769,31 +770,30 @@ class NetworkMonitor:
         except Exception:
             return ip
 
-    def _resolver(self) -> ThreadPoolExecutor:
-        """The monitor's reverse-lookup threads, created once and kept.
+    def _resolver_bound(self) -> asyncio.Semaphore:
+        """The ceiling on concurrent reverse lookups, created once and kept.
 
         Deliberately *not* released by ``stop()``, which is the tempting move
-        and the wrong one. ``shutdown(wait=False)`` returns while a
-        ``gethostbyaddr`` already inside the C library keeps running — that is
-        the whole reason these threads are isolated — so dropping the pool and
-        building a fresh one on the next sweep means a stop/start cycle can
-        leave eight stalled workers behind and start eight more. Repeat the
-        cycle and the bound this pool exists to enforce is gone, with the
-        interpreter's exit hook eventually waiting on all of them.
+        and the wrong one. A ``gethostbyaddr`` already inside the C library
+        keeps running whatever we do — that is the whole reason lookups are
+        isolated — so handing out a fresh allowance on the next sweep means a
+        stop/start cycle can leave eight stalled lookups behind and permit
+        eight more. Repeat the cycle and the bound is gone. One allowance for
+        the monitor's lifetime stays bounded across any number of cycles.
 
-        The two properties cannot both be had while a lookup is uninterruptible:
-        release the threads promptly, or keep the count bounded. Bounded wins —
-        an idle worker parked on an empty queue costs a stack and nothing else,
-        and one pool for the monitor's lifetime is bounded across any number of
-        cycles. It is also why a stop mid-sweep cannot leave the next sweep
-        submitting to a dead executor.
+        The threads themselves are daemons rather than a ThreadPoolExecutor's
+        workers, which are not daemons on 3.9+ and are joined by the atexit
+        hook in concurrent.futures. That made the bound and a prompt exit
+        mutually exclusive: measured, ``shutdown(wait=False)`` returned in
+        0.16s while the interpreter waited the full 3.17s for one stalled
+        lookup — the freeze this function removed from the sweep, relocated to
+        shutdown. A daemon thread is never joined, so both properties hold at
+        once: the allowance bounds how many lookups can be in flight, and
+        nothing the resolver does can keep DEEP from exiting.
         """
-        if self._resolver_pool is None:
-            self._resolver_pool = ThreadPoolExecutor(
-                max_workers=HOSTNAME_RESOLVER_THREADS,
-                thread_name_prefix="deep-ptr",
-            )
-        return self._resolver_pool
+        if self._resolver_gate is None:
+            self._resolver_gate = asyncio.Semaphore(HOSTNAME_RESOLVER_THREADS)
+        return self._resolver_gate
 
     async def _resolve_hostnames(self, ips: List[str]) -> Dict[str, str]:
         """Reverse-resolve a set of IPs, concurrently and with a deadline.
@@ -830,16 +830,36 @@ class NetworkMonitor:
         unknown = [ip for ip in ips if ip not in fresh]
 
         loop = asyncio.get_running_loop()
-        pool = self._resolver()
+        gate = self._resolver_bound()
 
         async def resolve(ip: str) -> tuple[str, Optional[str]]:
+            # The allowance is held for the thread's real lifetime, not until
+            # the await gives up: an abandoned lookup still occupies its slot
+            # until the C call returns, which is what keeps the ceiling honest.
+            await gate.acquire()
+            answer: "asyncio.Future[Optional[str]]" = loop.create_future()
+
+            def deliver(name: Optional[str]) -> None:
+                gate.release()
+                if not answer.done():
+                    answer.set_result(name)
+
+            def work() -> None:
+                try:
+                    name, _, _ = socket.gethostbyaddr(ip)
+                except (socket.herror, socket.gaierror, OSError):
+                    name = None
+                try:
+                    loop.call_soon_threadsafe(deliver, name)
+                except RuntimeError:
+                    pass  # loop is gone; there is nobody left to tell
+
+            threading.Thread(target=work, name=f"deep-ptr-{ip}", daemon=True).start()
             try:
-                name, _, _ = await asyncio.wait_for(
-                    loop.run_in_executor(pool, socket.gethostbyaddr, ip),
-                    timeout=HOSTNAME_TIMEOUT_S,
+                return ip, await asyncio.wait_for(
+                    asyncio.shield(answer), timeout=HOSTNAME_TIMEOUT_S
                 )
-                return ip, name
-            except (socket.herror, socket.gaierror, asyncio.TimeoutError, OSError):
+            except (asyncio.TimeoutError, asyncio.CancelledError):
                 return ip, None
 
         for ip, name in await asyncio.gather(*(resolve(ip) for ip in unknown)):
