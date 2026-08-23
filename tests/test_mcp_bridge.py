@@ -14,6 +14,8 @@ is DEEP's behaviour around a server it does not control:
 from __future__ import annotations
 
 import asyncio
+import base64
+import dataclasses
 import json
 import sys
 
@@ -362,6 +364,151 @@ async def test_the_real_urlscan_server_bridges_end_to_end(clean_registry):
         await bridge.aclose()
 
     assert "urlscan_scan_url" not in TOOL_SPECS
+
+
+@pytest.mark.asyncio
+async def test_a_real_screenshot_survives_the_subprocess_boundary(clean_registry, tmp_path):
+    """The one seam every other test in this file fakes.
+
+    ToolResult.images, the bridge's image extraction, the brain's admission
+    budget — all of it is tested against blocks built in-process. None of that
+    proves an actual PNG survives base64 encoding, a JSON-RPC frame, a pipe and
+    a decode with its bytes intact, which is the only property that matters
+    when the model is finally shown the page.
+
+    urlscan.io is unreachable from CI and needs no key for screenshots anyway,
+    so a local stand-in serves one and URLSCAN_BASE_URL points the child at it.
+    The image is checked byte-for-byte at the far end.
+    """
+    pytest.importorskip("urlscan_mcp")
+    pytest.importorskip("mcp")
+
+    import json as _json
+    import struct
+    import threading
+    import zlib
+    from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+
+    def png(width: int, height: int) -> bytes:
+        def chunk(tag: bytes, body: bytes) -> bytes:
+            return (struct.pack(">I", len(body)) + tag + body
+                    + struct.pack(">I", zlib.crc32(tag + body) & 0xFFFFFFFF))
+
+        raw = b"".join(b"\x00" + bytes([(y * 5) % 256, 90, 210] * width)
+                       for y in range(height))
+        return (b"\x89PNG\r\n\x1a\n"
+                + chunk(b"IHDR", struct.pack(">IIBBBBB", width, height, 8, 2, 0, 0, 0))
+                + chunk(b"IDAT", zlib.compress(raw, 6))
+                + chunk(b"IEND", b""))
+
+    # Wider than one screen and taller than the crop threshold, so the child
+    # does real work on it rather than passing the bytes through.
+    screenshot = png(1280, 4200)
+    uuid = "0198fb1a-6f0d-7b2c-9c31-2a4f9d0e1c77"
+    result_doc = {
+        "task": {"uuid": uuid, "url": "https://example.com/login",
+                 "time": "2026-08-20T10:00:00.000Z"},
+        "page": {"url": "https://cdn-elsewhere.net/x", "domain": "cdn-elsewhere.net",
+                 "country": "US", "title": "Sign in"},
+        "verdicts": {"overall": {"score": 0, "malicious": False}},
+        "stats": {}, "lists": {"domains": [], "urls": []},
+    }
+
+    class Handler(BaseHTTPRequestHandler):
+        def log_message(self, *a):
+            pass
+
+        def do_GET(self):  # noqa: N802
+            if self.path.startswith("/screenshots/"):
+                body, ctype = screenshot, "image/png"
+            elif self.path.startswith("/api/v1/result/"):
+                body, ctype = _json.dumps(result_doc).encode(), "application/json"
+            else:
+                body, ctype = b'{"message":"not found"}', "application/json"
+            self.send_response(200)
+            self.send_header("Content-Type", ctype)
+            self.send_header("Content-Length", str(len(body)))
+            self.end_headers()
+            self.wfile.write(body)
+
+    server = ThreadingHTTPServer(("127.0.0.1", 0), Handler)
+    threading.Thread(target=server.serve_forever, daemon=True).start()
+    base = f"http://127.0.0.1:{server.server_address[1]}"
+
+    config = next(s for s in configured_servers() if s.id == "urlscan")
+    if not config.available:
+        server.shutdown()
+        pytest.skip(config.unavailable_reason)
+
+    # The child inherits this environment; no proxy, or it would be asked to
+    # tunnel to loopback.
+    env = dict(config.env)
+    env.update({"URLSCAN_BASE_URL": base, "NO_PROXY": "127.0.0.1,localhost",
+                "no_proxy": "127.0.0.1,localhost", "HTTP_PROXY": "", "HTTPS_PROXY": "",
+                "http_proxy": "", "https_proxy": ""})
+    config = dataclasses.replace(config, env=env)
+
+    bridge = MCPBridge([config])
+    try:
+        await asyncio.wait_for(bridge.start(), timeout=60)
+        assert "urlscan_analyze_screenshot" in TOOL_SPECS
+
+        result = await asyncio.wait_for(
+            TOOL_SPECS["urlscan_analyze_screenshot"].handler(None, {"uuid": uuid}),
+            timeout=60,
+        )
+        # And again with the domain DEEP already holds for the indicator it is
+        # investigating: the scan's own domain comes from a result document
+        # that needs an API key, so keyless this is the only way the brief has
+        # anything to compare the brand against.
+        with_domain = await asyncio.wait_for(
+            TOOL_SPECS["urlscan_analyze_screenshot"].handler(
+                None, {"uuid": uuid, "domain": "login-microsoft.example"}
+            ),
+            timeout=60,
+        )
+    finally:
+        await bridge.aclose()
+        server.shutdown()
+
+    assert result.ok, result.content
+    assert result.images, "the image did not survive the boundary"
+
+    # ToolImage carries base64, because that is the shape every provider wants
+    # on the wire. Decoding here is the point: it proves what crossed the pipe
+    # is still a PNG and not a truncated or re-encoded approximation of one.
+    image = result.images[0]
+    assert image.mime_type == "image/png"
+    decoded = base64.b64decode(image.data)
+    assert decoded.startswith(b"\x89PNG"), "arrived corrupt, not merely truncated"
+    assert decoded.endswith(b"IEND\xaeB`\x82"), "arrived truncated"
+    assert image.approx_bytes > 1000
+
+    # Pillow is optional: with it the child crops and downscales, without it the
+    # bytes come through untouched. Both are correct; silently losing them is not.
+    try:
+        from io import BytesIO
+
+        from PIL import Image
+
+        with Image.open(BytesIO(decoded)) as img:
+            assert img.width <= 1280
+            assert img.height / img.width <= 3.0, "the crop did not happen"
+    except ImportError:
+        assert decoded == screenshot
+
+    # And the brief travels with it. No key here, so the scan's result document
+    # is unreadable and the brief must decline the brand-versus-domain
+    # comparison rather than invite one against "unknown".
+    assert "NOT a clean verdict" in result.content
+    assert "could not be determined" in result.content
+    assert "cannot be made from" in result.content
+
+    # With a domain supplied, the comparison is back on — flagged as the
+    # caller's claim, since nothing in the scan record confirms it.
+    assert with_domain.images
+    assert "login-microsoft.example" in with_domain.content
+    assert "NOT confirmed against this scan's record" in with_domain.content
 
 
 # ── caching ──────────────────────────────────────────────────────────────────
