@@ -31,7 +31,7 @@ import asyncio
 import logging
 import math
 import os
-import tempfile
+import threading
 from dataclasses import dataclass
 from typing import Any, Dict, List, Optional
 
@@ -97,50 +97,80 @@ def describe_exception(exc: BaseException) -> str:
 #: frames and the exception line; not so much that one bad server floods a log.
 STDERR_TAIL_CHARS = 800
 
+#: Ceiling on the captured stderr held in memory. Generous enough that the tail
+#: survives a multi-byte encoding and a long traceback; fixed, so a server that
+#: chatters for a week costs the same as one that chatters for a minute.
+STDERR_TAIL_BYTES = 8192
 
-def _read_spool(spool: Any) -> str:
-    """The tail of a captured stderr stream, collapsed to one line.
 
-    Reads the tail directly rather than reading the file and slicing it. A
-    child in a crash loop can write a great deal during the handshake window,
-    and pulling all of it into memory to keep the last 800 characters would
-    make error handling the most expensive thing this module does — precisely
-    when something has already gone wrong.
+class _StderrTail:
+    """A bounded window onto a child's stderr, kept in memory.
 
-    The read goes through a duplicated descriptor, in bytes. The spool is a
-    text file so the child's own writes are encoded properly, but a text
-    stream's seek positions are opaque cookies — only values from ``tell()``
-    are valid to seek to — so arithmetic on them is not allowed. A dup'd fd has
-    its own offset, byte semantics, and no effect on the writer.
+    A temp file was the obvious first choice and it was wrong. This capture
+    lives for the whole session rather than just the handshake — ``_serve``
+    runs for as long as the server does — and MCP servers log to stderr on
+    every request, so the file grew for as long as DEEP ran. Nothing ever
+    truncated it, and only the last few hundred characters were ever read.
+
+    The child needs a real file descriptor: the SDK hands ``errlog`` straight
+    to ``anyio.open_process(stderr=...)``, so no Python-level buffer can
+    receive its writes. Hence a pipe. The pipe must then be drained
+    continuously or the child blocks once it has filled it, which would wedge
+    the very server we are trying to diagnose — so a daemon thread reads it
+    into a fixed-size buffer and throws away everything but the tail. Daemon,
+    because a child that never closes its end must not keep DEEP from exiting.
     """
-    try:
-        # The child writes to the descriptor directly, so in production there is
-        # nothing buffered on this side. Anything written through the Python
-        # object — as tests do — still has to reach the fd before we read it.
-        spool.flush()
-        fd = os.dup(spool.fileno())
-    except (OSError, ValueError, AttributeError):  # closed, or not a real file
-        return ""
-    try:
-        size = os.lseek(fd, 0, os.SEEK_END)
-        # Over-read, then slice by character: one character can be four bytes,
-        # and cutting mid-sequence is what errors="replace" is for.
-        want = STDERR_TAIL_CHARS * 4
-        os.lseek(fd, max(0, size - want), os.SEEK_SET)
-        raw = os.read(fd, want)
-    except OSError:
-        return ""
-    finally:
-        os.close(fd)
 
-    text = raw.decode("utf-8", errors="replace").strip()
-    if not text:
-        return ""
-    truncated = size > len(raw)
-    if len(text) > STDERR_TAIL_CHARS:
-        text = text[-STDERR_TAIL_CHARS:]
-        truncated = True
-    return ("..." if truncated else "") + " ".join(text.split())
+    def __init__(self, limit: int = STDERR_TAIL_BYTES) -> None:
+        self._limit = limit
+        self._buf = bytearray()
+        self._lock = threading.Lock()
+        self._read_fd, write_fd = os.pipe()
+        #: Handed to the SDK as `errlog`; unbuffered, because the child writes
+        #: through the descriptor and anything buffered here would never arrive.
+        self.file = os.fdopen(write_fd, "wb", 0)
+        self._thread = threading.Thread(
+            target=self._drain, name="mcp-stderr", daemon=True
+        )
+        self._thread.start()
+
+    def _drain(self) -> None:
+        try:
+            while True:
+                chunk = os.read(self._read_fd, 4096)
+                if not chunk:  # every writer has closed
+                    return
+                with self._lock:
+                    self._buf.extend(chunk)
+                    if len(self._buf) > self._limit:
+                        del self._buf[: -self._limit]
+        except OSError:
+            return
+        finally:
+            try:
+                os.close(self._read_fd)
+            except OSError:
+                pass
+
+    def text(self) -> str:
+        """The tail so far, collapsed to one line."""
+        with self._lock:
+            raw = bytes(self._buf)
+            clipped = len(self._buf) >= self._limit
+        text = raw.decode("utf-8", errors="replace").strip()
+        if not text:
+            return ""
+        if len(text) > STDERR_TAIL_CHARS:
+            text = text[-STDERR_TAIL_CHARS:]
+            clipped = True
+        return ("..." if clipped else "") + " ".join(text.split())
+
+    def close(self) -> None:
+        """Close our end; the drain thread sees EOF once the child closes too."""
+        try:
+            self.file.close()
+        except OSError:
+            pass
 
 
 @dataclass(slots=True)
@@ -294,9 +324,9 @@ class MCPServerConnection:
         # subsystem and is lost. Capture it to a private spool instead and
         # attach the tail to the error, so "BrokenResourceError" arrives with
         # the child's explanation next to it.
-        spool = tempfile.TemporaryFile(mode="w+", encoding="utf-8", errors="replace")
+        spool = _StderrTail()
         try:
-            async with stdio_client(params, errlog=spool) as (read, write):
+            async with stdio_client(params, errlog=spool.file) as (read, write):
                 async with ClientSession(read, write) as session:
                     await session.initialize()
                     listing = await session.list_tools()
@@ -316,7 +346,7 @@ class MCPServerConnection:
             raise
         except Exception as exc:  # noqa: BLE001 - a subprocess can fail any way
             self.last_error = describe_exception(exc)
-            detail = _read_spool(spool)
+            detail = spool.text()
             if detail:
                 self.last_error = f"{self.last_error} — child said: {detail}"
             logger.warning("[MCP] %s session ended: %s", self.config.id, self.last_error)

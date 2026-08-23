@@ -27,7 +27,7 @@ from core.mcp.bridge import MCPBridge, render_full, render_result
 from core.mcp.client import (
     MCPServerConnection,
     MCPTool,
-    _read_spool,
+    _StderrTail,
     _startup_timeout,
     describe_exception,
 )
@@ -558,38 +558,81 @@ def test_an_exception_with_no_message_still_names_its_type():
     assert describe_exception(RuntimeError()) == "RuntimeError"
 
 
+def _written(payload: bytes, limit: int = 8192) -> str:
+    """Push bytes through a real pipe, the way a child process would."""
+    tail = _StderrTail(limit=limit)
+    tail.file.write(payload)
+    tail.file.flush()
+    for _ in range(200):  # the drain thread is asynchronous; give it a moment
+        text = tail.text()
+        if text:
+            break
+        time.sleep(0.01)
+    tail.close()
+    return text
+
+
 def test_the_childs_own_stderr_is_attached_to_the_failure():
     """A dying subprocess explains itself on stderr; that text must survive.
 
     Without it the operator gets a transport-level symptom ("BrokenResourceError")
     and no cause, which is indistinguishable from a bug in DEEP.
     """
-    import tempfile
+    text = _written(
+        b"Traceback (most recent call last): "
+        b"ModuleNotFoundError: No module named 'urlscan_mcp'"
+    )
+    assert "No module named 'urlscan_mcp'" in text
 
-    spool = tempfile.TemporaryFile(mode="w+", encoding="utf-8")
-    spool.write("Traceback (most recent call last):\nModuleNotFoundError: No module named 'urlscan_mcp'\n")
-    assert "No module named 'urlscan_mcp'" in _read_spool(spool)
-    spool.close()
 
-
-def test_a_closed_spool_does_not_raise():
+def test_reading_a_closed_capture_does_not_raise():
     """Reading the child's stderr must never become a second failure."""
-    import tempfile
+    tail = _StderrTail()
+    tail.close()
+    assert tail.text() == ""
+    tail.close()  # idempotent: teardown runs on paths that already closed
 
-    spool = tempfile.TemporaryFile(mode="w+", encoding="utf-8")
-    spool.close()
-    assert _read_spool(spool) == ""
+
+def test_a_flood_of_child_output_is_bounded_not_just_trimmed():
+    """The capture must stay small while the child writes, not only when read.
+
+    This replaced a temp file, which was unbounded on disk for the whole
+    session — and MCP servers log on every request, so it grew for as long as
+    DEEP ran. The buffer is what enforces the ceiling now.
+    """
+    limit = 4096
+    tail = _StderrTail(limit=limit)
+    for _ in range(200):
+        tail.file.write(b"noise " * 200)
+    tail.file.write(b"the actual error")
+    tail.file.flush()
+
+    text = ""
+    for _ in range(300):
+        text = tail.text()
+        if "the actual error" in text:
+            break
+        time.sleep(0.01)
+    tail.close()
+
+    assert "the actual error" in text, "the tail is the part worth keeping"
+    assert len(text) <= 820, f"kept {len(text)} chars"
+    assert text.startswith("..."), "truncation must be visible, not silent"
 
 
-def test_a_flood_of_child_output_is_truncated():
-    import tempfile
+def test_the_capture_never_blocks_a_chatty_child():
+    """A pipe nobody drains fills at ~64KB and blocks the writer.
 
-    spool = tempfile.TemporaryFile(mode="w+", encoding="utf-8")
-    spool.write("x" * 50_000 + "the actual error")
-    text = _read_spool(spool)
-    assert len(text) < 1_200
-    assert "the actual error" in text  # the tail is what matters, so keep it
-    spool.close()
+    That would wedge the very server we are trying to diagnose, so the drain
+    has to keep running for the session, not just around the handshake.
+    """
+    tail = _StderrTail(limit=2048)
+    started = time.perf_counter()
+    for _ in range(400):  # comfortably past any pipe buffer
+        tail.file.write(b"x" * 1024)
+    elapsed = time.perf_counter() - started
+    tail.close()
+    assert elapsed < 10, f"writer blocked for {elapsed:.1f}s — the pipe is not being drained"
 
 
 def test_the_startup_budget_survives_a_nonsense_override(monkeypatch):
