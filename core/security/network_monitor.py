@@ -229,6 +229,15 @@ def _lookup_vendor(mac: str) -> Optional[str]:
 # Network Monitor
 # ═══════════════════════════════════════════════════════════════════════════════
 
+#: A reverse lookup that has not answered in this long will not answer usefully.
+#: The device is still tracked; it is simply listed by address.
+HOSTNAME_TIMEOUT_S = 1.5
+
+#: How long a resolved (or unresolvable) name is trusted. Names on a home LAN
+#: do not move faster than this, and re-asking is what made sweeps expensive.
+HOSTNAME_CACHE_TTL_S = 900.0
+
+
 class NetworkMonitor:
     """
     Local network security monitor.
@@ -260,14 +269,29 @@ class NetworkMonitor:
         self._initialized = False
         self._scan_task: Optional[asyncio.Task] = None
         self._scan_interval = 30  # seconds
+        #: ip -> (hostname or None, monotonic timestamp). Negatives are cached
+        #: too; see _resolve_hostnames.
+        self._hostname_cache: Dict[str, tuple[Optional[str], float]] = {}
         self._last_scan: Optional[datetime] = None
         
         # Load previous state if exists
         self._load_state()
 
     async def start(self) -> None:
-        """Activate the network monitor."""
-        await self.initialize()
+        """Activate the network monitor, without waiting for the first sweep.
+
+        The baseline used to be established here, synchronously: probe every
+        address on the LAN, then return. That is tens of seconds when nmap is
+        absent and each probe has to wait out its own timeout — and the caller
+        is a server whose port does not open until startup returns, so the
+        whole wait was charged to the user as an unreachable server.
+
+        Nothing was gained by waiting. The background loop's first action is
+        that identical sweep, so the scan simply ran twice. The loop now marks
+        the baseline when its first sweep lands; until then
+        ``baseline_established`` stays False and the device-flood check does
+        not fire — exactly the state a fresh install is in anyway.
+        """
         self.start_monitoring()
         logger.info("[NetworkMonitor] Started")
 
@@ -372,6 +396,14 @@ class NetworkMonitor:
             return
         logger.info("[NetworkMonitor] Initializing...")
         await self._do_scan()
+        self._establish_baseline()
+
+    def _establish_baseline(self) -> None:
+        """Record what "normal" looks like, once a sweep has actually seen it.
+
+        Called from whichever sweep lands first — the explicit ``initialize()``
+        or the background loop — and idempotent, because both may run.
+        """
         if not self.baseline_established and self.device_registry:
             self.baseline_device_count = len(self.device_registry)
             self.baseline_established = True
@@ -468,6 +500,7 @@ class NetworkMonitor:
         while True:
             try:
                 await self._do_scan()
+                self._establish_baseline()
                 self._save_state()
             except Exception as e:
                 logger.error(f"[NetworkMonitor] Scan error: {e}")
@@ -477,9 +510,10 @@ class NetworkMonitor:
         """Perform one full network scan."""
         self._last_scan = datetime.utcnow()
         
-        # Collect data from multiple sources
-        arp_entries = self._get_arp_table()
-        connections = self._get_connection_peers()
+        # Collect data from multiple sources. Both shell out or walk kernel
+        # tables and block; on the event loop that stalls every other request.
+        arp_entries = await asyncio.to_thread(self._get_arp_table)
+        connections = await asyncio.to_thread(self._get_connection_peers)
         
         # Merge into unified device view
         all_ips: Dict[str, str] = {}  # ip -> mac
@@ -497,17 +531,22 @@ class NetworkMonitor:
                 all_ips[ip] = mac
                 all_macs[mac] = ip
         
-        # Resolve hostnames
-        hostnames = self._resolve_hostnames(list(all_ips.keys()))
-        
         # Get network info for gateway detection
         _, _, _, gateway = self._get_network_info()
-        
+
         # Drop internet IPs — only track devices on the local subnet.
         # ARP caches on Windows often contain internet IPs mapped to the gateway
         # MAC, which would otherwise flood the activity feed with "Unknown vendor"
         # alerts for every browser tab open to an external server.
+        #
+        # This filter runs *before* hostname resolution, not after. Resolving
+        # first meant every external address a browser tab had touched got its
+        # own reverse-DNS lookup, and the answers were thrown away one line
+        # later: 29 lookups to keep 4. That was measured at 121s per sweep.
         all_ips = {ip: mac for ip, mac in all_ips.items() if self._is_local_ip(ip)}
+
+        # Resolve hostnames (only for the devices we are actually keeping)
+        hostnames = await self._resolve_hostnames(list(all_ips.keys()))
 
         # Process each device
         current_macs = set()
@@ -712,16 +751,54 @@ class NetworkMonitor:
         except Exception:
             return ip
 
-    def _resolve_hostnames(self, ips: List[str]) -> Dict[str, str]:
-        """Resolve hostnames for a list of IPs."""
-        hostnames = {}
-        for ip in ips:
+    async def _resolve_hostnames(self, ips: List[str]) -> Dict[str, str]:
+        """Reverse-resolve a set of IPs, concurrently and with a deadline.
+
+        ``socket.gethostbyaddr`` is blocking and has no timeout argument: an
+        address with no PTR record costs whatever the resolver decides, and a
+        serial loop pays that per IP. Measured here, one sweep spent 121s
+        inside this function while the event loop — the whole server, HUD and
+        API included — sat frozen behind it, then did it again 30s later.
+
+        So: each lookup goes to a worker thread, they run together rather than
+        in sequence, and each is abandoned at ``HOSTNAME_TIMEOUT_S``. A device
+        whose name we cannot learn quickly is listed by address, which is what
+        the UI showed for it anyway.
+
+        Answers are cached, negatives included — an address that has no PTR
+        record still has none 30 seconds later, and re-asking is how a sweep
+        that should be instant becomes a stall.
+        """
+        if not ips:
+            return {}
+
+        now = time.monotonic()
+        fresh = {
+            ip: name
+            for ip, (name, at) in self._hostname_cache.items()
+            if now - at < HOSTNAME_CACHE_TTL_S
+        }
+        unknown = [ip for ip in ips if ip not in fresh]
+
+        async def resolve(ip: str) -> tuple[str, Optional[str]]:
             try:
-                hostname, _, _ = socket.gethostbyaddr(ip)
-                hostnames[ip] = hostname
-            except (socket.herror, socket.gaierror):
-                pass
-        return hostnames
+                name, _, _ = await asyncio.wait_for(
+                    asyncio.to_thread(socket.gethostbyaddr, ip),
+                    timeout=HOSTNAME_TIMEOUT_S,
+                )
+                return ip, name
+            except (socket.herror, socket.gaierror, asyncio.TimeoutError, OSError):
+                return ip, None
+
+        for ip, name in await asyncio.gather(*(resolve(ip) for ip in unknown)):
+            self._hostname_cache[ip] = (name, now)
+
+        resolved: Dict[str, str] = {}
+        for ip in ips:
+            name = fresh.get(ip) if ip in fresh else self._hostname_cache.get(ip, (None, 0))[0]
+            if name:
+                resolved[ip] = name
+        return resolved
 
     # ─── Anomaly Detection ───────────────────────────────────────────────────
 

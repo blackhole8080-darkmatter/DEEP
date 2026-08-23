@@ -135,7 +135,7 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-_PUBLIC_PATHS = {"/", "/ai", "/manifest.webmanifest", "/sw.js", "/favicon.ico"}
+_PUBLIC_PATHS = {"/", "/app", "/manifest.webmanifest", "/sw.js", "/favicon.ico"}
 _PUBLIC_PREFIXES = ("/static",)
 _LOCAL_HOSTS = {"127.0.0.1", "::1", "localhost", None}
 _rate_buckets: Dict[str, deque] = {}
@@ -363,20 +363,35 @@ async def startup_event():
     # Bridge external MCP servers into the brain's tool registry. Servers that
     # cannot start contribute nothing and say why — a missing capability, not a
     # failed boot — so this never guards the assistant coming up.
-    try:
-        from core.mcp import shared_bridge
+    # Off the critical path, deliberately. Every server here is a subprocess
+    # that must spawn a cold interpreter and complete an initialise/list-tools
+    # handshake. Awaiting that *inside* startup ran it during the noisiest
+    # moment of DEEP's boot — embedding models loading, baselines scanning —
+    # where a handshake that takes ~3s on a quiet machine overshot its 30s
+    # budget and the bridge reported a dead server that was merely starved.
+    # Uvicorn also binds the port only once startup returns, so the wait was
+    # charged to every user as unreachable-server time. Let boot finish, then
+    # connect.
+    async def _start_mcp_bridge() -> None:
+        try:
+            from core.mcp import shared_bridge
 
-        mcp_report = await shared_bridge().start()
-        if mcp_report["tools_registered"]:
-            print(f"[DEEP] MCP bridge: {mcp_report['tools_registered']} tool(s) from "
-                  f"{len([s for s in mcp_report['servers'] if s.get('tools')])} server(s)")
-        for entry in mcp_report["servers"]:
-            if entry.get("skipped"):
-                print(f"[DEEP] MCP {entry['id']} unavailable: {entry['skipped']}")
-            elif entry.get("error"):
-                print(f"[DEEP] MCP {entry['id']} failed to start: {entry['error']}")
-    except Exception as e:
-        print(f"[DEEP] MCP bridge init error: {e}")
+            mcp_report = await shared_bridge().start()
+            if mcp_report["tools_registered"]:
+                print(f"[DEEP] MCP bridge: {mcp_report['tools_registered']} tool(s) from "
+                      f"{len([s for s in mcp_report['servers'] if s.get('tools')])} server(s)")
+            for entry in mcp_report["servers"]:
+                if entry.get("skipped"):
+                    print(f"[DEEP] MCP {entry['id']} unavailable: {entry['skipped']}")
+                elif entry.get("error"):
+                    print(f"[DEEP] MCP {entry['id']} failed to start: {entry['error']}")
+        except Exception as e:
+            print(f"[DEEP] MCP bridge init error: {e}")
+
+    # Held on the app so the task is not garbage-collected mid-handshake.
+    app.state.mcp_bridge_task = asyncio.create_task(
+        _start_mcp_bridge(), name="mcp-bridge-start"
+    )
 
     # Initialize Plugin Manager
     try:
@@ -1696,5 +1711,5 @@ if __name__ == "__main__":
     import uvicorn
     print(f"[DEEP] AI Server starting...")
     print(f"   Model: {settings.ollama_model}")
-    print(f"   URL: http://127.0.0.1:5174/ai")
+    print(f"   URL: http://127.0.0.1:5174/app")
     uvicorn.run(app, host="127.0.0.1", port=5174, log_level="info")

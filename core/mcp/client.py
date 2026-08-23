@@ -29,6 +29,8 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import os
+import tempfile
 from dataclasses import dataclass
 from typing import Any, Dict, List, Optional
 
@@ -37,7 +39,71 @@ from core.mcp.config import MCPServerConfig
 logger = logging.getLogger(__name__)
 
 #: How long to wait for a server to spawn, initialise and list its tools.
-STARTUP_TIMEOUT_S = 30.0
+#: A warm handshake is ~3s; the headroom is for a cold interpreter importing
+#: its dependencies on a machine that is busy doing something else. Override
+#: with DEEP_MCP_STARTUP_TIMEOUT when a server is legitimately slower.
+def _startup_timeout() -> float:
+    raw = os.environ.get("DEEP_MCP_STARTUP_TIMEOUT", "")
+    try:
+        value = float(raw)
+    except ValueError:
+        return 60.0
+    return value if value > 0 else 60.0
+
+
+STARTUP_TIMEOUT_S = _startup_timeout()
+
+
+def describe_exception(exc: BaseException) -> str:
+    """A cause a human can act on, even when it arrives wrapped in a group.
+
+    The MCP SDK runs its stdio transport inside an anyio task group, so almost
+    every real failure — the interpreter not found, the module refusing to
+    import, the child dying mid-handshake — reaches us as an ``ExceptionGroup``
+    whose ``str()`` is "unhandled errors in a TaskGroup (1 sub-exception)".
+    That sentence names the plumbing and hides the fault, which is how a
+    working diagnosis turns into a shrug. Flatten the group and report the
+    leaves instead; nesting can be arbitrarily deep, so recurse.
+    """
+    leaves: List[str] = []
+
+    def walk(err: BaseException) -> None:
+        sub = getattr(err, "exceptions", None)
+        if sub:
+            for item in sub:
+                walk(item)
+            return
+        text = str(err).strip()
+        leaves.append(f"{type(err).__name__}: {text}" if text else type(err).__name__)
+
+    walk(exc)
+    # Deduplicate while preserving order: a task group that loses five workers
+    # to the same broken pipe should say so once.
+    seen: set[str] = set()
+    unique = [x for x in leaves if not (x in seen or seen.add(x))]
+    if not unique:
+        return f"{type(exc).__name__}: {exc}"
+    return "; ".join(unique)
+
+
+#: How much of a dying child's stderr to keep. Enough for a traceback's last
+#: frames and the exception line; not so much that one bad server floods a log.
+STDERR_TAIL_CHARS = 800
+
+
+def _read_spool(spool: Any) -> str:
+    """The tail of a captured stderr stream, collapsed to one line."""
+    try:
+        spool.seek(0)
+        text = spool.read()
+    except (OSError, ValueError):  # closed or never written
+        return ""
+    text = (text or "").strip()
+    if not text:
+        return ""
+    if len(text) > STDERR_TAIL_CHARS:
+        text = "..." + text[-STDERR_TAIL_CHARS:]
+    return " ".join(text.split())
 
 
 @dataclass(slots=True)
@@ -185,8 +251,15 @@ class MCPServerConnection:
             args=list(self.config.args),
             env=self.config.resolved_env(),
         )
+        # The child's own stderr is the only place that says *why* it died —
+        # a bad interpreter, a failed import, a missing key. The SDK sends it
+        # to DEEP's stderr by default, where it interleaves with every other
+        # subsystem and is lost. Capture it to a private spool instead and
+        # attach the tail to the error, so "BrokenResourceError" arrives with
+        # the child's explanation next to it.
+        spool = tempfile.TemporaryFile(mode="w+", encoding="utf-8", errors="replace")
         try:
-            async with stdio_client(params) as (read, write):
+            async with stdio_client(params, errlog=spool) as (read, write):
                 async with ClientSession(read, write) as session:
                     await session.initialize()
                     listing = await session.list_tools()
@@ -205,9 +278,13 @@ class MCPServerConnection:
         except asyncio.CancelledError:
             raise
         except Exception as exc:  # noqa: BLE001 - a subprocess can fail any way
-            self.last_error = f"{type(exc).__name__}: {exc}"
+            self.last_error = describe_exception(exc)
+            detail = _read_spool(spool)
+            if detail:
+                self.last_error = f"{self.last_error} — child said: {detail}"
             logger.warning("[MCP] %s session ended: %s", self.config.id, self.last_error)
         finally:
+            spool.close()
             self._ready.clear()
             self._drain(self.last_error or "server stopped")
 

@@ -21,7 +21,13 @@ import pytest
 
 from core.mcp import bridge as bridge_mod
 from core.mcp.bridge import MCPBridge, render_result
-from core.mcp.client import MCPServerConnection, MCPTool
+from core.mcp.client import (
+    MCPServerConnection,
+    MCPTool,
+    _read_spool,
+    _startup_timeout,
+    describe_exception,
+)
 from core.mcp.config import MCPServerConfig, configured_servers
 from core.tools.registry import TOOL_SPECS
 
@@ -356,3 +362,87 @@ async def test_the_real_urlscan_server_bridges_end_to_end(clean_registry):
         await bridge.aclose()
 
     assert "urlscan_scan_url" not in TOOL_SPECS
+
+
+# ── diagnosing a server that will not start ──────────────────────────────────
+#
+# The bridge already proved it survives a dead server. What it did not prove is
+# that it can say *why* one died — and that gap cost a real debugging session.
+# The MCP SDK runs its transport in an anyio task group, so a failed spawn
+# arrives as an ExceptionGroup whose str() is "unhandled errors in a TaskGroup
+# (1 sub-exception)". Reported verbatim, that names the plumbing and hides the
+# fault. These pin the diagnosis, not just the survival.
+
+
+def test_a_task_group_failure_reports_the_cause_not_the_wrapper():
+    group = ExceptionGroup(
+        "unhandled errors in a TaskGroup",
+        [FileNotFoundError(2, "No such file or directory")],
+    )
+    described = describe_exception(group)
+    assert "No such file or directory" in described
+    assert "TaskGroup" not in described
+
+
+def test_nested_groups_are_flattened_to_their_leaves():
+    inner = ExceptionGroup("inner", [RuntimeError("child exited"), ValueError("bad arg")])
+    described = describe_exception(ExceptionGroup("outer", [inner]))
+    assert "RuntimeError: child exited" in described
+    assert "ValueError: bad arg" in described
+
+
+def test_one_fault_repeated_across_tasks_is_reported_once():
+    group = ExceptionGroup("g", [BrokenPipeError("pipe"), BrokenPipeError("pipe")])
+    assert describe_exception(group).count("BrokenPipeError") == 1
+
+
+def test_an_ordinary_exception_is_described_unchanged():
+    assert describe_exception(ValueError("plain")) == "ValueError: plain"
+
+
+def test_an_exception_with_no_message_still_names_its_type():
+    assert describe_exception(RuntimeError()) == "RuntimeError"
+
+
+def test_the_childs_own_stderr_is_attached_to_the_failure():
+    """A dying subprocess explains itself on stderr; that text must survive.
+
+    Without it the operator gets a transport-level symptom ("BrokenResourceError")
+    and no cause, which is indistinguishable from a bug in DEEP.
+    """
+    import tempfile
+
+    spool = tempfile.TemporaryFile(mode="w+", encoding="utf-8")
+    spool.write("Traceback (most recent call last):\nModuleNotFoundError: No module named 'urlscan_mcp'\n")
+    assert "No module named 'urlscan_mcp'" in _read_spool(spool)
+    spool.close()
+
+
+def test_a_closed_spool_does_not_raise():
+    """Reading the child's stderr must never become a second failure."""
+    import tempfile
+
+    spool = tempfile.TemporaryFile(mode="w+", encoding="utf-8")
+    spool.close()
+    assert _read_spool(spool) == ""
+
+
+def test_a_flood_of_child_output_is_truncated():
+    import tempfile
+
+    spool = tempfile.TemporaryFile(mode="w+", encoding="utf-8")
+    spool.write("x" * 50_000 + "the actual error")
+    text = _read_spool(spool)
+    assert len(text) < 1_200
+    assert "the actual error" in text  # the tail is what matters, so keep it
+    spool.close()
+
+
+def test_the_startup_budget_survives_a_nonsense_override(monkeypatch):
+    """A typo in the environment must not set the timeout to zero."""
+    monkeypatch.setenv("DEEP_MCP_STARTUP_TIMEOUT", "not-a-number")
+    assert _startup_timeout() == 60.0
+    monkeypatch.setenv("DEEP_MCP_STARTUP_TIMEOUT", "-1")
+    assert _startup_timeout() == 60.0
+    monkeypatch.setenv("DEEP_MCP_STARTUP_TIMEOUT", "12.5")
+    assert _startup_timeout() == 12.5
