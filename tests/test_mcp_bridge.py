@@ -18,6 +18,7 @@ import base64
 import dataclasses
 import json
 import sys
+import time
 
 import pytest
 
@@ -696,6 +697,33 @@ async def test_a_failure_is_not_cached(clean_registry, monkeypatch):
 
 @pytest.mark.asyncio
 async def test_an_expired_entry_is_refetched(clean_registry, monkeypatch):
+    """With ttl=-1 this passed without ever reaching the expiry branch.
+
+    `_cache_put` returns early when `cache_ttl_s <= 0`, so nothing was stored
+    and the refetch happened because the cache was empty — not because an entry
+    had expired. The `expires_at <= time.monotonic()` path in `_cache_get` went
+    uncovered while a test named for it stayed green.
+    """
+    bridge, conn, _ = await _cached_bridge(
+        monkeypatch, ttl=30.0, outcome=_Result([_Block("hits")])
+    )
+    handler = TOOL_SPECS["fake_search_scans"].handler
+
+    await handler(None, {"query": "x"})
+    await handler(None, {"query": "x"})
+    assert len(conn.calls) == 1, "the entry was never cached, so nothing can expire"
+
+    later = time.monotonic() + 31.0
+    monkeypatch.setattr(bridge_mod.time, "monotonic", lambda: later)
+    await handler(None, {"query": "x"})
+
+    assert len(conn.calls) == 2
+    await bridge.aclose()
+
+
+@pytest.mark.asyncio
+async def test_a_nonpositive_ttl_disables_the_cache(clean_registry, monkeypatch):
+    """The behaviour the test above used to be accidentally exercising."""
     bridge, conn, _ = await _cached_bridge(
         monkeypatch, ttl=-1, outcome=_Result([_Block("hits")])
     )
@@ -705,6 +733,7 @@ async def test_an_expired_entry_is_refetched(clean_registry, monkeypatch):
     await handler(None, {"query": "x"})
 
     assert len(conn.calls) == 2
+    assert bridge._cache_stats["stores"] == 0
     await bridge.aclose()
 
 

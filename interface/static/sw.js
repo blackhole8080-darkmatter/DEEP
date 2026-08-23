@@ -2,17 +2,39 @@
    Live data (/api, /ws, /debug, /voice) is always network-only so the app stays real-time.
    Shell assets are NETWORK-FIRST so UI updates always show when online; the cache is
    only a fallback for offline use. Bump CACHE on any shell change to purge old entries. */
-const CACHE = 'deep-v91';
+const CACHE = 'deep-v92';
+
+/* The navigable shell plus the assets that never change name. Everything else
+   the app loads is hashed by the build, so it cannot be listed here — the
+   network-first handler below caches those on first fetch, which is what makes
+   the second visit work offline.
+
+   This list used to name the legacy UI at /ai and five of its stylesheets and
+   scripts. All six are gone: /ai is no longer a route, and static/css/ and
+   static/js/ went with the legacy UI. addAll is atomic, so one 404 discarded
+   the whole precache — and the .catch below swallowed the rejection, leaving an
+   empty cache and no offline capability whatsoever.
+
+   Two things this file cannot fix on its own, both outside the change that
+   found it: nothing in the app calls navigator.serviceWorker.register(), so
+   this worker is currently dormant; and /manifest.webmanifest and /sw.js are
+   listed in the server's _PUBLIC_PATHS but served only under /static, so they
+   404 at the root a service worker would need. Neither is precached here,
+   because precaching a 404 is what caused the problem above. */
 const SHELL = [
-  '/ai',
-  '/static/css/base.css', '/static/css/app-layout.css',
-  '/static/css/ui-panels.css', '/static/css/redesign.css',
-  '/static/js/app.js',
+  '/', '/app',
   '/static/icons/icon-192.png', '/static/icons/icon-512.png'
 ];
 
 self.addEventListener('install', (e) => {
-  e.waitUntil(caches.open(CACHE).then(c => c.addAll(SHELL).catch(() => {})));
+  // One entry at a time, not addAll: a single missing asset must cost that
+  // asset, not the entire shell. Failures are logged rather than swallowed,
+  // because a silent empty cache is how the above went unnoticed.
+  e.waitUntil(caches.open(CACHE).then(c => Promise.all(
+    SHELL.map(url => c.add(url).catch(err =>
+      console.warn('[sw] could not precache', url, err)
+    ))
+  )));
   self.skipWaiting();
 });
 
@@ -38,7 +60,7 @@ self.addEventListener('fetch', (e) => {
       caches.open(CACHE).then(c => c.put(e.request, copy)).catch(() => {});
       return resp;
     }).catch(() =>
-      caches.match(e.request).then(cached => cached || caches.match('/ai'))
+      caches.match(e.request).then(cached => cached || caches.match('/'))
     )
   );
 });
