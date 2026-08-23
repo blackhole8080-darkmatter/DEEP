@@ -18,12 +18,19 @@ import base64
 import dataclasses
 import json
 import sys
+import time
 
 import pytest
 
 from core.mcp import bridge as bridge_mod
 from core.mcp.bridge import MCPBridge, render_full, render_result
-from core.mcp.client import MCPServerConnection, MCPTool
+from core.mcp.client import (
+    MCPServerConnection,
+    MCPTool,
+    _StderrTail,
+    _startup_timeout,
+    describe_exception,
+)
 from core.mcp.config import MCPServerConfig, configured_servers
 from core.tools.registry import TOOL_SPECS
 
@@ -511,6 +518,146 @@ async def test_a_real_screenshot_survives_the_subprocess_boundary(clean_registry
     assert "NOT confirmed against this scan's record" in with_domain.content
 
 
+# ── diagnosing a server that will not start ──────────────────────────────────
+#
+# The bridge already proved it survives a dead server. What it did not prove is
+# that it can say *why* one died — and that gap cost a real debugging session.
+# The MCP SDK runs its transport in an anyio task group, so a failed spawn
+# arrives as an ExceptionGroup whose str() is "unhandled errors in a TaskGroup
+# (1 sub-exception)". Reported verbatim, that names the plumbing and hides the
+# fault. These pin the diagnosis, not just the survival.
+
+
+def test_a_task_group_failure_reports_the_cause_not_the_wrapper():
+    group = ExceptionGroup(
+        "unhandled errors in a TaskGroup",
+        [FileNotFoundError(2, "No such file or directory")],
+    )
+    described = describe_exception(group)
+    assert "No such file or directory" in described
+    assert "TaskGroup" not in described
+
+
+def test_nested_groups_are_flattened_to_their_leaves():
+    inner = ExceptionGroup("inner", [RuntimeError("child exited"), ValueError("bad arg")])
+    described = describe_exception(ExceptionGroup("outer", [inner]))
+    assert "RuntimeError: child exited" in described
+    assert "ValueError: bad arg" in described
+
+
+def test_one_fault_repeated_across_tasks_is_reported_once():
+    group = ExceptionGroup("g", [BrokenPipeError("pipe"), BrokenPipeError("pipe")])
+    assert describe_exception(group).count("BrokenPipeError") == 1
+
+
+def test_an_ordinary_exception_is_described_unchanged():
+    assert describe_exception(ValueError("plain")) == "ValueError: plain"
+
+
+def test_an_exception_with_no_message_still_names_its_type():
+    assert describe_exception(RuntimeError()) == "RuntimeError"
+
+
+def _written(payload: bytes, limit: int = 8192) -> str:
+    """Push bytes through a real pipe, the way a child process would."""
+    tail = _StderrTail(limit=limit)
+    tail.file.write(payload)
+    tail.file.flush()
+    for _ in range(200):  # the drain thread is asynchronous; give it a moment
+        text = tail.text()
+        if text:
+            break
+        time.sleep(0.01)
+    tail.close()
+    return text
+
+
+def test_the_childs_own_stderr_is_attached_to_the_failure():
+    """A dying subprocess explains itself on stderr; that text must survive.
+
+    Without it the operator gets a transport-level symptom ("BrokenResourceError")
+    and no cause, which is indistinguishable from a bug in DEEP.
+    """
+    text = _written(
+        b"Traceback (most recent call last): "
+        b"ModuleNotFoundError: No module named 'urlscan_mcp'"
+    )
+    assert "No module named 'urlscan_mcp'" in text
+
+
+def test_reading_a_closed_capture_does_not_raise():
+    """Reading the child's stderr must never become a second failure."""
+    tail = _StderrTail()
+    tail.close()
+    assert tail.text() == ""
+    tail.close()  # idempotent: teardown runs on paths that already closed
+
+
+def test_a_flood_of_child_output_is_bounded_not_just_trimmed():
+    """The capture must stay small while the child writes, not only when read.
+
+    This replaced a temp file, which was unbounded on disk for the whole
+    session — and MCP servers log on every request, so it grew for as long as
+    DEEP ran. The buffer is what enforces the ceiling now.
+    """
+    limit = 4096
+    tail = _StderrTail(limit=limit)
+    for _ in range(200):
+        tail.file.write(b"noise " * 200)
+    tail.file.write(b"the actual error")
+    tail.file.flush()
+
+    text = ""
+    for _ in range(300):
+        text = tail.text()
+        if "the actual error" in text:
+            break
+        time.sleep(0.01)
+    tail.close()
+
+    assert "the actual error" in text, "the tail is the part worth keeping"
+    assert len(text) <= 820, f"kept {len(text)} chars"
+    assert text.startswith("..."), "truncation must be visible, not silent"
+
+
+def test_the_capture_never_blocks_a_chatty_child():
+    """A pipe nobody drains fills at ~64KB and blocks the writer.
+
+    That would wedge the very server we are trying to diagnose, so the drain
+    has to keep running for the session, not just around the handshake.
+    """
+    tail = _StderrTail(limit=2048)
+    started = time.perf_counter()
+    for _ in range(400):  # comfortably past any pipe buffer
+        tail.file.write(b"x" * 1024)
+    elapsed = time.perf_counter() - started
+    tail.close()
+    assert elapsed < 10, f"writer blocked for {elapsed:.1f}s — the pipe is not being drained"
+
+
+def test_the_startup_budget_survives_a_nonsense_override(monkeypatch):
+    """A typo in the environment must not set the timeout to zero."""
+    monkeypatch.setenv("DEEP_MCP_STARTUP_TIMEOUT", "not-a-number")
+    assert _startup_timeout() == 60.0
+    monkeypatch.setenv("DEEP_MCP_STARTUP_TIMEOUT", "-1")
+    assert _startup_timeout() == 60.0
+    monkeypatch.setenv("DEEP_MCP_STARTUP_TIMEOUT", "12.5")
+    assert _startup_timeout() == 12.5
+
+
+def test_an_infinite_budget_is_not_a_budget(monkeypatch):
+    """float() accepts these, and both remove the deadline entirely.
+
+    "inf" reads like "be patient", but it means a wedged child hangs the boot
+    the timeout exists to protect — the failure, reachable through a setting
+    that looks reasonable. "nan" fails every comparison, so a deadline built
+    from it never trips either.
+    """
+    for value in ("inf", "-inf", "Infinity", "nan"):
+        monkeypatch.setenv("DEEP_MCP_STARTUP_TIMEOUT", value)
+        assert _startup_timeout() == 60.0, value
+
+
 # ── caching ──────────────────────────────────────────────────────────────────
 #
 # A bridged tool runs in its own subprocess with its own HTTP client, so it
@@ -593,6 +740,33 @@ async def test_a_failure_is_not_cached(clean_registry, monkeypatch):
 
 @pytest.mark.asyncio
 async def test_an_expired_entry_is_refetched(clean_registry, monkeypatch):
+    """With ttl=-1 this passed without ever reaching the expiry branch.
+
+    `_cache_put` returns early when `cache_ttl_s <= 0`, so nothing was stored
+    and the refetch happened because the cache was empty — not because an entry
+    had expired. The `expires_at <= time.monotonic()` path in `_cache_get` went
+    uncovered while a test named for it stayed green.
+    """
+    bridge, conn, _ = await _cached_bridge(
+        monkeypatch, ttl=30.0, outcome=_Result([_Block("hits")])
+    )
+    handler = TOOL_SPECS["fake_search_scans"].handler
+
+    await handler(None, {"query": "x"})
+    await handler(None, {"query": "x"})
+    assert len(conn.calls) == 1, "the entry was never cached, so nothing can expire"
+
+    later = time.monotonic() + 31.0
+    monkeypatch.setattr(bridge_mod.time, "monotonic", lambda: later)
+    await handler(None, {"query": "x"})
+
+    assert len(conn.calls) == 2
+    await bridge.aclose()
+
+
+@pytest.mark.asyncio
+async def test_a_nonpositive_ttl_disables_the_cache(clean_registry, monkeypatch):
+    """The behaviour the test above used to be accidentally exercising."""
     bridge, conn, _ = await _cached_bridge(
         monkeypatch, ttl=-1, outcome=_Result([_Block("hits")])
     )
@@ -602,6 +776,7 @@ async def test_an_expired_entry_is_refetched(clean_registry, monkeypatch):
     await handler(None, {"query": "x"})
 
     assert len(conn.calls) == 2
+    assert bridge._cache_stats["stores"] == 0
     await bridge.aclose()
 
 
@@ -720,3 +895,105 @@ async def test_a_result_with_images_is_never_cached(clean_registry, monkeypatch)
 
     assert len(connection.calls) == 2
     await bridge.aclose()
+
+
+# ── shutdown while startup is still in flight ────────────────────────────────
+#
+# Bridge startup was moved off the boot critical path, which means a process
+# that dies young can reach shutdown with the handshake still running. Closing
+# the bridge underneath its own start() lets that task spawn subprocesses and
+# register tools *after* everything has been torn down — a child left running
+# past the server that owns it, and tools in the registry pointing at it.
+
+
+@pytest.mark.asyncio
+async def test_shutdown_stops_the_starter_before_closing_the_bridge(
+    monkeypatch, clean_registry
+):
+    started_late = False
+
+    class SlowConnection(FakeConnection):
+        async def start(self):
+            nonlocal started_late
+            await asyncio.sleep(0.2)  # a handshake still in flight at shutdown
+            started_late = True
+            return await super().start()
+
+    config = _config()
+    connection = SlowConnection(config, [_tool("thing")])
+    monkeypatch.setattr(bridge_mod, "MCPServerConnection", lambda cfg: connection)
+
+    bridge = MCPBridge([config])
+    task = asyncio.create_task(bridge.start())
+    await asyncio.sleep(0)  # let start() reach its first await
+
+    # What interface/server.py's shutdown does, in the same order.
+    if not task.done():
+        task.cancel()
+        try:
+            await task
+        except (asyncio.CancelledError, Exception):
+            pass
+    await bridge.aclose()
+
+    await asyncio.sleep(0.3)  # past when the slow handshake would have landed
+    assert not started_late, "the handshake continued after shutdown"
+    assert "fake_thing" not in TOOL_SPECS, "a tool was registered after shutdown"
+
+
+# ── a failure must arrive as a failure ───────────────────────────────────────
+
+
+@pytest.mark.asyncio
+async def test_a_server_side_error_is_not_reported_as_success(monkeypatch, clean_registry):
+    """The text said "Tool reported an error" while the data said ok=True.
+
+    ToolResult.ok is what the rest of DEEP branches on — metrics, retries, and
+    the brain's own judgement of whether it has an answer. Only the prose
+    carried the failure, so everything that reads the flag counted it as a
+    success.
+    """
+    bridge, _, _ = await _bridge_with(
+        monkeypatch, _config(), [_tool("thing")],
+        _Result([_Block("upstream is down")], is_error=True),
+    )
+    try:
+        result = await TOOL_SPECS["fake_thing"].handler(None, {})
+    finally:
+        await bridge.aclose()
+
+    assert result.ok is False
+    assert "upstream is down" in result.content
+
+
+@pytest.mark.asyncio
+async def test_one_servers_surprise_does_not_unregister_the_others(
+    monkeypatch, clean_registry
+):
+    """A server that fails in an unanticipated way is a missing capability.
+
+    Without return_exceptions, the first surprise aborts the whole gather and
+    every healthy server beside it goes unregistered — the bridge reporting
+    nothing bridged because one entry out of several was bad.
+    """
+    good = _config(id="good")
+    bad = _config(id="bad")
+    healthy = FakeConnection(good, [_tool("works")])
+
+    def build(cfg):
+        if cfg.id == "bad":
+            raise RuntimeError("config blew up on construction")
+        return healthy
+
+    monkeypatch.setattr(bridge_mod, "MCPServerConnection", build)
+
+    bridge = MCPBridge([bad, good])
+    try:
+        report = await bridge.start()
+
+        assert "good_works" in TOOL_SPECS, "the healthy server was lost with the bad one"
+        assert report["tools_registered"] == 1
+        failed = next(e for e in report["servers"] if e["id"] == "bad")
+        assert "config blew up" in failed["error"]
+    finally:
+        await bridge.aclose()

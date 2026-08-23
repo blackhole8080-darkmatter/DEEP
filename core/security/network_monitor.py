@@ -35,6 +35,7 @@ import json
 import logging
 import re
 import socket
+import threading
 import struct
 import subprocess
 import time
@@ -229,6 +230,26 @@ def _lookup_vendor(mac: str) -> Optional[str]:
 # Network Monitor
 # ═══════════════════════════════════════════════════════════════════════════════
 
+#: A reverse lookup that has not answered in this long will not answer usefully.
+#: The device is still tracked; it is simply listed by address.
+HOSTNAME_TIMEOUT_S = 1.5
+
+#: How long a resolved (or unresolvable) name is trusted. Names on a home LAN
+#: do not move faster than this, and re-asking is what made sweeps expensive.
+HOSTNAME_CACHE_TTL_S = 900.0
+
+#: Reverse lookups get their own threads, not asyncio's shared default pool.
+#: `asyncio.wait_for` abandons the *await*; it cannot stop a `gethostbyaddr`
+#: that has already entered the C library, so a silent resolver leaves a worker
+#: occupied for however long the system resolver takes — well past our 1.5s
+#: deadline. On the shared pool those stragglers accumulate across sweeps and
+#: eventually starve everything else that calls `to_thread`, including the ARP
+#: and connection collectors in this same sweep. Here they can only starve each
+#: other, and the next sweep's lookups queue behind them instead of the rest of
+#: DEEP doing so.
+HOSTNAME_RESOLVER_THREADS = 8
+
+
 class NetworkMonitor:
     """
     Local network security monitor.
@@ -260,14 +281,33 @@ class NetworkMonitor:
         self._initialized = False
         self._scan_task: Optional[asyncio.Task] = None
         self._scan_interval = 30  # seconds
+        #: ip -> (hostname or None, monotonic timestamp). Negatives are cached
+        #: too; see _resolve_hostnames.
+        self._hostname_cache: Dict[str, tuple[Optional[str], float]] = {}
+        #: Created on first use so a monitor that never sweeps costs no threads,
+        #: and kept for the monitor's lifetime — see _resolver.
+        #: Ceiling on concurrent reverse lookups; see _resolver_bound.
+        self._resolver_gate: Optional[asyncio.Semaphore] = None
         self._last_scan: Optional[datetime] = None
         
         # Load previous state if exists
         self._load_state()
 
     async def start(self) -> None:
-        """Activate the network monitor."""
-        await self.initialize()
+        """Activate the network monitor, without waiting for the first sweep.
+
+        The baseline used to be established here, synchronously: probe every
+        address on the LAN, then return. That is tens of seconds when nmap is
+        absent and each probe has to wait out its own timeout — and the caller
+        is a server whose port does not open until startup returns, so the
+        whole wait was charged to the user as an unreachable server.
+
+        Nothing was gained by waiting. The background loop's first action is
+        that identical sweep, so the scan simply ran twice. The loop now marks
+        the baseline when its first sweep lands; until then
+        ``baseline_established`` stays False and the device-flood check does
+        not fire — exactly the state a fresh install is in anyway.
+        """
         self.start_monitoring()
         logger.info("[NetworkMonitor] Started")
 
@@ -372,6 +412,14 @@ class NetworkMonitor:
             return
         logger.info("[NetworkMonitor] Initializing...")
         await self._do_scan()
+        self._establish_baseline()
+
+    def _establish_baseline(self) -> None:
+        """Record what "normal" looks like, once a sweep has actually seen it.
+
+        Called from whichever sweep lands first — the explicit ``initialize()``
+        or the background loop — and idempotent, because both may run.
+        """
         if not self.baseline_established and self.device_registry:
             self.baseline_device_count = len(self.device_registry)
             self.baseline_established = True
@@ -468,6 +516,7 @@ class NetworkMonitor:
         while True:
             try:
                 await self._do_scan()
+                self._establish_baseline()
                 self._save_state()
             except Exception as e:
                 logger.error(f"[NetworkMonitor] Scan error: {e}")
@@ -477,9 +526,10 @@ class NetworkMonitor:
         """Perform one full network scan."""
         self._last_scan = datetime.utcnow()
         
-        # Collect data from multiple sources
-        arp_entries = self._get_arp_table()
-        connections = self._get_connection_peers()
+        # Collect data from multiple sources. Both shell out or walk kernel
+        # tables and block; on the event loop that stalls every other request.
+        arp_entries = await asyncio.to_thread(self._get_arp_table)
+        connections = await asyncio.to_thread(self._get_connection_peers)
         
         # Merge into unified device view
         all_ips: Dict[str, str] = {}  # ip -> mac
@@ -497,17 +547,25 @@ class NetworkMonitor:
                 all_ips[ip] = mac
                 all_macs[mac] = ip
         
-        # Resolve hostnames
-        hostnames = self._resolve_hostnames(list(all_ips.keys()))
-        
-        # Get network info for gateway detection
-        _, _, _, gateway = self._get_network_info()
-        
+        # Gateway detection shells out to `route print` with a five-second
+        # timeout. On the event loop that is five seconds of frozen server, on
+        # every sweep — a smaller copy of the freeze this whole path was rewritten
+        # to remove.
+        _, _, _, gateway = await asyncio.to_thread(self._get_network_info)
+
         # Drop internet IPs — only track devices on the local subnet.
         # ARP caches on Windows often contain internet IPs mapped to the gateway
         # MAC, which would otherwise flood the activity feed with "Unknown vendor"
         # alerts for every browser tab open to an external server.
+        #
+        # This filter runs *before* hostname resolution, not after. Resolving
+        # first meant every external address a browser tab had touched got its
+        # own reverse-DNS lookup, and the answers were thrown away one line
+        # later: 29 lookups to keep 4. That was measured at 121s per sweep.
         all_ips = {ip: mac for ip, mac in all_ips.items() if self._is_local_ip(ip)}
+
+        # Resolve hostnames (only for the devices we are actually keeping)
+        hostnames = await self._resolve_hostnames(list(all_ips.keys()))
 
         # Process each device
         current_macs = set()
@@ -712,16 +770,120 @@ class NetworkMonitor:
         except Exception:
             return ip
 
-    def _resolve_hostnames(self, ips: List[str]) -> Dict[str, str]:
-        """Resolve hostnames for a list of IPs."""
-        hostnames = {}
-        for ip in ips:
+    def _resolver_bound(self) -> asyncio.Semaphore:
+        """The ceiling on concurrent reverse lookups, created once and kept.
+
+        Deliberately *not* released by ``stop()``, which is the tempting move
+        and the wrong one. A ``gethostbyaddr`` already inside the C library
+        keeps running whatever we do — that is the whole reason lookups are
+        isolated — so handing out a fresh allowance on the next sweep means a
+        stop/start cycle can leave eight stalled lookups behind and permit
+        eight more. Repeat the cycle and the bound is gone. One allowance for
+        the monitor's lifetime stays bounded across any number of cycles.
+
+        The threads themselves are daemons rather than a ThreadPoolExecutor's
+        workers, which are not daemons on 3.9+ and are joined by the atexit
+        hook in concurrent.futures. That made the bound and a prompt exit
+        mutually exclusive: measured, ``shutdown(wait=False)`` returned in
+        0.16s while the interpreter waited the full 3.17s for one stalled
+        lookup — the freeze this function removed from the sweep, relocated to
+        shutdown. A daemon thread is never joined, so both properties hold at
+        once: the allowance bounds how many lookups can be in flight, and
+        nothing the resolver does can keep DEEP from exiting.
+        """
+        if self._resolver_gate is None:
+            self._resolver_gate = asyncio.Semaphore(HOSTNAME_RESOLVER_THREADS)
+        return self._resolver_gate
+
+    async def _resolve_hostnames(self, ips: List[str]) -> Dict[str, str]:
+        """Reverse-resolve a set of IPs, concurrently and with a deadline.
+
+        ``socket.gethostbyaddr`` is blocking and has no timeout argument: an
+        address with no PTR record costs whatever the resolver decides, and a
+        serial loop pays that per IP. Measured here, one sweep spent 121s
+        inside this function while the event loop — the whole server, HUD and
+        API included — sat frozen behind it, then did it again 30s later.
+
+        So: each lookup goes to a worker thread, they run together rather than
+        in sequence, and each is abandoned at ``HOSTNAME_TIMEOUT_S``. A device
+        whose name we cannot learn quickly is listed by address, which is what
+        the UI showed for it anyway.
+
+        Answers are cached, negatives included — an address that has no PTR
+        record still has none 30 seconds later, and re-asking is how a sweep
+        that should be instant becomes a stall.
+        """
+        if not ips:
+            return {}
+
+        now = time.monotonic()
+        # Drop expired entries rather than merely skipping them. A monitor runs
+        # for weeks and sees every address a machine has ever spoken to; left in
+        # place, dead entries make each sweep walk a dictionary that only grows.
+        for ip in [
+            ip for ip, (_, at) in self._hostname_cache.items()
+            if now - at >= HOSTNAME_CACHE_TTL_S
+        ]:
+            del self._hostname_cache[ip]
+
+        fresh = {ip: name for ip, (name, _) in self._hostname_cache.items()}
+        unknown = [ip for ip in ips if ip not in fresh]
+
+        loop = asyncio.get_running_loop()
+        gate = self._resolver_bound()
+
+        async def resolve(ip: str) -> tuple[str, Optional[str]]:
+            # The allowance is held for the thread's real lifetime, not until
+            # the await gives up: an abandoned lookup still occupies its slot
+            # until the C call returns, which is what keeps the ceiling honest.
+            await gate.acquire()
+            answer: "asyncio.Future[Optional[str]]" = loop.create_future()
+
+            def deliver(name: Optional[str]) -> None:
+                gate.release()
+                if not answer.done():
+                    answer.set_result(name)
+
+            def work() -> None:
+                # Every exception, not just the expected socket ones. The
+                # allowance is handed back by `deliver`, so a lookup that dies
+                # any other way never returns its slot — and eight of those
+                # exhaust the semaphore permanently, leaving every later sweep
+                # blocked forever on `acquire()`. That is the freeze this whole
+                # function exists to remove, made permanent rather than merely
+                # long. `gethostbyaddr` really does raise outside the socket
+                # family: a PTR record that is not valid UTF-8 surfaces as
+                # UnicodeDecodeError, and on a hostile LAN the record is the
+                # attacker's to choose.
+                try:
+                    name, _, _ = socket.gethostbyaddr(ip)
+                except Exception:
+                    name = None
+                try:
+                    loop.call_soon_threadsafe(deliver, name)
+                except RuntimeError:
+                    # The loop is gone, so there is nobody to tell and nothing
+                    # left to protect. Releasing from this thread is not an
+                    # option: asyncio.Semaphore is not thread-safe.
+                    pass
+
+            threading.Thread(target=work, name=f"deep-ptr-{ip}", daemon=True).start()
             try:
-                hostname, _, _ = socket.gethostbyaddr(ip)
-                hostnames[ip] = hostname
-            except (socket.herror, socket.gaierror):
-                pass
-        return hostnames
+                return ip, await asyncio.wait_for(
+                    asyncio.shield(answer), timeout=HOSTNAME_TIMEOUT_S
+                )
+            except (asyncio.TimeoutError, asyncio.CancelledError):
+                return ip, None
+
+        for ip, name in await asyncio.gather(*(resolve(ip) for ip in unknown)):
+            self._hostname_cache[ip] = (name, now)
+
+        resolved: Dict[str, str] = {}
+        for ip in ips:
+            name = fresh.get(ip) if ip in fresh else self._hostname_cache.get(ip, (None, 0))[0]
+            if name:
+                resolved[ip] = name
+        return resolved
 
     # ─── Anomaly Detection ───────────────────────────────────────────────────
 

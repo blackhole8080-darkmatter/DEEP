@@ -6,8 +6,9 @@ import { resolve } from "path";
 //   FastAPI server on :5174 so the new UI talks to the real backend.
 // - Prod: `npm run build` emits hashed assets into ../static/app-dist, which
 //   FastAPI already serves via the /static mount. The shell is then reachable
-//   at /app (see the new route in interface/server.py) with ZERO impact on the
-//   legacy UI at /ai.
+//   at /app (see the route in interface/server.py). The legacy UI this once
+//   sat beside is gone — static/ now holds only app-dist, icons and the
+//   service worker — so /app and / are the whole of the front end.
 export default defineConfig(({ command }) => ({
   base: command === "build" ? "/static/app-dist/" : "/",
   build: {

@@ -24,12 +24,13 @@ Three decisions shape this:
 from __future__ import annotations
 
 import json
+import asyncio
 import logging
 import time
 from typing import Any, Dict, List, Optional, Tuple
 
 from core.domain.models import ToolImage, ToolResult
-from core.mcp.client import MCPServerConnection, MCPTool
+from core.mcp.client import MCPServerConnection, MCPTool, describe_exception
 from core.mcp.config import MCPServerConfig, configured_servers
 from core.tools.registry import TOOL_SPECS, ToolSpec
 
@@ -71,26 +72,62 @@ class MCPBridge:
         a missing capability, not a failed boot.
         """
         report: Dict[str, Any] = {"servers": [], "tools_registered": 0}
-        for config in self._configs:
+
+        async def _bring_up(config: MCPServerConfig) -> Dict[str, Any]:
             entry: Dict[str, Any] = {"id": config.id, "tools": []}
             if not config.available:
                 entry["skipped"] = config.unavailable_reason
-                report["servers"].append(entry)
                 logger.info("[MCP] skipping %s: %s", config.id, config.unavailable_reason)
-                continue
+                return entry
 
             connection = MCPServerConnection(config)
             self._connections[config.id] = connection
             if not await connection.start():
                 entry["error"] = connection.last_error
-                report["servers"].append(entry)
-                continue
+                return entry
+            entry["connection"] = connection
+            return entry
 
-            for tool in connection.tools:
-                name = self._register(connection, tool)
-                if name:
-                    entry["tools"].append(name)
-            report["tools_registered"] += len(entry["tools"])
+        # Concurrently, because these waits are independent and each one can
+        # burn the full startup timeout. Started serially, one wedged server
+        # delayed every server behind it; the bridge took as long as the sum
+        # of its worst cases instead of the longest one.
+        # return_exceptions, because _bring_up can fail in ways it does not
+        # anticipate — a malformed config, a connection object that raises on
+        # construction. Without it, one such server aborts the whole gather and
+        # every healthy server beside it goes unregistered: the bridge reports
+        # nothing bridged because one entry out of many was bad. A server that
+        # cannot start is a missing capability, and that is as true of a
+        # surprising failure as of an expected one.
+        results = await asyncio.gather(
+            *(_bring_up(config) for config in self._configs),
+            return_exceptions=True,
+        )
+        entries: List[Dict[str, Any]] = []
+        for config, result in zip(self._configs, results):
+            if isinstance(result, BaseException):
+                logger.warning(
+                    "[MCP] %s failed to start: %s", config.id, describe_exception(result)
+                )
+                entries.append({
+                    "id": config.id,
+                    "tools": [],
+                    "error": describe_exception(result),
+                })
+            else:
+                entries.append(result)
+
+        # Registration stays sequential and on this task: it mutates the shared
+        # TOOL_SPECS registry, and name collisions must resolve in a stable
+        # order rather than by whichever handshake happened to finish first.
+        for entry in entries:
+            connection = entry.pop("connection", None)
+            if connection is not None:
+                for tool in connection.tools:
+                    name = self._register(connection, tool)
+                    if name:
+                        entry["tools"].append(name)
+                report["tools_registered"] += len(entry["tools"])
             report["servers"].append(entry)
         return report
 
@@ -134,15 +171,24 @@ class MCPBridge:
                 logger.warning("[MCP] %s.%s failed: %s", _conn.config.id, _tool.name, exc)
                 return ToolResult(False, f"{name} failed: {exc}", name)
             rendered, images = render_full(raw)
+            # A tool that failed on the server side is a failed tool call. The
+            # text already said so — render_full prefixes "Tool reported an
+            # error" — but ToolResult.ok is the flag the rest of DEEP branches
+            # on, and reporting ok=True meant a failure counted as a success
+            # everywhere that does not read the prose: metrics, retry
+            # decisions, and the brain's own judgement of whether it has an
+            # answer. Failing loudly in the text and quietly succeeding in the
+            # data is the worst of both.
+            failed = bool(getattr(raw, "isError", False))
             # Only successful results are stored. Caching a failure would turn
             # one bad minute upstream into an hour of the model being told the
             # same lie, which the native path avoids by capping error TTLs.
-            if not getattr(raw, "isError", False) and not images:
+            if not failed and not images:
                 # Only text is cached: an image is orders of magnitude larger
                 # than the entries this cache is sized for, and one would evict
                 # the whole working set.
                 self._cache_put(_conn.config, _tool.name, args, rendered)
-            return ToolResult(True, rendered, name, images=images)
+            return ToolResult(not failed, rendered, name, images=images)
 
         TOOL_SPECS[name] = ToolSpec(name, description, tool.arg_hints, handler)
         self._registered.append(name)
