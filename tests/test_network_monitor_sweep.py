@@ -37,20 +37,32 @@ def monitor(tmp_path):
 
 @pytest.mark.asyncio
 async def test_a_resolver_that_never_answers_does_not_stall_the_sweep(monitor, monkeypatch):
-    """The original failure mode: one silent address, one stalled server."""
+    """The original failure mode: one silent address, one stalled server.
+
+    The stand-in blocks on an Event rather than sleeping, and the Event is set
+    in `finally`. `wait_for` abandons the await but cannot stop the thread — the
+    property under test — so a fixed sleep would leave a worker running after
+    the assertions pass, and the interpreter joins those workers at exit. A test
+    for not blocking should not itself block the shutdown.
+    """
+    release = threading.Event()
+
     def hangs(ip):
-        time.sleep(30)
+        release.wait(30)
         raise AssertionError("should have been abandoned long before this")
 
     monkeypatch.setattr(socket, "gethostbyaddr", hangs)
     monkeypatch.setattr(nm, "HOSTNAME_TIMEOUT_S", 0.2)
 
-    started = time.perf_counter()
-    result = await monitor._resolve_hostnames(["10.0.0.7"])
-    elapsed = time.perf_counter() - started
+    try:
+        started = time.perf_counter()
+        result = await monitor._resolve_hostnames(["10.0.0.7"])
+        elapsed = time.perf_counter() - started
 
-    assert result == {}, "an unresolved address must not invent a name"
-    assert elapsed < 5, f"gave up after {elapsed:.1f}s; the deadline is not being applied"
+        assert result == {}, "an unresolved address must not invent a name"
+        assert elapsed < 5, f"gave up after {elapsed:.1f}s; the deadline is not being applied"
+    finally:
+        release.set()
 
 
 @pytest.mark.asyncio

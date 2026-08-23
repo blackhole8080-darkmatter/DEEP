@@ -60,7 +60,13 @@ self.addEventListener('fetch', (e) => {
       caches.open(CACHE).then(c => c.put(e.request, copy)).catch(() => {});
       return resp;
     }).catch(() =>
-      caches.match(e.request).then(cached => cached || caches.match('/'))
+      // The shell is a fallback for *navigations* only. Handing index.html to an
+      // uncached script or stylesheet request is worse than the network error it
+      // replaces: the browser gets text/html where it asked for JavaScript, and
+      // fails on a syntax error instead of an offline one.
+      caches.match(e.request).then(cached =>
+        cached || (e.request.mode === 'navigate' ? caches.match('/') : undefined)
+      )
     )
   );
 });
