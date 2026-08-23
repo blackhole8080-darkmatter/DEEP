@@ -867,3 +867,61 @@ async def test_shutdown_stops_the_starter_before_closing_the_bridge(
     await asyncio.sleep(0.3)  # past when the slow handshake would have landed
     assert not started_late, "the handshake continued after shutdown"
     assert "fake_thing" not in TOOL_SPECS, "a tool was registered after shutdown"
+
+
+# ── a failure must arrive as a failure ───────────────────────────────────────
+
+
+@pytest.mark.asyncio
+async def test_a_server_side_error_is_not_reported_as_success(monkeypatch, clean_registry):
+    """The text said "Tool reported an error" while the data said ok=True.
+
+    ToolResult.ok is what the rest of DEEP branches on — metrics, retries, and
+    the brain's own judgement of whether it has an answer. Only the prose
+    carried the failure, so everything that reads the flag counted it as a
+    success.
+    """
+    bridge, _, _ = await _bridge_with(
+        monkeypatch, _config(), [_tool("thing")],
+        _Result([_Block("upstream is down")], is_error=True),
+    )
+    try:
+        result = await TOOL_SPECS["fake_thing"].handler(None, {})
+    finally:
+        await bridge.aclose()
+
+    assert result.ok is False
+    assert "upstream is down" in result.content
+
+
+@pytest.mark.asyncio
+async def test_one_servers_surprise_does_not_unregister_the_others(
+    monkeypatch, clean_registry
+):
+    """A server that fails in an unanticipated way is a missing capability.
+
+    Without return_exceptions, the first surprise aborts the whole gather and
+    every healthy server beside it goes unregistered — the bridge reporting
+    nothing bridged because one entry out of several was bad.
+    """
+    good = _config(id="good")
+    bad = _config(id="bad")
+    healthy = FakeConnection(good, [_tool("works")])
+
+    def build(cfg):
+        if cfg.id == "bad":
+            raise RuntimeError("config blew up on construction")
+        return healthy
+
+    monkeypatch.setattr(bridge_mod, "MCPServerConnection", build)
+
+    bridge = MCPBridge([bad, good])
+    try:
+        report = await bridge.start()
+
+        assert "good_works" in TOOL_SPECS, "the healthy server was lost with the bad one"
+        assert report["tools_registered"] == 1
+        failed = next(e for e in report["servers"] if e["id"] == "bad")
+        assert "config blew up" in failed["error"]
+    finally:
+        await bridge.aclose()

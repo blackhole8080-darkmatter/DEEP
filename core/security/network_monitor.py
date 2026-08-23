@@ -284,7 +284,8 @@ class NetworkMonitor:
         #: ip -> (hostname or None, monotonic timestamp). Negatives are cached
         #: too; see _resolve_hostnames.
         self._hostname_cache: Dict[str, tuple[Optional[str], float]] = {}
-        #: Created on first use so a monitor that never sweeps costs no threads.
+        #: Created on first use so a monitor that never sweeps costs no threads,
+        #: and kept for the monitor's lifetime — see _resolver.
         self._resolver_pool: Optional[ThreadPoolExecutor] = None
         self._last_scan: Optional[datetime] = None
         
@@ -312,12 +313,6 @@ class NetworkMonitor:
     async def stop(self) -> None:
         """Deactivate the network monitor."""
         self.stop_monitoring()
-        if self._resolver_pool is not None:
-            # Do not wait: a stalled lookup is exactly what this pool exists to
-            # contain, and blocking shutdown on one would hand the freeze we
-            # removed from the sweep to the shutdown path instead.
-            self._resolver_pool.shutdown(wait=False)
-            self._resolver_pool = None
         logger.info("[NetworkMonitor] Stopped")
 
     def status(self) -> Dict[str, Any]:
@@ -774,6 +769,32 @@ class NetworkMonitor:
         except Exception:
             return ip
 
+    def _resolver(self) -> ThreadPoolExecutor:
+        """The monitor's reverse-lookup threads, created once and kept.
+
+        Deliberately *not* released by ``stop()``, which is the tempting move
+        and the wrong one. ``shutdown(wait=False)`` returns while a
+        ``gethostbyaddr`` already inside the C library keeps running — that is
+        the whole reason these threads are isolated — so dropping the pool and
+        building a fresh one on the next sweep means a stop/start cycle can
+        leave eight stalled workers behind and start eight more. Repeat the
+        cycle and the bound this pool exists to enforce is gone, with the
+        interpreter's exit hook eventually waiting on all of them.
+
+        The two properties cannot both be had while a lookup is uninterruptible:
+        release the threads promptly, or keep the count bounded. Bounded wins —
+        an idle worker parked on an empty queue costs a stack and nothing else,
+        and one pool for the monitor's lifetime is bounded across any number of
+        cycles. It is also why a stop mid-sweep cannot leave the next sweep
+        submitting to a dead executor.
+        """
+        if self._resolver_pool is None:
+            self._resolver_pool = ThreadPoolExecutor(
+                max_workers=HOSTNAME_RESOLVER_THREADS,
+                thread_name_prefix="deep-ptr",
+            )
+        return self._resolver_pool
+
     async def _resolve_hostnames(self, ips: List[str]) -> Dict[str, str]:
         """Reverse-resolve a set of IPs, concurrently and with a deadline.
 
@@ -809,12 +830,7 @@ class NetworkMonitor:
         unknown = [ip for ip in ips if ip not in fresh]
 
         loop = asyncio.get_running_loop()
-        pool = self._resolver_pool
-        if pool is None:
-            pool = self._resolver_pool = ThreadPoolExecutor(
-                max_workers=HOSTNAME_RESOLVER_THREADS,
-                thread_name_prefix="deep-ptr",
-            )
+        pool = self._resolver()
 
         async def resolve(ip: str) -> tuple[str, Optional[str]]:
             try:
