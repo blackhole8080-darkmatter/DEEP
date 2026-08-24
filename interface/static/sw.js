@@ -2,7 +2,7 @@
    Live data (/api, /ws, /debug, /voice) is always network-only so the app stays real-time.
    Shell assets are NETWORK-FIRST so UI updates always show when online; the cache is
    only a fallback for offline use. Bump CACHE on any shell change to purge old entries. */
-const CACHE = 'deep-v92';
+const CACHE = 'deep-v93';
 
 /* The navigable shell plus the assets that never change name. Everything else
    the app loads is hashed by the build, so it cannot be listed here — the
@@ -15,14 +15,14 @@ const CACHE = 'deep-v92';
    the whole precache — and the .catch below swallowed the rejection, leaving an
    empty cache and no offline capability whatsoever.
 
-   Two things this file cannot fix on its own, both outside the change that
-   found it: nothing in the app calls navigator.serviceWorker.register(), so
-   this worker is currently dormant; and /manifest.webmanifest and /sw.js are
-   listed in the server's _PUBLIC_PATHS but served only under /static, so they
-   404 at the root a service worker would need. Neither is precached here,
-   because precaching a 404 is what caused the problem above. */
+   The two things this file could not fix on its own are fixed now: main.ts
+   registers this worker on load, and interface/server.py serves /sw.js and
+   /manifest.webmanifest from the root — /sw.js with Service-Worker-Allowed, so
+   the worker claims scope "/" rather than the /static/* it would otherwise be
+   confined to. The manifest is back in the shell because it finally resolves. */
 const SHELL = [
   '/', '/app',
+  '/manifest.webmanifest',
   '/static/icons/icon-192.png', '/static/icons/icon-512.png'
 ];
 

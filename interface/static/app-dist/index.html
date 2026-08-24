@@ -7,7 +7,14 @@
   <!-- No webfont CDN. DEEP is local-first and usable fully offline, so the
        UI must not depend on (or leak page loads to) fonts.googleapis.com.
        design/tokens.css carries system-font stacks instead. -->
-  <script type="module" crossorigin src="/static/app-dist/assets/index-BGH6ox3P.js"></script>
+  <!-- Root-scope PWA wiring. The manifest declares start_url /app and scope /,
+       and interface/server.py serves it (and /sw.js) from the root so the
+       worker can claim that scope. -->
+  <link rel="manifest" href="/manifest.webmanifest" />
+  <link rel="icon" href="/favicon.ico" />
+  <link rel="apple-touch-icon" href="/static/icons/apple-touch-icon.png" />
+  <meta name="theme-color" content="#050608" />
+  <script type="module" crossorigin src="/static/app-dist/assets/index-CGdgnuee.js"></script>
   <link rel="stylesheet" crossorigin href="/static/app-dist/assets/index-CF-gEGjW.css">
 </head>
 <body>

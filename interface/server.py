@@ -1094,6 +1094,45 @@ async def spa_root():
 async def spa_app():
     return _spa_index()
 
+
+# ── PWA root scope ───────────────────────────────────────────────────────────
+# These three are already named in _PUBLIC_PATHS — the auth layer has always
+# expected them at the root — but nothing served them there. They existed only
+# under /static, so the manifest 404'd and the service worker was unreachable at
+# the only scope it can usefully claim: a worker served from /static/sw.js
+# controls /static/* and nothing else, so the app it exists to cache was outside
+# its reach. Serving it here, with Service-Worker-Allowed, gives it scope "/" —
+# which is what manifest.webmanifest already declares.
+
+@app.get("/manifest.webmanifest")
+async def pwa_manifest():
+    return FileResponse(
+        str(static_path / "manifest.webmanifest"),
+        media_type="application/manifest+json",
+    )
+
+
+@app.get("/sw.js")
+async def service_worker():
+    return FileResponse(
+        str(static_path / "sw.js"),
+        media_type="application/javascript",
+        headers={
+            # Scope is capped by where the script is served from unless this
+            # says otherwise.
+            "Service-Worker-Allowed": "/",
+            # A cached worker is a worker that never updates itself.
+            "Cache-Control": "no-cache",
+        },
+    )
+
+
+@app.get("/favicon.ico")
+async def favicon():
+    # No .ico in the tree; browsers accept a PNG here and ask for it on every
+    # first load, so answering beats a 404 in the log on every visit.
+    return FileResponse(str(static_path / "icons" / "icon-192.png"), media_type="image/png")
+
 # ── Science Studio — REMOVED ───────────────────────────────────────────────
 # /api/science/compute, /api/math/solve and the /science-output media mount are
 # gone. The compute engine behind them was archived (see archive/), so
