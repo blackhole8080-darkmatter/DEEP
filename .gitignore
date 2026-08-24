@@ -28,6 +28,14 @@ ai/models/
 *.sqlite
 *.bin
 *.pt
+
+# Remote-access state is the same class of thing: one machine's Tailscale
+# address and the moment it was last seen, written by network/remote_access.py
+# on every connect. It was tracked, so a clone arrived carrying whoever
+# committed it last — a real personal IP in the repo, and a URL that
+# get_access_info() would hand back to the next user as if it were theirs.
+# Absent is already a supported state; it reports "not_connected".
+network/remote_access_info.json
 *.gguf
 
 # Node

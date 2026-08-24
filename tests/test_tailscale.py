@@ -163,3 +163,32 @@ async def main():
 
 if __name__ == "__main__":
     asyncio.run(main())
+
+
+def test_remote_access_state_is_not_tracked_in_git():
+    """One machine's Tailscale address is runtime state, not source.
+
+    It was committed, so a clone arrived carrying whoever pushed last: a real
+    personal IP in the repository, and a URL `get_access_info()` would hand the
+    next user as though it were their own. `ai/models/` is ignored for exactly
+    this reason — per-machine output that describes one host.
+    """
+    import subprocess
+    from pathlib import Path
+
+    root = Path(__file__).resolve().parent.parent
+    tracked = subprocess.run(
+        ["git", "ls-files", "network/remote_access_info.json"],
+        cwd=root, capture_output=True, text=True, timeout=60,
+    )
+    assert tracked.returncode == 0, tracked.stderr
+    assert not tracked.stdout.strip(), (
+        "network/remote_access_info.json is tracked again; it holds a machine's "
+        "own Tailscale address"
+    )
+
+    ignored = subprocess.run(
+        ["git", "check-ignore", "network/remote_access_info.json"],
+        cwd=root, capture_output=True, text=True, timeout=60,
+    )
+    assert ignored.returncode == 0, "it is untracked but not ignored, so it will drift back in"
