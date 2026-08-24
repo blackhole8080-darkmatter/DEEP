@@ -213,6 +213,28 @@ class Settings:
     rate_limit_per_min: int = int(_get_env("DEEP_RATE_LIMIT_PER_MIN", "240"))
 
     # ----------------------------
+    # Where DEEP listens (v3)
+    # ----------------------------
+    # The one place the server's address is written down. It used to be written
+    # out at every call site instead, and drifted: the port moved to 5174 while
+    # `network/remote_access.py`, `core/tools/legacy.py`, the Windows client and
+    # `mcp_server/deep_mcp.py` were all still pointing at 7768 — each of them a
+    # feature that silently connected to nothing. Callers derive their URLs from
+    # `base_url` / `ws_url` rather than composing the port themselves, so the
+    # next move updates them all at once.
+    deep_host: str = _get_env("DEEP_HOST", "127.0.0.1")
+    deep_port: int = int(_get_env("DEEP_PORT", "5174"))
+
+    def base_url(self, host: Optional[str] = None) -> str:
+        """HTTP origin for this server. `host` overrides for remote access —
+        a Tailscale address, say — while keeping the port in one place."""
+        return f"http://{host or self.deep_host}:{self.deep_port}"
+
+    def ws_url(self, path: str = "/ws/deep", host: Optional[str] = None) -> str:
+        """WebSocket URL for `path`, same host and port as `base_url`."""
+        return f"ws://{host or self.deep_host}:{self.deep_port}{path}"
+
+    # ----------------------------
     # Integrations
     # ----------------------------
     brave_api_key: Optional[str] = _get_env_opt("BRAVE_API_KEY")

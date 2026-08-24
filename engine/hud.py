@@ -8,7 +8,7 @@ Endpoints:
   WS   /ws          -> real-time command/response stream
 
 Runs on config.FASTAPI_PORT (default 8000) — separate from the live DEEP
-server on 7768, so the two never collide. Launch:  python -m engine.hud
+server on 5174, so the two never collide. Launch:  python -m engine.hud
 """
 from __future__ import annotations
 

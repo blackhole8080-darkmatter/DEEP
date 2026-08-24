@@ -10,6 +10,6 @@ REM Disable agent self-critique pass: it adds LLM calls that blow past Groq's
 REM free-tier 12k TPM limit (429s). Remove this line if agents move off Groq.
 set DEEP_AGENT_REFLECTION=0
 REM Auto-start the Engineering-Bible engine HUD on :8000 (separate from the
-REM main server on :7768). Runs in the background; lazy-loads science deps.
+REM main server on :5174). Runs in the background; lazy-loads science deps.
 start "DEEP-HUD" /b cmd /c "python -m engine.hud >> ""C:\Users\Aryan\Aryan_Private\myAi\logs\engine_hud.log"" 2>&1"
 python interface\server.py >> "C:\Users\Aryan\Aryan_Private\myAi\logs\server_autostart.log" 2>&1

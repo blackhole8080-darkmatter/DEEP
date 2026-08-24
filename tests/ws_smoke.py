@@ -3,7 +3,8 @@ import asyncio, json, sys
 import websockets
 
 async def main(prompt: str):
-    uri = "ws://127.0.0.1:7768/ws/deep"
+    from core.config import Settings
+    uri = Settings().ws_url()
     async with websockets.connect(uri, max_size=None) as ws:
         await ws.send(json.dumps({"type": "chat", "text": prompt, "mode": "auto"}))
         full = ""

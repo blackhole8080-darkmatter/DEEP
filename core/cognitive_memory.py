@@ -9,7 +9,7 @@ differently:
 
     episodic   — what happened and WHEN        ("Aryan asked about Tailscale at 2pm Friday")
     semantic   — durable facts / knowledge      ("Aryan's main project is DEEP")
-    procedural — HOW to do things (step lists)   ("To restart DEEP: kill :7768, run start_deep.bat")
+    procedural — HOW to do things (step lists)   ("To restart DEEP: kill :5174, run start_deep.bat")
     user_model — a rolling profile of Aryan      (goals, prefs, working hours, tone)
 
 This module is a thin cognitive facade *over* LongTermMemory — it does not
@@ -29,7 +29,7 @@ Usage:
 
     mem.record_episode("user", "How do I restart DEEP?")
     mem.learn_fact("Aryan's project is DEEP", importance=1.6)
-    mem.learn_procedure("restart DEEP", ["kill python on :7768", "run start_deep.bat"])
+    mem.learn_procedure("restart DEEP", ["kill python on :5174", "run start_deep.bat"])
     mem.update_user_model(goals=["ship proactive layer"], tone="concise")
 
     block = mem.recall_layered("how do I restart the server")  # -> prompt-ready text
@@ -355,10 +355,10 @@ if __name__ == "__main__":
     print("storing across layers...")
     mem.learn_fact("Aryan's main project is DEEP, a JARVIS-tier assistant.", 1.7)
     mem.learn_procedure("restart DEEP",
-                        ["kill the python process on port 7768",
+                        ["kill the python process on port 5174",
                          "run start_deep.bat from the DEEP folder"])
     for _ in range(4):
-        mem.record_episode("user", "How do I restart the DEEP server on port 7768?")
+        mem.record_episode("user", "How do I restart the DEEP server on port 5174?")
     mem.update_user_model(goals=["ship the proactive layer"],
                           preferences=["concise replies", "call me Aryan not sir"])
 

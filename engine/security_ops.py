@@ -26,7 +26,7 @@ except Exception:  # pragma: no cover
     CRYPTO = False
 
 COMMON_SERVICES = {22: "ssh", 80: "http", 443: "https", 3306: "mysql",
-                   5432: "postgres", 6379: "redis", 7768: "deep", 8000: "http-alt",
+                   5432: "postgres", 6379: "redis", 5174: "deep", 8000: "http-alt",
                    11434: "ollama", 27017: "mongodb"}
 
 

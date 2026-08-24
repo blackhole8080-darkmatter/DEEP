@@ -134,7 +134,7 @@ class SecurityEngine:
                           f"{'likely packed/encrypted' if packed else 'normal'}."}
 
     # ── connect scan (own host) ─────────────────────────────────────
-    def port_scan(self, target="127.0.0.1", ports=(22, 80, 443, 8000, 7768), timeout=0.3) -> dict:
+    def port_scan(self, target="127.0.0.1", ports=(22, 80, 443, 5174, 8000), timeout=0.3) -> dict:
         open_ports = []
         for p in ports:
             s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)

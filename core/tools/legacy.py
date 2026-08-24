@@ -262,7 +262,12 @@ async def execute_legacy_tool(ctx, tool_name: str, args: Dict[str, Any]) -> Tool
                 enqueue(tool_name, {k: v for k, v in args.items() if k != '_approved'}, label, detail='Protective action — needs your confirmation.')
                 return ToolResult(True, f"⏳ This action needs your confirmation: {label}. I've sent it to your Approvals panel — approve it there and I'll proceed.", tool_name)
             import httpx as _httpx
-            BASE = 'http://localhost:7768'
+            # These are the handlers behind trust_device / block_device /
+            # vpn_control — the actions the approvals queue gates. They posted
+            # to 7768, which nothing binds, so approving a block in the HUD
+            # reached a closed port and failed after the user had said yes.
+            from core.config import Settings as _Settings
+            BASE = _Settings().base_url('localhost')
             try:
                 async with _httpx.AsyncClient(timeout=25) as _c:
                     if tool_name == 'trust_device':

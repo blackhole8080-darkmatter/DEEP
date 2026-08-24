@@ -5,7 +5,7 @@
       "name": "DEEP",
       "runtimeExecutable": "C:/Users/Aryan/Aryan_Private/myAi/DEEP/.venv/Scripts/python.exe",
       "runtimeArgs": ["C:/Users/Aryan/Aryan_Private/myAi/DEEP/interface/server.py"],
-      "port": 7768,
+      "port": 5174,
       "autoPort": false
     }
   ]

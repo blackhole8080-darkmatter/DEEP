@@ -32,13 +32,13 @@ public class ConfigManager
 
     public string GetWsUrl()
     {
-        var url = Get("deep_ws_url", "ws://localhost:7768/ws/deep");
+        var url = Get("deep_ws_url", "ws://localhost:5174/ws/deep");
         return url;
     }
 
     public string GetHudUrl()
     {
-        return Get("deep_hud_url", "http://localhost:7768");
+        return Get("deep_hud_url", "http://localhost:5174");
     }
 
     public string? GetAppPath(string appName)

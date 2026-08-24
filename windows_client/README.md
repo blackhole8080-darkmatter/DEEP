@@ -66,8 +66,8 @@ Edit `config.json` before running:
 
 | Key | Default | Description |
 |---|---|---|
-| `deep_ws_url` | `ws://localhost:7768/ws/deep` | WebSocket to Python core |
-| `deep_hud_url` | `http://localhost:7768` | Three.js HUD |
+| `deep_ws_url` | `ws://localhost:5174/ws/deep` | WebSocket to Python core |
+| `deep_hud_url` | `http://localhost:5174` | Three.js HUD |
 | `stats_interval_ms` | 2000 | Hardware push frequency |
 | `reconnect_interval_ms` | 5000 | WS reconnect delay |
 | `app_paths` | `{...}` | Map of app names → exe paths |
@@ -79,8 +79,8 @@ When connecting to DEEP on the Pi over Tailscale:
 
 ```json
 {
-  "deep_ws_url": "ws://100.x.x.x:7768/ws/deep",
-  "deep_hud_url": "http://100.x.x.x:7768"
+  "deep_ws_url": "ws://100.x.x.x:5174/ws/deep",
+  "deep_hud_url": "http://100.x.x.x:5174"
 }
 ```
 

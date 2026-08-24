@@ -10,6 +10,8 @@ from __future__ import annotations
 
 import json
 import logging
+
+from core.config import Settings
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
@@ -101,8 +103,13 @@ class RemoteAccessManager:
             logger.warning("Tailscale connected but no IP available — skipping remote access config")
             return
 
-        deep_url = f"http://{tailscale_ip}:7768"
-        ws_url = f"ws://{tailscale_ip}:7768/ws/deep"
+        # Same port the server actually binds, taken from settings rather than
+        # written out here — this pair was still on 7768 long after the server
+        # moved to 5174, so remote access handed out a working Tailscale address
+        # pointing at a closed port.
+        settings = Settings()
+        deep_url = settings.base_url(tailscale_ip)
+        ws_url = settings.ws_url(host=tailscale_ip)
         timestamp = datetime.now(timezone.utc).isoformat()
 
         info = {

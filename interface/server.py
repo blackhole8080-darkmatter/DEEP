@@ -1219,7 +1219,7 @@ async def _compose_briefing() -> str:
     async with _hx.AsyncClient(timeout=8) as c:
         async def gj(p):
             try:
-                r = await c.get(f"http://localhost:5174{p}"); return r.json()
+                r = await c.get(f"{settings.base_url('localhost')}{p}"); return r.json()
             except Exception:
                 return {}
         brief = await gj("/api/briefing")
@@ -1726,5 +1726,8 @@ if __name__ == "__main__":
     import uvicorn
     print(f"[DEEP] AI Server starting...")
     print(f"   Model: {settings.ollama_model}")
-    print(f"   URL: http://127.0.0.1:5174/app")
-    uvicorn.run(app, host="127.0.0.1", port=5174, log_level="info")
+    # Host and port come from settings — the same values remote access, the
+    # security tools and the MCP proxy derive their URLs from, so moving the
+    # server moves all of them together.
+    print(f"   URL: {settings.base_url()}/app")
+    uvicorn.run(app, host=settings.deep_host, port=settings.deep_port, log_level="info")
