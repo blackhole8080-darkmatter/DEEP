@@ -111,8 +111,8 @@ def build_world_snapshot(
             "id": _text(source.get("id") or source.get("name"), "source"),
             "label": _text(source.get("label") or source.get("name"), "Unnamed source"),
             "category": _text(source.get("category")),
-            "available": bool(source.get("available", source.get("live", False))),
-            "reason": _text(source.get("reason") or source.get("error")),
+            "available": bool(source.get("configured", source.get("available", source.get("live", False)))),
+            "reason": _text(source.get("unavailable_reason") or source.get("reason") or source.get("error")),
         })
 
     degraded: dict[str, Any] = {}
