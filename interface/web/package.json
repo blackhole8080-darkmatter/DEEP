@@ -3,10 +3,11 @@
   "version": "0.1.0",
   "private": true,
   "type": "module",
-  "description": "DEEP modern frontend \u2014 Vite + Lit + TypeScript",
+  "description": "DEEP modern frontend — Vite + Lit + TypeScript",
   "scripts": {
     "dev": "vite",
     "build": "tsc --noEmit && vite build",
+    "build:check": "npm run build && node scripts/verify-build.mjs",
     "preview": "vite preview",
     "typecheck": "tsc --noEmit"
   },
