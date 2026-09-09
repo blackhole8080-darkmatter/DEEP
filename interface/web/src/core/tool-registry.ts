@@ -21,6 +21,9 @@ export interface ToolDef {
 
 export const TOOL_REGISTRY: ToolDef[] = [
   // ── Intelligence ──
+  { id: "cybertech-world", label: "Cybertech World", icon: "◎", group: "intelligence",
+    load: () => import("../components/cybertech/cybertech-world-view"),
+    render: () => html`<cybertech-world-view></cybertech-world-view>` },
   { id: "terminal", label: "Terminal",  icon: "❯", group: "intelligence",
     load: () => import("../components/console/ops-terminal"), render: () => html`<ops-terminal></ops-terminal>` },
   { id: "intel",    label: "Intel",     icon: "◈", group: "intelligence",

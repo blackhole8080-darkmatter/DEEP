@@ -1,5 +1,8 @@
 import { defineConfig } from "vite";
-import { resolve } from "path";
+import { resolve, dirname } from "node:path";
+import { fileURLToPath } from "node:url";
+
+const configDir = dirname(fileURLToPath(import.meta.url));
 
 // DEEP modern frontend build config.
 // - Dev: `npm run dev` serves with HMR, proxying API + WS to the running
@@ -12,7 +15,7 @@ import { resolve } from "path";
 export default defineConfig(({ command }) => ({
   base: command === "build" ? "/static/app-dist/" : "/",
   build: {
-    outDir: resolve(__dirname, "../static/app-dist"),
+    outDir: resolve(configDir, "../static/app-dist"),
     emptyOutDir: true,
     sourcemap: true,
   },

@@ -1,8 +1,8 @@
 """DEEP API routers.
 
 Cohesive, single-service endpoint groups extracted from the former
-`server.py` monolith. Each module exposes a `router` (FastAPI APIRouter) that
-server.py mounts via `app.include_router(...)`.
+`server.py` monolith. Each module exposes a `router` (FastAPI APIRouter)
+that server.py mounts via `app.include_router(...)`.
 """
 
 from interface.routers import (
@@ -22,6 +22,7 @@ from interface.routers import (
     state,
     threat,
     workspace,
+    world,
 )
 
 ROUTERS = [
@@ -42,6 +43,7 @@ ROUTERS = [
     security_timeline.router,
     intel.router,
     alerts.router,
+    world.router,
 ]
 
 from interface.ws import router as ws_router
@@ -49,4 +51,3 @@ from interface.ws import router as ws_router
 ROUTERS.append(ws_router.router)
 
 __all__ = ["ROUTERS"]
-
